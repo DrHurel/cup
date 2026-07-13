@@ -11,7 +11,13 @@ import (
 	"cup/internal/ui"
 )
 
-var thirdPartyMethods = []string{"git-submodule", "cmake-download", "apt-install"}
+const (
+	methodSubmodule = "git-submodule"
+	methodDownload  = "cmake-download"
+	methodApt       = "apt-install"
+)
+
+var thirdPartyMethods = []string{methodSubmodule, methodDownload, methodApt}
 
 const thirdPartyHeader = `# Third-party dependencies, registered via ` + "`cup register`" + `.
 # git submodules -> add_subdirectory, cmake downloads -> FetchContent,
@@ -41,16 +47,16 @@ func RunRegister(args []string) error {
 	if err != nil {
 		return err
 	}
-	method, err := ui.Select("how should the dependency be fetched?", thirdPartyMethods, "git-submodule")
+	method, err := ui.Select("how should the dependency be fetched?", thirdPartyMethods, methodSubmodule)
 	if err != nil {
 		return err
 	}
 	switch method {
-	case "git-submodule":
+	case methodSubmodule:
 		return registerSubmodule(proj)
-	case "cmake-download":
+	case methodDownload:
 		return registerDownload(proj)
-	case "apt-install":
+	case methodApt:
 		return registerApt(proj)
 	default:
 		return fmt.Errorf("unknown method: %q", method)
@@ -152,11 +158,11 @@ func discoverDependencies(proj *project.Project) []dependency {
 	for _, raw := range lines {
 		line := strings.TrimSpace(raw)
 		if m := submoduleRe.FindStringSubmatch(line); m != nil && strings.HasPrefix(line, "add_subdirectory") {
-			deps = append(deps, dependency{m[1], "git-submodule"})
+			deps = append(deps, dependency{m[1], methodSubmodule})
 		} else if m := downloadRe.FindStringSubmatch(line); m != nil && strings.HasPrefix(line, "FetchContent_MakeAvailable") {
-			deps = append(deps, dependency{m[1], "cmake-download"})
+			deps = append(deps, dependency{m[1], methodDownload})
 		} else if m := findPackageRe.FindStringSubmatch(line); m != nil && strings.HasPrefix(line, "find_package") {
-			deps = append(deps, dependency{m[1], "apt-install"})
+			deps = append(deps, dependency{m[1], methodApt})
 		}
 	}
 	return deps
@@ -188,11 +194,11 @@ func RunUnregister(args []string) error {
 		return nil
 	}
 	switch dep.method {
-	case "git-submodule":
+	case methodSubmodule:
 		return removeSubmodule(proj, dep.name)
-	case "cmake-download":
+	case methodDownload:
 		return removeDownload(proj, dep.name)
-	case "apt-install":
+	case methodApt:
 		return removeApt(proj, dep.name)
 	default:
 		return fmt.Errorf("unknown method: %q", dep.method)

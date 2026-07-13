@@ -6,10 +6,6 @@ on:
   pull_request:
   workflow_dispatch:
 
-# Allow the deploy-pages job to publish to GitHub Pages.
-permissions:
-  contents: read
-
 concurrency:
   group: pages-${{ github.ref }}
   cancel-in-progress: false
@@ -17,6 +13,9 @@ concurrency:
 jobs:
   test:
     runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
 
     steps:
       - uses: actions/checkout@v4
@@ -73,6 +72,9 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
 
+    permissions:
+      contents: read
+
     steps:
       - uses: actions/checkout@v4
         with:
@@ -85,7 +87,7 @@ jobs:
           name: coverage
 
       - name: SonarCloud scan
-        uses: SonarSource/sonarqube-scan-action@v6
+        uses: SonarSource/sonarqube-scan-action@fd88b7d7ccbaefd23d8f36f73b59db7a3d246602 # v6.0.0
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         with:

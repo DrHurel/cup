@@ -15,18 +15,9 @@ import (
 // The project carries no build tooling of its own — a globally installed cup
 // manages it.
 func RunNew(args []string) error {
-	var name string
-	var err error
-	if len(args) > 0 {
-		name = args[0]
-	} else {
-		name, err = ui.Text("project name?", "", scaffold.ValidateIdent)
-		if err != nil {
-			return err
-		}
-	}
-	if err := scaffold.ValidateIdent(name); err != nil {
-		return fmt.Errorf("project name %q: %w", name, err)
+	name, err := resolveProjectName(args)
+	if err != nil {
+		return err
 	}
 
 	std, err := chooseStandard()
@@ -90,6 +81,25 @@ func RunNew(args []string) error {
 	ui.Next("cup add app     # scaffold your first executable")
 	ui.Next("cup build       # configure + compile (Debug)")
 	return nil
+}
+
+// resolveProjectName takes the project name from args or prompts for it, then
+// validates it as a C++ identifier.
+func resolveProjectName(args []string) (string, error) {
+	name := ""
+	if len(args) > 0 {
+		name = args[0]
+	} else {
+		var err error
+		name, err = ui.Text("project name?", "", scaffold.ValidateIdent)
+		if err != nil {
+			return "", err
+		}
+	}
+	if err := scaffold.ValidateIdent(name); err != nil {
+		return "", fmt.Errorf("project name %q: %w", name, err)
+	}
+	return name, nil
 }
 
 // chooseStandard asks which C++ standard the project targets, defaulting to the

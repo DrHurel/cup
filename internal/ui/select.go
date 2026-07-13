@@ -18,21 +18,36 @@ func Select(question string, options []string, def string) (string, error) {
 	if !term.IsTerminal(fd) {
 		return selectNumbered(question, options)
 	}
-
-	cursor := 0
-	for i, o := range options {
-		if o == def {
-			cursor = i
-			break
-		}
-	}
-
 	oldState, err := term.MakeRaw(fd)
 	if err != nil {
 		return selectNumbered(question, options)
 	}
 	defer term.Restore(fd, oldState)
+	return selectInteractive(question, options, indexOf(options, def))
+}
 
+// indexOf returns the position of want in options, or 0 when it is absent.
+func indexOf(options []string, want string) int {
+	for i, o := range options {
+		if o == want {
+			return i
+		}
+	}
+	return 0
+}
+
+// isUpKey reports whether the read bytes are a "move up" press ('k' or ↑).
+func isUpKey(buf []byte, n int) bool {
+	return buf[0] == 'k' || (n == 3 && buf[0] == 27 && buf[2] == 'A')
+}
+
+// isDownKey reports whether the read bytes are a "move down" press ('j' or ↓).
+func isDownKey(buf []byte, n int) bool {
+	return buf[0] == 'j' || (n == 3 && buf[0] == 27 && buf[2] == 'B')
+}
+
+// selectInteractive drives the raw-mode arrow-key menu, starting at cursor.
+func selectInteractive(question string, options []string, cursor int) (string, error) {
 	fmt.Printf("%s %s %s\r\n", color(cyan+";1", "?"), question, color(grey, "(↑/↓, enter)"))
 	render := func() {
 		for i, o := range options {
@@ -60,9 +75,9 @@ func Select(question string, options []string, def string) (string, error) {
 			moveUp(len(options))
 			redrawFinal(options, cursor)
 			return options[cursor], nil
-		case buf[0] == 'k' || (n == 3 && buf[0] == 27 && buf[2] == 'A'): // up
+		case isUpKey(buf, n):
 			cursor = (cursor - 1 + len(options)) % len(options)
-		case buf[0] == 'j' || (n == 3 && buf[0] == 27 && buf[2] == 'B'): // down
+		case isDownKey(buf, n):
 			cursor = (cursor + 1) % len(options)
 		default:
 			continue

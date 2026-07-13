@@ -260,30 +260,45 @@ func extendLib(proj *project.Project, libDir string) error {
 	return createLibAt(proj, sub, subDir, filepath.Join(libDir, cmakelists))
 }
 
+// chooseTestModule prompts for which library the test exercises, returning "" when
+// no libraries exist or the user picks "none".
+func chooseTestModule(proj *project.Project) (string, error) {
+	libs := scaffold.ListSubdirs(filepath.Join(proj.Src(), "libs"))
+	if len(libs) == 0 {
+		return "", nil
+	}
+	picked, err := ui.Select("module under test?", append([]string{noneSentinel}, libs...), noneSentinel)
+	if err != nil {
+		return "", err
+	}
+	if picked == noneSentinel {
+		return "", nil
+	}
+	return picked, nil
+}
+
+// testModuleImport returns the top-of-file line that pulls in the module under
+// test — a C++ module import or a classic header include — or "" when there is none.
+func testModuleImport(proj *project.Project, module string) string {
+	if module == "" {
+		return ""
+	}
+	if proj.UsesModules() {
+		return fmt.Sprintf("import %s;\n", module)
+	}
+	return fmt.Sprintf("#include \"%s.hpp\"\n", module)
+}
+
 func addTest(proj *project.Project) error {
 	name, err := ui.Text("test name?", "", scaffold.ValidateIdent)
 	if err != nil {
 		return err
 	}
-	libs := scaffold.ListSubdirs(filepath.Join(proj.Src(), "libs"))
-	module := ""
-	if len(libs) > 0 {
-		picked, err := ui.Select("module under test?", append([]string{noneSentinel}, libs...), noneSentinel)
-		if err != nil {
-			return err
-		}
-		if picked != noneSentinel {
-			module = picked
-		}
+	module, err := chooseTestModule(proj)
+	if err != nil {
+		return err
 	}
-	moduleImport := ""
-	if module != "" {
-		if proj.UsesModules() {
-			moduleImport = fmt.Sprintf("import %s;\n", module)
-		} else {
-			moduleImport = fmt.Sprintf("#include \"%s.hpp\"\n", module)
-		}
-	}
+	moduleImport := testModuleImport(proj, module)
 	testsDir := filepath.Join(proj.Src(), "tests")
 	namespace := scaffold.PathToNamespace(proj.Src(), testsDir)
 	if namespace == "" {
