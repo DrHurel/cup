@@ -83,7 +83,7 @@ jobs:
           go-version: 1.26
 
       - name: Install go-arch-lint
-        run: go install github.com/fe3dback/go-arch-lint@latest
+        run: go install github.com/fe3dback/go-arch-lint@v1.16.0
 
       - name: Check architecture
         run: go-arch-lint check --project-path .
