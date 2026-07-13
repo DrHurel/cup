@@ -1,0 +1,11 @@
+add_library({{name}} STATIC)
+target_sources({{name}}
+    PUBLIC
+        FILE_SET HEADERS
+            BASE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}
+            FILES
+                {{name}}.hpp
+)
+target_sources({{name}} PRIVATE {{symbol}}.cpp)
+target_include_directories({{name}} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_compile_features({{name}} PUBLIC cxx_std_{{std_number}})

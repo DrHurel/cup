@@ -1,0 +1,7 @@
+add_library({{name}})
+target_sources({{name}}
+    PUBLIC
+        FILE_SET CXX_MODULES FILES
+            {{name}}.cppm
+)
+target_compile_features({{name}} PUBLIC cxx_std_{{std_number}})

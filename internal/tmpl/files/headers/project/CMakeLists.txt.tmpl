@@ -1,0 +1,56 @@
+cmake_minimum_required(VERSION 3.16)
+
+project({{name}} VERSION 0.1.0 LANGUAGES C CXX)
+
+set(CMAKE_CXX_STANDARD {{standard}})
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# Emit compile_commands.json so external tooling (clangd, clang-tidy, sonar) can
+# see exactly how each translation unit is compiled.
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+# Collect build results under the build tree so each mode's artifacts are tidy:
+# with a per-mode build dir (build/<mode>) this puts binaries in build/<mode>/bin
+# and libraries in build/<mode>/lib.
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
+
+# --- Build configurations: Debug, Release, and Coverage are always available. ---
+set(CUP_BUILD_TYPES Debug Release Coverage)
+
+get_property(_is_multi_config GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
+if(_is_multi_config)
+  set(CMAKE_CONFIGURATION_TYPES "${CUP_BUILD_TYPES}" CACHE STRING
+      "Available build configurations" FORCE)
+else()
+  if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Debug CACHE STRING "Build type" FORCE)
+  endif()
+  set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS ${CUP_BUILD_TYPES})
+endif()
+
+# Coverage build: instrument with gcov so a report can be generated.
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+  foreach(lang C CXX)
+    set(CMAKE_${lang}_FLAGS_COVERAGE "-O0 -g --coverage" CACHE STRING
+        "Flags used by the ${lang} compiler for the Coverage build" FORCE)
+  endforeach()
+  foreach(kind EXE SHARED MODULE)
+    set(CMAKE_${kind}_LINKER_FLAGS_COVERAGE "--coverage" CACHE STRING
+        "Linker flags for the Coverage build" FORCE)
+  endforeach()
+  mark_as_advanced(
+    CMAKE_C_FLAGS_COVERAGE
+    CMAKE_CXX_FLAGS_COVERAGE
+    CMAKE_EXE_LINKER_FLAGS_COVERAGE
+    CMAKE_SHARED_LINKER_FLAGS_COVERAGE
+    CMAKE_MODULE_LINKER_FLAGS_COVERAGE
+  )
+endif()
+
+include(CTest)
+enable_testing()
+
+add_subdirectory(src/libs)
+add_subdirectory(src/apps)
