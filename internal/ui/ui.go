@@ -7,6 +7,7 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -53,6 +54,15 @@ func Err(msg string)     { fmt.Fprintln(os.Stderr, color(red, msg)) }
 // --- text input ------------------------------------------------------------
 
 var stdin = bufio.NewReader(os.Stdin)
+
+// SetInput redirects the reader the prompts read from and returns a function that
+// restores the previous reader. It lets callers drive the prompts from a scripted
+// source (a pipe, a test) instead of the terminal.
+func SetInput(r io.Reader) func() {
+	prev := stdin
+	stdin = bufio.NewReader(r)
+	return func() { stdin = prev }
+}
 
 // Text prompts for a line of input. An empty entry falls back to def. validate,
 // if non-nil, must return nil to accept the value; otherwise its error is shown
