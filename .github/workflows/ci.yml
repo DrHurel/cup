@@ -68,6 +68,26 @@ jobs:
           mkdir -p build
           go build -o build/cup .
 
+  architecture:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.26
+
+      - name: Install go-arch-lint
+        run: go install github.com/fe3dback/go-arch-lint@latest
+
+      - name: Check architecture
+        run: go-arch-lint check --project-path .
+
   sonarcloud:
     needs: test
     runs-on: ubuntu-latest

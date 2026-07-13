@@ -1,0 +1,53 @@
+version: 3
+workdir: .
+
+# Enforce internal component boundaries only; third-party imports are free.
+allow:
+  depOnAnyVendor: true
+
+# Architecture model for cup.
+#
+# This is the Go-native equivalent of a "Sonar intended architecture":
+# it declares the components (layers) of the codebase and the dependencies
+# each one is allowed to have. `go-arch-lint check` fails if the real import
+# graph deviates from what is declared here, preventing architectural erosion.
+#
+# Actual layering:
+#   main      -> cmd, ui
+#   cmd       -> scaffold, project, tmpl, ui
+#   scaffold  -> tmpl, ui
+#   project   -> (leaf)
+#   tmpl      -> (leaf)
+#   ui        -> (leaf)
+
+components:
+  main:     { in: . }
+  cmd:      { in: internal/cmd }
+  scaffold: { in: internal/scaffold }
+  project:  { in: internal/project }
+  tmpl:     { in: internal/tmpl }
+  ui:       { in: internal/ui }
+
+deps:
+  # Entry point: wires the command layer and the UI.
+  main:
+    mayDependOn:
+      - cmd
+      - ui
+
+  # Command layer: orchestrates the domain packages.
+  cmd:
+    mayDependOn:
+      - scaffold
+      - project
+      - tmpl
+      - ui
+
+  # Scaffolding logic: renders templates and reports through the UI.
+  scaffold:
+    mayDependOn:
+      - tmpl
+      - ui
+
+  # Leaf packages (project, tmpl, ui) are intentionally omitted: a component
+  # not listed here is allowed no internal dependencies at all.
