@@ -28,7 +28,13 @@ jobs:
             ${{ runner.os }}-go-
 
       - name: Verify formatting
-        run: gofmt -l ./...
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "The following files are not formatted:"
+            echo "$unformatted"
+            exit 1
+          fi
 
       - name: Run tests
         run: go test ./...
