@@ -32,3 +32,8 @@ go.work.sum
 # .vscode/
 
 build/
+
+# Coverage / CI artifacts
+coverage.out
+coverage.html
+site/
