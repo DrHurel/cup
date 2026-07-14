@@ -85,11 +85,8 @@ func setCompiler(proj *project.Project, args []string) error {
 		return err
 	}
 
-	if image == "" {
-		image = cfg.Compiler.VerifyImage
-	}
-	if !noVerify && image == "" {
-		return fmt.Errorf("no docker image to verify against: set verify_image in cup.toml, pass --image REF, or use --no-verify to skip the check")
+	if !noVerify && !hasVerifyTarget(proj, image) {
+		return fmt.Errorf("no docker image to verify against: create a build image with `cup docker new`, set verify_image in cup.toml, pass --image REF, or use --no-verify to skip the check")
 	}
 
 	if err := commitCompilerFloor(proj, cfg, image, noVerify); err != nil {
@@ -159,10 +156,9 @@ func commitCompilerFloor(proj *project.Project, cfg project.Config, image string
 		return nil
 	}
 
-	ui.Running("verifying the project still compiles with " + image)
-	if err := dockerVerify(proj.Root, image); err != nil {
+	if err := dockerVerify(proj, image); err != nil {
 		restore()
-		ui.Err("compiler change cancelled: the project did not compile with " + image)
+		ui.Err("compiler change cancelled: the project did not compile on the verify image")
 		return err
 	}
 	return nil
@@ -178,17 +174,10 @@ func verifyCompiler(proj *project.Project, args []string) error {
 	if len(rest) != 0 {
 		return fmt.Errorf("usage: cup compiler verify [--image REF]")
 	}
-	if image == "" {
-		image = proj.Config.Compiler.VerifyImage
-	}
-	if image == "" {
-		return fmt.Errorf("no docker image to verify against: set verify_image in cup.toml or pass --image REF")
-	}
-	ui.Running("compiling the project in " + image)
-	if err := dockerVerify(proj.Root, image); err != nil {
+	if err := dockerVerify(proj, image); err != nil {
 		return err
 	}
-	ui.Success("ok — the project compiles in " + image + ".")
+	ui.Success("ok — the project compiles on the verify image.")
 	return nil
 }
 
@@ -203,15 +192,61 @@ func applyCompilerFloor(root string, cfg project.Config) error {
 		cfg.Compiler.GCCFloor(), cfg.Compiler.ClangFloor())
 }
 
-// dockerVerify compiles the project inside a docker image to prove it still
-// builds on a given toolchain. The source tree is mounted read-only and the
-// build runs in a container-local directory, so the check can neither mutate nor
-// litter the project. A non-zero build exits as an error.
-func dockerVerify(root, image string) error {
+// dockerVerify compiles the project inside the verify image to prove it still
+// builds. The image is resolved from override/the default build image/legacy
+// verify_image; the source tree is mounted read-only and the build runs in a
+// container-local directory, so the check can neither mutate nor litter the
+// project. A non-zero build exits as an error.
+func dockerVerify(proj *project.Project, override string) error {
+	image, err := resolveVerifyImage(proj, override)
+	if err != nil {
+		return err
+	}
+	ui.Running("compiling the project in " + image)
 	const script = "cmake -S /work -B /tmp/cup-verify -G Ninja && cmake --build /tmp/cup-verify"
-	return runCommand(root, "docker", "run", "--rm",
-		"-v", root+":/work:ro",
+	return runCommand(proj.Root, "docker", "run", "--rm",
+		"-v", proj.Root+":/work:ro",
 		image, "sh", "-c", script)
+}
+
+// resolveVerifyImage picks the image `cup compiler verify` compiles in and
+// ensures it is ready: an explicit --image override wins; otherwise the project's
+// default build image is regenerated (so it carries the current apt dependencies)
+// and rebuilt at its :latest tag; failing that, a legacy [compiler] verify_image
+// is used as-is. Building here does not touch the image's version — that is
+// `cup docker build`'s job.
+func resolveVerifyImage(proj *project.Project, override string) (string, error) {
+	if override != "" {
+		return override, nil
+	}
+	if def, ok := proj.Config.Docker.DefaultImage(); ok {
+		if err := syncDefaultBuildImage(proj); err != nil {
+			return "", err
+		}
+		tag := def.Name + ":latest"
+		ui.Running("building " + tag + " from " + def.Base)
+		if err := runCommand(proj.Root, "docker", "build",
+			"-t", tag, dockerImageDir(proj, def.Name)); err != nil {
+			return "", err
+		}
+		return tag, nil
+	}
+	if img := proj.Config.Compiler.VerifyImage; img != "" {
+		return img, nil
+	}
+	return "", fmt.Errorf("no docker image to verify against: create a build image with `cup docker new`, set verify_image in cup.toml, or pass --image REF")
+}
+
+// hasVerifyTarget reports whether a verify would have an image to run in, used to
+// fail `cup compiler set` fast (before touching any files) when it cannot verify.
+func hasVerifyTarget(proj *project.Project, override string) bool {
+	if override != "" {
+		return true
+	}
+	if _, ok := proj.Config.Docker.DefaultImage(); ok {
+		return true
+	}
+	return proj.Config.Compiler.VerifyImage != ""
 }
 
 // parseCompilerFlags peels the --image REF and --no-verify options out of args,

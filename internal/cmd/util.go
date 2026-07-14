@@ -23,8 +23,9 @@ func isFile(path string) bool {
 
 // runCommand runs an external command from dir with inherited stdio, so
 // interactive sub-prompts (a sudo password, a git credential helper) still reach
-// the terminal. A non-zero exit is returned as an error.
-func runCommand(dir string, name string, args ...string) error {
+// the terminal. A non-zero exit is returned as an error. It is a var so tests can
+// stub out the git/docker/apt calls the register and image flows make.
+var runCommand = func(dir string, name string, args ...string) error {
 	ui.Running(name + " " + join(args))
 	cmd := exec.Command(name, args...)
 	cmd.Dir = dir

@@ -19,6 +19,51 @@ type Config struct {
 	CupVersion  string         `toml:"cup_version,omitempty"`
 	CppStandard int            `toml:"cpp_standard,omitempty"`
 	Compiler    CompilerConfig `toml:"compiler,omitempty"`
+	Docker      DockerConfig   `toml:"docker,omitempty"`
+}
+
+// DockerConfig is the `[docker]` table in cup.toml: the build images cup manages
+// for the project (each `docker/<name>/Dockerfile`) and the registry `cup docker
+// push` publishes them to. One image is the auto-updating default build image,
+// created by `cup new` and kept in sync with the project's apt dependencies.
+type DockerConfig struct {
+	Registry string        `toml:"registry,omitempty"`
+	Images   []DockerImage `toml:"image,omitempty"`
+}
+
+// DockerImage is one `[[docker.image]]` entry: a build image's name (also its
+// docker/<name>/ directory and docker image name), the base image its Dockerfile
+// builds `FROM`, the last-built version used as its tag, and a hash of the
+// last-built Dockerfile so `cup docker build` can bump the version only when the
+// content actually changed.
+type DockerImage struct {
+	Name    string `toml:"name"`
+	Base    string `toml:"base"`
+	Version int    `toml:"version,omitempty"`
+	Hash    string `toml:"hash,omitempty"`
+	Default bool   `toml:"default,omitempty"`
+}
+
+// DefaultImage returns the project's auto-updating default build image, or false
+// when none is configured (projects created before the [docker] table existed).
+func (d DockerConfig) DefaultImage() (*DockerImage, bool) {
+	for i := range d.Images {
+		if d.Images[i].Default {
+			return &d.Images[i], true
+		}
+	}
+	return nil, false
+}
+
+// Find returns the image with the given name, or false if the project defines no
+// such build image.
+func (d DockerConfig) Find(name string) (*DockerImage, bool) {
+	for i := range d.Images {
+		if d.Images[i].Name == name {
+			return &d.Images[i], true
+		}
+	}
+	return nil, false
 }
 
 // CompilerConfig is the `[compiler]` table in cup.toml: the minimum compiler

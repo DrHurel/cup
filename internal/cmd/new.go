@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"cup/internal/project"
 	"cup/internal/scaffold"
@@ -31,6 +32,11 @@ func RunNew(args []string) error {
 		return err
 	}
 
+	base, err := chooseBaseImage()
+	if err != nil {
+		return err
+	}
+
 	root, err := filepath.Abs(name)
 	if err != nil {
 		return err
@@ -39,24 +45,51 @@ func RunNew(args []string) error {
 		return fmt.Errorf("%s already exists", name)
 	}
 
+	// The default build image shares the project's (lowercased) name; cup keeps its
+	// docker/<name>/Dockerfile in sync with the project's apt dependencies.
+	proj := &project.Project{Root: root, Config: project.Config{
+		Name:        name,
+		CupVersion:  version,
+		CppStandard: std,
+		Compiler:    project.NewCompilerConfig(gcc, clang),
+		Docker: project.DockerConfig{Images: []project.DockerImage{
+			{Name: strings.ToLower(name), Base: base, Default: true},
+		}},
+	}}
+
 	// The marker must exist before the scaffold helpers, which resolve paths and
 	// template overrides relative to the project root, can log against it.
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		return err
 	}
-	if err := project.WriteConfig(root, project.Config{
-		Name:        name,
-		CupVersion:  version,
-		CppStandard: std,
-		Compiler:    project.NewCompilerConfig(gcc, clang),
-	}); err != nil {
+	if err := project.WriteConfig(root, proj.Config); err != nil {
 		return err
 	}
 	ui.Wrote(project.Marker)
 
-	family := scaffold.Family(std)
+	if err := scaffoldProjectTree(proj, std, gcc, clang); err != nil {
+		return err
+	}
+
+	if err := runCommand(root, "git", "init", "-q"); err != nil {
+		ui.Skipped("git init failed; initialise the repository yourself")
+	}
+
+	ui.Success("done.")
+	ui.Next(fmt.Sprintf("cd %s", name))
+	ui.Next("cup add app     # scaffold your first executable")
+	ui.Next("cup build       # configure + compile (Debug)")
+	ui.Next("cup docker build   # build the toolchain image")
+	return nil
+}
+
+// scaffoldProjectTree writes the files a fresh project needs beyond its cup.toml
+// marker: the root CMakeLists, .gitignore, the empty src/{apps,libs} CMakeLists,
+// and the default build image's Dockerfile.
+func scaffoldProjectTree(proj *project.Project, std, gcc, clang int) error {
+	root, family := proj.Root, scaffold.Family(std)
 	rootCmake, err := scaffold.Render(root, family, "project", "CMakeLists.txt.tmpl", map[string]string{
-		"name":             name,
+		"name":             proj.Config.Name,
 		"standard":         fmt.Sprintf("%d", std),
 		"module_std_setup": moduleStdSetup(std),
 		"compiler_guard":   scaffold.CompilerGuard(gcc, clang),
@@ -84,15 +117,9 @@ func RunNew(args []string) error {
 		}
 	}
 
-	if err := runCommand(root, "git", "init", "-q"); err != nil {
-		ui.Skipped("git init failed; initialise the repository yourself")
-	}
-
-	ui.Success("done.")
-	ui.Next(fmt.Sprintf("cd %s", name))
-	ui.Next("cup add app     # scaffold your first executable")
-	ui.Next("cup build       # configure + compile (Debug)")
-	return nil
+	// Generate the default build image's docker/<name>/Dockerfile (just `FROM base`
+	// until dependencies are registered).
+	return syncDefaultBuildImage(proj)
 }
 
 // resolveProjectName takes the project name from args or prompts for it, then

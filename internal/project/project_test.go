@@ -3,6 +3,7 @@ package project
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -79,11 +80,48 @@ func TestWriteConfigRoundTrip(t *testing.T) {
 	}
 
 	p := findFrom(t, root)
-	if p.Config != cfg {
+	if !reflect.DeepEqual(p.Config, cfg) {
 		t.Errorf("round-tripped config = %+v, want %+v", p.Config, cfg)
 	}
 	if p.Root != root {
 		t.Errorf("Find root = %q, want %q", p.Root, root)
+	}
+}
+
+func TestDockerConfigRoundTrip(t *testing.T) {
+	root := canonicalTempDir(t)
+	cfg := Config{
+		Name: "demo",
+		Docker: DockerConfig{
+			Registry: "docker.io/youruser",
+			Images: []DockerImage{
+				{Name: "demo", Base: "gcc:14", Version: 3, Hash: "abc", Default: true},
+				{Name: "runtime", Base: "debian:trixie-slim"},
+			},
+		},
+	}
+	if err := WriteConfig(root, cfg); err != nil {
+		t.Fatalf("WriteConfig: %v", err)
+	}
+	p := findFrom(t, root)
+	if !reflect.DeepEqual(p.Config.Docker, cfg.Docker) {
+		t.Fatalf("round-tripped [docker] = %+v, want %+v", p.Config.Docker, cfg.Docker)
+	}
+
+	def, ok := p.Config.Docker.DefaultImage()
+	if !ok || def.Name != "demo" {
+		t.Errorf("DefaultImage() = %+v, %v; want the demo image", def, ok)
+	}
+	if _, ok := p.Config.Docker.Find("runtime"); !ok {
+		t.Error("Find(runtime) = not found, want the runtime image")
+	}
+	if _, ok := p.Config.Docker.Find("ghost"); ok {
+		t.Error("Find(ghost) = found, want not found")
+	}
+
+	// A config with no default image reports none.
+	if _, ok := (DockerConfig{}).DefaultImage(); ok {
+		t.Error("empty DockerConfig.DefaultImage() = found, want none")
 	}
 }
 

@@ -92,13 +92,14 @@ func TestRunNewEndToEnd(t *testing.T) {
 	restore := scaffold.NewestCompilersFunc
 	scaffold.NewestCompilersFunc = func() (int, int) { return 15, 20 }
 	t.Cleanup(func() { scaffold.NewestCompilersFunc = restore })
+	withStubTags(t, []string{"14", "13"}, nil)
 
 	dir := t.TempDir()
 	t.Chdir(dir)
 	// standard Select: option 1 (C++23). "which compilers" Select: option 1 (both).
 	// GCC has a single valid floor (15) so it is auto-chosen; Clang Select: option
-	// 1 (its baseline). name given as arg.
-	feed(t, "1\n1\n1\n")
+	// 1 (its baseline). Base image: repo "gcc", tag Select option 1 (14). name arg.
+	feed(t, "1\n1\n1\ngcc\n1\n")
 	if err := RunNew([]string{"proj"}); err != nil {
 		t.Fatalf("RunNew: %v", err)
 	}
@@ -108,10 +109,13 @@ func TestRunNewEndToEnd(t *testing.T) {
 	assertFile(t, filepath.Join(root, ".gitignore"), "")
 	assertFile(t, filepath.Join(root, "src", "apps", "CMakeLists.txt"), "")
 	assertFile(t, filepath.Join(root, "src", "libs", "CMakeLists.txt"), "")
+	// The default build image is recorded and its Dockerfile generated.
+	assertFile(t, filepath.Join(root, "cup.toml"), `base = "gcc:14"`)
+	assertFile(t, filepath.Join(root, "docker", "proj", "Dockerfile"), "FROM gcc:14")
 
 	// A second RunNew for the same name refuses to clobber the directory. The
-	// standard + compiler prompts run before the existing-directory check.
-	feed(t, "1\n1\n1\n")
+	// standard + compiler + base-image prompts run before the existing-dir check.
+	feed(t, "1\n1\n1\ngcc\n1\n")
 	if err := RunNew([]string{"proj"}); err == nil {
 		t.Error("RunNew(existing) = nil error, want 'already exists'")
 	}
