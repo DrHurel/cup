@@ -15,6 +15,33 @@ func TestConfigStandard(t *testing.T) {
 	}
 }
 
+func TestCompilerHasFloor(t *testing.T) {
+	if (CompilerConfig{}).HasFloor() {
+		t.Error("empty CompilerConfig reports a floor, want none")
+	}
+	if !NewCompilerConfig(15, 0).HasFloor() {
+		t.Error("gcc-only CompilerConfig reports no floor, want one")
+	}
+	if !NewCompilerConfig(0, 17).HasFloor() {
+		t.Error("clang-only CompilerConfig reports no floor, want one")
+	}
+	// verify_image alone is not a version floor.
+	if (CompilerConfig{VerifyImage: "cxx:15"}).HasFloor() {
+		t.Error("verify_image alone reports a floor, want none")
+	}
+}
+
+func TestNewCompilerConfig(t *testing.T) {
+	// 0 leaves a compiler unpinned (nil); a positive version pins it.
+	cc := NewCompilerConfig(15, 0)
+	if cc.GCCFloor() != 15 {
+		t.Errorf("GCCFloor() = %d, want 15", cc.GCCFloor())
+	}
+	if cc.Clang != nil || cc.ClangFloor() != 0 {
+		t.Errorf("clang should be unpinned, got %v (floor %d)", cc.Clang, cc.ClangFloor())
+	}
+}
+
 func TestUsesModules(t *testing.T) {
 	cases := map[int]bool{
 		0:  true, // default 23

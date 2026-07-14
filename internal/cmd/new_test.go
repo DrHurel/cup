@@ -4,6 +4,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"cup/internal/scaffold"
 )
 
 func TestResolveProjectName(t *testing.T) {
@@ -32,6 +34,44 @@ func TestChooseStandard(t *testing.T) {
 	}
 }
 
+func TestChooseCompilerFloorSingle(t *testing.T) {
+	// A lone choice is taken without reading any input (no feed set up here).
+	got, err := chooseCompilerFloor("gcc", []int{15})
+	if err != nil || got != 15 {
+		t.Fatalf("chooseCompilerFloor(single) = %d, %v, want 15", got, err)
+	}
+}
+
+func TestChooseCompilerFloorPrompt(t *testing.T) {
+	feed(t, "2\n") // second option
+	got, err := chooseCompilerFloor("clang", []int{17, 18, 19, 20})
+	if err != nil || got != 18 {
+		t.Fatalf("chooseCompilerFloor(prompt) = %d, %v, want 18", got, err)
+	}
+}
+
+func TestChooseCompilerFloorsSubset(t *testing.T) {
+	restore := scaffold.NewestCompilersFunc
+	scaffold.NewestCompilersFunc = func() (int, int) { return 15, 20 }
+	t.Cleanup(func() { scaffold.NewestCompilersFunc = restore })
+
+	// "gcc only" (option 2): prompt gcc, leave clang unpinned. For C++20 gcc
+	// offers 11..15; option 1 = 11.
+	feed(t, "2\n1\n")
+	gcc, clang, err := chooseCompilerFloors(20)
+	if err != nil || gcc != 11 || clang != 0 {
+		t.Fatalf("gcc only = (%d, %d), %v; want (11, 0)", gcc, clang, err)
+	}
+
+	// "clang only" (option 3): prompt clang, leave gcc unpinned. Clang offers
+	// 16..20; option 2 = 17.
+	feed(t, "3\n2\n")
+	gcc, clang, err = chooseCompilerFloors(20)
+	if err != nil || gcc != 0 || clang != 17 {
+		t.Fatalf("clang only = (%d, %d), %v; want (0, 17)", gcc, clang, err)
+	}
+}
+
 func TestModuleStdSetup(t *testing.T) {
 	if !strings.Contains(moduleStdSetup(23), "CMAKE_CXX_MODULE_STD") {
 		t.Error("c++23 setup missing std-module opt-in")
@@ -47,10 +87,18 @@ func TestModuleStdSetup(t *testing.T) {
 // RunNew bootstraps a whole project (it shells out to `git init`, which is
 // available in CI). Drive it end-to-end in a temp working directory.
 func TestRunNewEndToEnd(t *testing.T) {
+	// Pin the release ceiling so the picker is deterministic and never hits the
+	// network (C++23 -> GCC sole option 15, Clang 17..20).
+	restore := scaffold.NewestCompilersFunc
+	scaffold.NewestCompilersFunc = func() (int, int) { return 15, 20 }
+	t.Cleanup(func() { scaffold.NewestCompilersFunc = restore })
+
 	dir := t.TempDir()
 	t.Chdir(dir)
-	// standard Select: option 1 (newest). name given as arg.
-	feed(t, "1\n")
+	// standard Select: option 1 (C++23). "which compilers" Select: option 1 (both).
+	// GCC has a single valid floor (15) so it is auto-chosen; Clang Select: option
+	// 1 (its baseline). name given as arg.
+	feed(t, "1\n1\n1\n")
 	if err := RunNew([]string{"proj"}); err != nil {
 		t.Fatalf("RunNew: %v", err)
 	}
@@ -61,8 +109,9 @@ func TestRunNewEndToEnd(t *testing.T) {
 	assertFile(t, filepath.Join(root, "src", "apps", "CMakeLists.txt"), "")
 	assertFile(t, filepath.Join(root, "src", "libs", "CMakeLists.txt"), "")
 
-	// A second RunNew for the same name refuses to clobber the directory.
-	feed(t, "1\n")
+	// A second RunNew for the same name refuses to clobber the directory. The
+	// standard + compiler prompts run before the existing-directory check.
+	feed(t, "1\n1\n1\n")
 	if err := RunNew([]string{"proj"}); err == nil {
 		t.Error("RunNew(existing) = nil error, want 'already exists'")
 	}

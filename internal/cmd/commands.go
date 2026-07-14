@@ -24,6 +24,7 @@ func init() {
 		{"test", "build then run the test suite [MODE]", RunTest},
 		{"retest", "wipe build/ then run the test suite [MODE]", RunRetest},
 		{"clean", "remove the build/ directory", RunClean},
+		{"compiler", "show or change minimum compiler versions <set|verify>", RunCompiler},
 		{"register", "register a third-party dependency", RunRegister},
 		{"unregister", "remove a third-party dependency [name]", RunUnregister},
 		{"template", "list or add project-local templates <list|new>", RunTemplate},
