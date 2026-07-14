@@ -171,6 +171,8 @@ _cup() {
     case "$cmd" in
         add) COMPREPLY=( $(compgen -W "%s" -- "$cur") );;
         %s) COMPREPLY=( $(compgen -W "%s" -- "$cur") );;
+        compiler) COMPREPLY=( $(compgen -W "show set verify" -- "$cur") );;
+        docker) COMPREPLY=( $(compgen -W "new build push" -- "$cur") );;
         template) COMPREPLY=( $(compgen -W "list new" -- "$cur") );;
         completion) COMPREPLY=( $(compgen -W "bash zsh fish install" -- "$cur") );;
     esac
@@ -197,6 +199,8 @@ _cup() {
     case ${words[2]} in
         add) compadd -- %s;;
         %s) compadd -- %s;;
+        compiler) compadd -- show set verify;;
+        docker) compadd -- new build push;;
         template) compadd -- list new;;
         completion) compadd -- bash zsh fish install;;
     esac
@@ -223,6 +227,8 @@ func fishCompletion() string {
 		strings.Join(categories, " "))
 	fmt.Fprintf(&b, "complete -c cup -n '__fish_seen_subcommand_from %s' -a '%s'\n",
 		strings.Join(modeCommands, " "), strings.Join(buildModes, " "))
+	b.WriteString("complete -c cup -n '__fish_seen_subcommand_from compiler' -a 'show set verify'\n")
+	b.WriteString("complete -c cup -n '__fish_seen_subcommand_from docker' -a 'new build push'\n")
 	b.WriteString("complete -c cup -n '__fish_seen_subcommand_from template' -a 'list new'\n")
 	b.WriteString("complete -c cup -n '__fish_seen_subcommand_from completion' -a 'bash zsh fish install'\n")
 	return b.String()

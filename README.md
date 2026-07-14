@@ -42,13 +42,32 @@ cup completion install         # detects your shell and wires it in
 - `./devtools/clean.sh` — remove `build/`
 - `./devtools/docker-build.sh` — build the Docker image
 
-## Docker
+## Docker build images
 
-Build the Docker image from the repo root:
+cup manages a project's build images under `docker/<image-name>/Dockerfile`, one
+directory per image, tracked in the `[docker]` table of `cup.toml`. `cup new`
+creates a **default build image** and asks for its base image, offering the tags
+of whatever Docker Hub repository you name (e.g. `gcc`, `debian`, `silkeh/clang`).
+
+The default image **updates itself**: when you register or remove an apt
+third-party dependency, cup regenerates its Dockerfile to install the matching
+system packages on top of the base. `cup compiler verify` builds and compiles the
+project in this image, so the verify toolchain always matches the third parties
+the project declares.
+
+Images are **versioned by content**. `cup docker build` hashes the Dockerfile and
+increments the image's version only when it changed since the last build, tagging
+`<name>:<version>` (and `<name>:latest`). `cup docker push` publishes to the
+registry stored in `[docker].registry` (prompted and saved on first push):
 
 ```sh
-docker build -t cup:latest -f docker/Dockerfile .
+cup docker new              # add another image (e.g. a runtime/CI image)
+cup docker build            # build all images; bumps versions on change
+cup docker push             # tag <registry>/<name>:<version> and push
 ```
+
+The generated default Dockerfile is a normal project artifact — commit it (and
+`cup.toml`) so builds are reproducible for everyone.
 
 ## Commands
 
@@ -64,7 +83,10 @@ cup retest [MODE]                  wipe build/ then run the test suite
 cup clean                          remove the build/ directory
 cup compiler                       show the project's minimum compiler versions
 cup compiler set <gcc|clang> <v>   change a floor (docker-verified before commit)
-cup compiler verify                compile the project in the toolchain image
+cup compiler verify                compile the project in the build image
+cup docker new                     scaffold a new build image (prompts name + base)
+cup docker build [name]            build image(s); bumps the version on a change
+cup docker push [name]             push image(s) to the configured registry
 cup register                       register a third-party dependency
 cup unregister [name]              remove a third-party dependency
 cup template list                  list library-component templates
@@ -154,11 +176,18 @@ cup compiler verify          # …or just check the project still builds
 ```
 
 A change is **docker-verified before it is committed**: cup writes the new floor
-to `cup.toml` and the CMake guard, then compiles the project inside the
-`verify_image` (source mounted read-only, build kept inside the container). If
-that build fails, the change is **cancelled** — `cup.toml` and `CMakeLists.txt`
-are restored byte-for-byte, so a floor can never claim more than what compiles.
+to `cup.toml` and the CMake guard, then compiles the project inside the project's
+build image (source mounted read-only, build kept inside the container). If that
+build fails, the change is **cancelled** — `cup.toml` and `CMakeLists.txt` are
+restored byte-for-byte, so a floor can never claim more than what compiles.
 
-Provide the toolchain image via `verify_image` in `cup.toml` or `--image REF`;
-`docker/toolchain.Dockerfile` is a starting point. Use `--no-verify` on `set` to
-skip the check when you have no image configured.
+The verify image is resolved in order: an explicit `--image REF`; the project's
+**default build image** (see [Docker build images](#docker-build-images)), rebuilt
+first so it carries the current apt dependencies; or a legacy `verify_image` in
+`cup.toml`. Use `--no-verify` on `set` to skip the check when none is configured.
+
+Because the default build image already installs the system packages of any
+**apt-install** third party (a `find_package(...)` needs its package present at
+build time), `cup compiler verify` tests against exactly the third parties the
+project declares. Submodule and `cmake-download` dependencies build from source
+inside the container and need no image changes.

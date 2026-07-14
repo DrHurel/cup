@@ -1,7 +1,9 @@
 package cmd
 
 import (
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -115,6 +117,38 @@ func TestRemoveApt(t *testing.T) {
 	}
 	if err := removeApt(proj, "Boost"); err == nil {
 		t.Error("removeApt(absent) = nil error, want error")
+	}
+}
+
+// Registering an apt dependency records its package on the find_package line and
+// regenerates the default build image's Dockerfile to install it; unregistering
+// drops the package but leaves the (now bare) Dockerfile in place.
+func TestRegisterAptSyncsDefaultBuildImage(t *testing.T) {
+	proj := newProjectWithImage(t, 23)
+	feed(t, "Boost\nlibboost-dev\nn\n") // find_package name, apt pkg, decline install
+	t.Chdir(proj.Root)
+	if err := registerApt(proj); err != nil {
+		t.Fatalf("registerApt: %v", err)
+	}
+	// The apt package is tagged onto the find_package line so it survives reloads.
+	assertFile(t, thirdPartyCmake(proj), "find_package(Boost REQUIRED) "+aptMarker+" libboost-dev")
+
+	dockerfile := dockerfilePath(proj, "demo")
+	assertFile(t, dockerfile, "FROM gcc:14")
+	assertFile(t, dockerfile, "libboost-dev")
+
+	if pkgs := aptPackages(proj); len(pkgs) != 1 || pkgs[0] != "libboost-dev" {
+		t.Fatalf("aptPackages = %v, want [libboost-dev]", pkgs)
+	}
+
+	// Removing the dependency regenerates the Dockerfile without the package.
+	if err := removeApt(proj, "Boost"); err != nil {
+		t.Fatalf("removeApt: %v", err)
+	}
+	assertFile(t, dockerfile, "FROM gcc:14")
+	b, _ := os.ReadFile(dockerfile)
+	if strings.Contains(string(b), "libboost-dev") {
+		t.Errorf("Dockerfile still installs libboost-dev after unregister:\n%s", b)
 	}
 }
 

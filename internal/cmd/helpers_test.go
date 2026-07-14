@@ -44,6 +44,18 @@ func newProject(t *testing.T, std int) *project.Project {
 	return &project.Project{Root: root, Config: project.Config{Name: "demo", CppStandard: std}}
 }
 
+// newProjectWithImage is newProject plus a default build image named "demo" on a
+// gcc:14 base, for exercising the flows that keep docker/<name>/Dockerfile in sync
+// with the project's dependencies.
+func newProjectWithImage(t *testing.T, std int) *project.Project {
+	t.Helper()
+	proj := newProject(t, std)
+	proj.Config.Docker = project.DockerConfig{Images: []project.DockerImage{
+		{Name: "demo", Base: "gcc:14", Default: true},
+	}}
+	return proj
+}
+
 // assertFile fails unless path exists and (when substr is non-empty) contains it.
 func assertFile(t *testing.T, path, substr string) {
 	t.Helper()

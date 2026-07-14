@@ -155,6 +155,42 @@ func TestRunCompilerDispatch(t *testing.T) {
 	}
 }
 
+// resolveVerifyImage prefers an explicit override, then a legacy verify_image, and
+// errors when the project offers no image at all — none of which touch docker.
+func TestResolveVerifyImage(t *testing.T) {
+	proj := newProject(t, 20)
+
+	// Explicit override wins and is returned as-is.
+	if got, err := resolveVerifyImage(proj, "cxx:15"); err != nil || got != "cxx:15" {
+		t.Fatalf("resolveVerifyImage(override) = %q, %v; want cxx:15, nil", got, err)
+	}
+
+	// No override, no default image, no verify_image -> error.
+	if _, err := resolveVerifyImage(proj, ""); err == nil {
+		t.Error("resolveVerifyImage(no target) = nil error, want error")
+	}
+
+	// A legacy verify_image is used directly.
+	proj.Config.Compiler.VerifyImage = "cup-cxx:latest"
+	if got, err := resolveVerifyImage(proj, ""); err != nil || got != "cup-cxx:latest" {
+		t.Fatalf("resolveVerifyImage(verify_image) = %q, %v; want cup-cxx:latest, nil", got, err)
+	}
+}
+
+func TestHasVerifyTarget(t *testing.T) {
+	proj := newProject(t, 20)
+	if hasVerifyTarget(proj, "") {
+		t.Error("hasVerifyTarget(no target) = true, want false")
+	}
+	if !hasVerifyTarget(proj, "cxx:15") {
+		t.Error("hasVerifyTarget(override) = false, want true")
+	}
+	proj.Config.Docker.Images = []project.DockerImage{{Name: "demo", Base: "gcc:14", Default: true}}
+	if !hasVerifyTarget(proj, "") {
+		t.Error("hasVerifyTarget(default image) = false, want true")
+	}
+}
+
 func TestCommitCompilerFloorRestoresOnGuardFailure(t *testing.T) {
 	// newProject seeds a root CMakeLists with no guard markers, so applyCompilerFloor
 	// fails midway; commitCompilerFloor must roll cup.toml back byte-for-byte.

@@ -133,7 +133,44 @@ func registerApt(proj *project.Project) error {
 			return err
 		}
 	}
-	return scaffold.EnsureLine(proj.Root, thirdPartyCmake(proj), fmt.Sprintf("find_package(%s REQUIRED)", name))
+	// Tag the line with the apt package name so the build image can reinstall it
+	// (the find_package name and the apt package name often differ, e.g.
+	// find_package(Boost) <- apt libboost-dev).
+	line := fmt.Sprintf("find_package(%s REQUIRED) %s %s", name, aptMarker, pkg)
+	if err := scaffold.EnsureLine(proj.Root, thirdPartyCmake(proj), line); err != nil {
+		return err
+	}
+	return syncDefaultBuildImage(proj)
+}
+
+// aptMarker tags a find_package line in third_party/CMakeLists.txt with the apt
+// package that provides it, so aptPackages can reconstruct the install list the
+// default build image needs.
+const aptMarker = "# cup-apt:"
+
+// aptPackages returns the apt package names recorded on the find_package lines of
+// third_party/CMakeLists.txt (each apt registration tags its line with
+// "# cup-apt: <pkg>"), in registration order and de-duplicated.
+func aptPackages(proj *project.Project) []string {
+	lines, ok := scaffold.ReadFileLines(thirdPartyCmake(proj))
+	if !ok {
+		return nil
+	}
+	var pkgs []string
+	seen := map[string]bool{}
+	for _, raw := range lines {
+		idx := strings.Index(raw, aptMarker)
+		if idx < 0 {
+			continue
+		}
+		for _, p := range strings.Fields(raw[idx+len(aptMarker):]) {
+			if !seen[p] {
+				seen[p] = true
+				pkgs = append(pkgs, p)
+			}
+		}
+	}
+	return pkgs
 }
 
 // --- unregister ------------------------------------------------------------
@@ -263,6 +300,9 @@ func removeApt(proj *project.Project, name string) error {
 	}
 	if !removed {
 		return fmt.Errorf("no find_package(%s ...) line found in third_party/%s", name, cmakelists)
+	}
+	if err := syncDefaultBuildImage(proj); err != nil {
+		return err
 	}
 	ui.Skipped(fmt.Sprintf("the apt package for %s is left installed; remove it with apt if unwanted", name))
 	return nil

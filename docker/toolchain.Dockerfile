@@ -26,3 +26,9 @@ RUN apt-get update \
 
 # cup mounts the project read-only at /work and builds in a container-local dir,
 # so no WORKDIR or entrypoint is needed here.
+#
+# This is a standalone example you can point `verify_image` at. In a cup project
+# you usually don't hand-write toolchain images: `cup new` creates a managed
+# default build image at docker/<name>/Dockerfile, and registering an apt
+# dependency (`cup register` -> apt-install) makes cup add that package to it
+# automatically. See "Docker build images" in the README.
