@@ -103,3 +103,71 @@ func TestSetCompilerBadArgs(t *testing.T) {
 		t.Error("missing version = nil error, want error")
 	}
 }
+
+func TestFloorLabel(t *testing.T) {
+	if got := floorLabel(0); got != "(no floor)" {
+		t.Errorf("floorLabel(0) = %q, want (no floor)", got)
+	}
+	if got := floorLabel(15); got != ">= 15" {
+		t.Errorf("floorLabel(15) = %q, want >= 15", got)
+	}
+}
+
+func TestShowCompilers(t *testing.T) {
+	// No [compiler] table: shows per-standard defaults and the unset-image note.
+	proj := newProject(t, 20)
+	if err := showCompilers(proj); err != nil {
+		t.Fatalf("showCompilers (no floor): %v", err)
+	}
+	// An explicit floor and a verify image exercise the other branches.
+	proj.Config.Compiler = project.NewCompilerConfig(14, 0)
+	proj.Config.Compiler.VerifyImage = "cxx:14"
+	if err := showCompilers(proj); err != nil {
+		t.Fatalf("showCompilers (with floor): %v", err)
+	}
+}
+
+func TestVerifyCompilerNoImage(t *testing.T) {
+	proj := newProject(t, 20)
+	// No verify_image and no --image: refuse before reaching docker.
+	if err := verifyCompiler(proj, nil); err == nil {
+		t.Error("verifyCompiler without an image = nil error, want error")
+	}
+	// A stray positional argument is rejected too.
+	if err := verifyCompiler(proj, []string{"extra"}); err == nil {
+		t.Error("verifyCompiler with a positional arg = nil error, want error")
+	}
+}
+
+func TestRunCompilerDispatch(t *testing.T) {
+	proj := newProject(t, 20)
+	t.Chdir(proj.Root) // RunCompiler resolves the project from the working dir
+
+	// No args -> show; this project pins no floor, so it just prints defaults.
+	if err := RunCompiler(nil); err != nil {
+		t.Fatalf("RunCompiler(nil): %v", err)
+	}
+	if err := RunCompiler([]string{"show"}); err != nil {
+		t.Fatalf("RunCompiler(show): %v", err)
+	}
+	if err := RunCompiler([]string{"bogus"}); err == nil {
+		t.Error("RunCompiler(bogus) = nil error, want error")
+	}
+}
+
+func TestCommitCompilerFloorRestoresOnGuardFailure(t *testing.T) {
+	// newProject seeds a root CMakeLists with no guard markers, so applyCompilerFloor
+	// fails midway; commitCompilerFloor must roll cup.toml back byte-for-byte.
+	proj := newProject(t, 20)
+	tomlPath := filepath.Join(proj.Root, project.Marker)
+	before, _ := os.ReadFile(tomlPath)
+
+	err := setCompiler(proj, []string{"gcc", "12", "--no-verify"})
+	if err == nil {
+		t.Fatal("setCompiler onto a marker-less CMakeLists = nil error, want error")
+	}
+	after, _ := os.ReadFile(tomlPath)
+	if string(before) != string(after) {
+		t.Errorf("cup.toml not restored after a failed set:\nbefore:\n%s\nafter:\n%s", before, after)
+	}
+}
