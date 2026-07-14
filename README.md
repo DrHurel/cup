@@ -1,5 +1,19 @@
 # cup
 
+[![CI](https://github.com/DrHurel/cup/actions/workflows/ci.yml/badge.svg)](https://github.com/DrHurel/cup/actions/workflows/ci.yml)
+[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=DrHurel_cup&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=DrHurel_cup)
+[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=DrHurel_cup&metric=coverage)](https://sonarcloud.io/summary/new_code?id=DrHurel_cup)
+[![Maintainability Rating](https://sonarcloud.io/api/project_badges/measure?project=DrHurel_cup&metric=sqale_rating)](https://sonarcloud.io/summary/new_code?id=DrHurel_cup)
+[![Reliability Rating](https://sonarcloud.io/api/project_badges/measure?project=DrHurel_cup&metric=reliability_rating)](https://sonarcloud.io/summary/new_code?id=DrHurel_cup)
+[![Security Rating](https://sonarcloud.io/api/project_badges/measure?project=DrHurel_cup&metric=security_rating)](https://sonarcloud.io/summary/new_code?id=DrHurel_cup)
+[![Bugs](https://sonarcloud.io/api/project_badges/measure?project=DrHurel_cup&metric=bugs)](https://sonarcloud.io/summary/new_code?id=DrHurel_cup)
+[![Code Smells](https://sonarcloud.io/api/project_badges/measure?project=DrHurel_cup&metric=code_smells)](https://sonarcloud.io/summary/new_code?id=DrHurel_cup)
+[![Vulnerabilities](https://sonarcloud.io/api/project_badges/measure?project=DrHurel_cup&metric=vulnerabilities)](https://sonarcloud.io/summary/new_code?id=DrHurel_cup)
+[![Duplicated Lines (%)](https://sonarcloud.io/api/project_badges/measure?project=DrHurel_cup&metric=duplicated_lines_density)](https://sonarcloud.io/summary/new_code?id=DrHurel_cup)
+[![Technical Debt](https://sonarcloud.io/api/project_badges/measure?project=DrHurel_cup&metric=sqale_index)](https://sonarcloud.io/summary/new_code?id=DrHurel_cup)
+[![Lines of Code](https://sonarcloud.io/api/project_badges/measure?project=DrHurel_cup&metric=ncloc)](https://sonarcloud.io/summary/new_code?id=DrHurel_cup)
+
+
 `cup` scaffolds and manages C++ projects from a single Go binary. Pick a
 standard when you create a project and `cup` scaffolds to match it: **C++20/23**
 projects are built from C++ modules (`import std;` on C++23), while
