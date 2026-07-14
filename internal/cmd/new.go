@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	"cup/internal/project"
 	"cup/internal/scaffold"
@@ -25,6 +26,11 @@ func RunNew(args []string) error {
 		return err
 	}
 
+	gcc, clang, err := chooseCompilerFloors(std)
+	if err != nil {
+		return err
+	}
+
 	root, err := filepath.Abs(name)
 	if err != nil {
 		return err
@@ -38,7 +44,12 @@ func RunNew(args []string) error {
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		return err
 	}
-	if err := project.WriteConfig(root, project.Config{Name: name, CupVersion: version, CppStandard: std}); err != nil {
+	if err := project.WriteConfig(root, project.Config{
+		Name:        name,
+		CupVersion:  version,
+		CppStandard: std,
+		Compiler:    project.NewCompilerConfig(gcc, clang),
+	}); err != nil {
 		return err
 	}
 	ui.Wrote(project.Marker)
@@ -48,6 +59,7 @@ func RunNew(args []string) error {
 		"name":             name,
 		"standard":         fmt.Sprintf("%d", std),
 		"module_std_setup": moduleStdSetup(std),
+		"compiler_guard":   scaffold.CompilerGuard(gcc, clang),
 	})
 	if err != nil {
 		return err
@@ -115,6 +127,57 @@ func chooseStandard() (int, error) {
 		return 0, err
 	}
 	return scaffold.ParseStd(choice)
+}
+
+// chooseCompilerFloors asks which compilers to pin a minimum for — GCC, Clang,
+// or both — then, for each chosen one, which version (offering only releases that
+// can build the standard; C++23 needs GCC 15, so it is the sole GCC option). An
+// unchosen compiler stays 0 (no floor) and is left out of cup.toml's [compiler]
+// table and the CMakeLists guard entirely.
+func chooseCompilerFloors(std int) (gcc, clang int, err error) {
+	const (
+		both      = "gcc and clang"
+		gccOnly   = "gcc only"
+		clangOnly = "clang only"
+	)
+	which, err := ui.Select("pin a minimum version for which compilers?",
+		[]string{both, gccOnly, clangOnly}, both)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	newestGCC, newestClang := scaffold.NewestCompilers()
+	gccChoices, clangChoices := scaffold.CompilerChoices(std, newestGCC, newestClang)
+
+	if which != clangOnly {
+		if gcc, err = chooseCompilerFloor("gcc", gccChoices); err != nil {
+			return 0, 0, err
+		}
+	}
+	if which != gccOnly {
+		if clang, err = chooseCompilerFloor("clang", clangChoices); err != nil {
+			return 0, 0, err
+		}
+	}
+	return gcc, clang, nil
+}
+
+// chooseCompilerFloor asks for one compiler's minimum version. choices is
+// oldest-first; the oldest (most permissive floor) is the default. A lone choice
+// is taken without prompting.
+func chooseCompilerFloor(name string, choices []int) (int, error) {
+	if len(choices) == 1 {
+		return choices[0], nil
+	}
+	labels := make([]string, len(choices))
+	for i, v := range choices {
+		labels[i] = strconv.Itoa(v)
+	}
+	choice, err := ui.Select("minimum "+name+" version?", labels, labels[0])
+	if err != nil {
+		return 0, err
+	}
+	return strconv.Atoi(choice)
 }
 
 // moduleStdSetup returns the top-of-file CMake block for the modules family: the

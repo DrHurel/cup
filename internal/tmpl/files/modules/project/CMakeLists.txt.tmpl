@@ -1,6 +1,8 @@
 {{module_std_setup}}
 project({{name}} VERSION 0.1.0 LANGUAGES C CXX)
 
+{{compiler_guard}}
+
 set(CMAKE_CXX_STANDARD {{standard}})
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 

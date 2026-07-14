@@ -15,10 +15,53 @@ const Marker = "cup.toml"
 
 // Config is the parsed contents of cup.toml.
 type Config struct {
-	Name        string `toml:"name"`
-	CupVersion  string `toml:"cup_version,omitempty"`
-	CppStandard int    `toml:"cpp_standard,omitempty"`
+	Name        string         `toml:"name"`
+	CupVersion  string         `toml:"cup_version,omitempty"`
+	CppStandard int            `toml:"cpp_standard,omitempty"`
+	Compiler    CompilerConfig `toml:"compiler,omitempty"`
 }
+
+// CompilerConfig is the `[compiler]` table in cup.toml: the minimum compiler
+// major versions the project's generated CMakeLists enforces, plus the docker
+// image `cup compiler` compiles in to verify a version change before committing
+// it. GCC and Clang are pinned independently — a project may enforce one, both,
+// or neither. An unpinned compiler is nil and is left out of cup.toml entirely
+// (rather than written as a meaningless `gcc = 0`).
+type CompilerConfig struct {
+	GCC         *int   `toml:"gcc,omitempty"`
+	Clang       *int   `toml:"clang,omitempty"`
+	VerifyImage string `toml:"verify_image,omitempty"`
+}
+
+// NewCompilerConfig builds a [compiler] table from major versions, treating 0 as
+// "no floor" — that compiler is left unpinned (nil) and omitted from cup.toml.
+func NewCompilerConfig(gcc, clang int) CompilerConfig {
+	return CompilerConfig{GCC: floorPtr(gcc), Clang: floorPtr(clang)}
+}
+
+func floorPtr(v int) *int {
+	if v <= 0 {
+		return nil
+	}
+	return &v
+}
+
+// GCCFloor and ClangFloor return the pinned major version, or 0 when the compiler
+// is unpinned, so callers can work in plain ints (0 = no floor).
+func (c CompilerConfig) GCCFloor() int   { return deref(c.GCC) }
+func (c CompilerConfig) ClangFloor() int { return deref(c.Clang) }
+
+func deref(p *int) int {
+	if p == nil {
+		return 0
+	}
+	return *p
+}
+
+// HasFloor reports whether cup.toml pins any compiler minimum. When it does not
+// (older projects predate the [compiler] table), callers fall back to cup's
+// per-standard defaults.
+func (c CompilerConfig) HasFloor() bool { return c.GCC != nil || c.Clang != nil }
 
 // Standard returns the project's C++ standard, defaulting to 23 when unset so
 // projects created before cpp_standard existed keep behaving as C++23.

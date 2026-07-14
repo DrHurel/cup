@@ -48,6 +48,9 @@ cup run [MODE] [app] [-- args]     build then run an app
 cup test [MODE]                    build then run the test suite (ctest)
 cup retest [MODE]                  wipe build/ then run the test suite
 cup clean                          remove the build/ directory
+cup compiler                       show the project's minimum compiler versions
+cup compiler set <gcc|clang> <v>   change a floor (docker-verified before commit)
+cup compiler verify                compile the project in the toolchain image
 cup register                       register a third-party dependency
 cup unregister [name]              remove a third-party dependency
 cup template list                  list library-component templates
@@ -62,7 +65,7 @@ cup completion <install|bash|zsh|fish>  install or print shell completion
 
 ```
 myproj/
-  cup.toml                 project marker (name, cup version, cpp_standard)
+  cup.toml                 project marker (name, cup version, cpp_standard, [compiler])
   CMakeLists.txt           per-mode build tree, coverage; import std on C++23
   .gitignore
   src/apps/<name>/         executables (one file per app dir)
@@ -100,3 +103,48 @@ Requirements scale with the standard you pick:
 
 On an older toolchain `cup build` stops at CMake's version check — scaffolding
 still works everywhere.
+
+## Minimum compiler versions
+
+A project can pin a **minimum GCC and/or Clang version** in the `[compiler]`
+table of its `cup.toml`, and the generated root `CMakeLists.txt` enforces it: a
+build with an older toolchain stops at a clear `FATAL_ERROR` instead of failing
+deep in a compile. `cup new` first asks **which** compilers to pin — GCC, Clang,
+or both — then, for each, the version. A compiler you don't pin is simply left
+out of `cup.toml` and unenforced. The version picker offers the range from the
+standard's baseline up to the newest released compiler:
+
+- The **baseline** (lowest version that can build a standard — C++23 needs GCC
+  15 for `import std;`) is a small curated map of stable language facts.
+- The **ceiling** is discovered live from the GNU gcc release index and the LLVM
+  GitHub releases, so the list never goes stale as new compilers ship. The
+  result is cached (~/.cache/cup) for a week and falls back to a bundled default
+  when offline, so project creation still works with no network.
+
+When a compiler has a single valid version (e.g. GCC on C++23) it is chosen
+without prompting.
+
+```toml
+[compiler]
+gcc = 15
+clang = 17
+verify_image = "cup-cxx:latest"   # docker image cup builds in to verify a change
+```
+
+Change a floor with `cup compiler set`:
+
+```sh
+cup compiler                 # show the current floors and verify image
+cup compiler set gcc 14      # lower the GCC floor to 14…
+cup compiler verify          # …or just check the project still builds
+```
+
+A change is **docker-verified before it is committed**: cup writes the new floor
+to `cup.toml` and the CMake guard, then compiles the project inside the
+`verify_image` (source mounted read-only, build kept inside the container). If
+that build fails, the change is **cancelled** — `cup.toml` and `CMakeLists.txt`
+are restored byte-for-byte, so a floor can never claim more than what compiles.
+
+Provide the toolchain image via `verify_image` in `cup.toml` or `--image REF`;
+`docker/toolchain.Dockerfile` is a starting point. Use `--no-verify` on `set` to
+skip the check when you have no image configured.
