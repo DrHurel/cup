@@ -56,6 +56,25 @@ func newProjectWithImage(t *testing.T, std int) *project.Project {
 	return proj
 }
 
+// stubRunCommand replaces runCommand for the duration of a test, recording each
+// invocation as "name arg1 arg2 …" so tests can assert on what would have been
+// shelled out without running git/docker/apt. It returns a pointer to the growing
+// log; failWhen (optional) makes a matching call fail.
+func stubRunCommand(t *testing.T, failWhen func(name string, args []string) error) *[]string {
+	t.Helper()
+	prev := runCommand
+	var calls []string
+	runCommand = func(dir, name string, args ...string) error {
+		calls = append(calls, strings.TrimSpace(name+" "+strings.Join(args, " ")))
+		if failWhen != nil {
+			return failWhen(name, args)
+		}
+		return nil
+	}
+	t.Cleanup(func() { runCommand = prev })
+	return &calls
+}
+
 // assertFile fails unless path exists and (when substr is non-empty) contains it.
 func assertFile(t *testing.T, path, substr string) {
 	t.Helper()
