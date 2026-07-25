@@ -116,6 +116,11 @@ func addApp(proj *project.Project) error {
 	if _, err := scaffold.WriteFile(proj.Root, filepath.Join(appDir, filename), src); err != nil {
 		return err
 	}
+	// Under Make the root Makefile discovers this app by path — no CMakeLists and
+	// no parent-file registration, so the add touches only the new directory.
+	if proj.UsesMake() {
+		return nil
+	}
 	cml, err := scaffold.Render(proj.Root, fam, "app", "CMakeLists.txt.tmpl",
 		stdVars(proj, "name", name, "filename", filename))
 	if err != nil {
@@ -311,6 +316,12 @@ func addTest(proj *project.Project) error {
 	}
 	if _, err := scaffold.WriteFile(proj.Root, filepath.Join(testsDir, name+".cpp"), src); err != nil {
 		return err
+	}
+
+	// Under Make the root Makefile discovers src/tests/*.cpp and links every lib
+	// archive (so the module under test is available) — nothing else to wire.
+	if proj.UsesMake() {
+		return nil
 	}
 
 	testsCmake := filepath.Join(testsDir, cmakelists)

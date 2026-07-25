@@ -79,7 +79,9 @@ func CompilerGuard(gcc, clang int) string {
 		branches = append(branches, guardBranch("Clang", "Clang", "clang", clang))
 	}
 	if len(branches) > 0 {
-		b.WriteString("if" + strings.Join(branches, "\nelseif") + "\nendif()\n")
+		b.WriteString("if")
+		b.WriteString(strings.Join(branches, "\nelseif"))
+		b.WriteString("\nendif()\n")
 	}
 	b.WriteString(GuardEnd)
 	return b.String()

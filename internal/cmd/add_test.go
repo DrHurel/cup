@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -189,5 +190,78 @@ func TestDispatchCategoryUnknown(t *testing.T) {
 	proj := newProject(t, 23)
 	if err := dispatchCategory(proj, "bogus"); err == nil {
 		t.Error("dispatchCategory(bogus) = nil error, want error")
+	}
+}
+
+// readFile returns a file's contents or fails the test.
+func readFile(t *testing.T, path string) string {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	return string(b)
+}
+
+// Under Make, `cup add app` writes only the app's own source file — no CMakeLists,
+// and the root Makefile is left byte-for-byte unchanged (no rebase churn).
+func TestAddAppMakeNoSharedEdit(t *testing.T) {
+	proj := newMakeProject(t, 17)
+	makefileBefore := readFile(t, filepath.Join(proj.Root, "Makefile"))
+
+	feed(t, "greeter\n\n") // name, default filename
+	if err := addApp(proj); err != nil {
+		t.Fatalf("addApp(make): %v", err)
+	}
+	appDir := filepath.Join(proj.Src(), "apps", "greeter")
+	assertFile(t, filepath.Join(appDir, "greeter.cpp"), "namespace")
+	if isFile(filepath.Join(appDir, "CMakeLists.txt")) {
+		t.Error("Make app should not have a CMakeLists.txt")
+	}
+	if isFile(filepath.Join(proj.Src(), "apps", "CMakeLists.txt")) {
+		t.Error("Make add should not create src/apps/CMakeLists.txt")
+	}
+	if got := readFile(t, filepath.Join(proj.Root, "Makefile")); got != makefileBefore {
+		t.Error("root Makefile was modified by `cup add app` under Make")
+	}
+}
+
+// Under Make, `cup add lib` writes the component sources and the lib's aggregator
+// header, but no CMakeLists and no parent registration.
+func TestAddLibMakeNoSharedEdit(t *testing.T) {
+	proj := newMakeProject(t, 17)
+	makefileBefore := readFile(t, filepath.Join(proj.Root, "Makefile"))
+
+	// pickOrNew (no libs -> Text name "math"), chooseKind (class = option 1), symbol default.
+	feed(t, "math\n1\n\n")
+	if err := addLib(proj); err != nil {
+		t.Fatalf("addLib(make): %v", err)
+	}
+	libDir := filepath.Join(proj.Src(), "libs", "math")
+	assertFile(t, filepath.Join(libDir, "Math.h"), "class Math")
+	assertFile(t, filepath.Join(libDir, "Math.cpp"), "namespace")
+	assertFile(t, filepath.Join(libDir, "math.hpp"), "#include")
+	if isFile(filepath.Join(libDir, "CMakeLists.txt")) {
+		t.Error("Make lib should not have a CMakeLists.txt")
+	}
+	if isFile(filepath.Join(proj.Src(), "libs", "CMakeLists.txt")) {
+		t.Error("Make add should not create src/libs/CMakeLists.txt")
+	}
+	if got := readFile(t, filepath.Join(proj.Root, "Makefile")); got != makefileBefore {
+		t.Error("root Makefile was modified by `cup add lib` under Make")
+	}
+}
+
+// Under Make, `cup add test` writes only the test source; discovery + link-all
+// wiring lives in the Makefile.
+func TestAddTestMakeNoSharedEdit(t *testing.T) {
+	proj := newMakeProject(t, 17)
+	feed(t, "smoke\n") // no libs -> no module prompt; just the name
+	if err := addTest(proj); err != nil {
+		t.Fatalf("addTest(make): %v", err)
+	}
+	assertFile(t, filepath.Join(proj.Src(), "tests", "smoke.cpp"), "int main")
+	if isFile(filepath.Join(proj.Src(), "tests", "CMakeLists.txt")) {
+		t.Error("Make test should not create src/tests/CMakeLists.txt")
 	}
 }

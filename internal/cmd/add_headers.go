@@ -46,6 +46,11 @@ func createHeaderLibAt(proj *project.Project, name, targetDir, parentCmake strin
 	if err := writeHeaderAggregator(proj, primary, symbol+ext); err != nil {
 		return err
 	}
+	// Under Make the root Makefile finds this lib's .cpp sources by path and
+	// archives them; no CMakeLists and no parent registration are written.
+	if proj.UsesMake() {
+		return nil
+	}
 	// The STATIC CMakeLists seeds its PRIVATE sources with {{symbol}}.cpp, so a
 	// compiled kind needs symbol; the INTERFACE template simply ignores it.
 	cml, err := scaffold.Render(proj.Root, "headers", kind, "CMakeLists.txt.tmpl",
@@ -105,6 +110,16 @@ func addFileToHeaderLib(proj *project.Project, libDir string) error {
 	if err != nil || !wrote {
 		return err
 	}
+	// Under Make there is no per-lib CMakeLists: the .cpp is discovered by path and
+	// the only shared file touched is this lib's own aggregator header.
+	if proj.UsesMake() {
+		if compiled {
+			if err := writeCompiledSource(proj, kind, libDir, filename, symbol, namespace); err != nil {
+				return err
+			}
+		}
+		return scaffold.EnsureLine(proj.Root, primary, fmt.Sprintf("#include \"%s\"", filename+ext))
+	}
 	if compiled {
 		if err := addCompiledDefinition(proj, kind, libDir, name, filename, symbol, namespace); err != nil {
 			return err
@@ -124,16 +139,24 @@ func addCompiledDefinition(proj *project.Project, kind, libDir, name, filename, 
 	if err := scaffold.EnsureHeaderLibStatic(proj.Root, cmake, name); err != nil {
 		return err
 	}
+	if err := writeCompiledSource(proj, kind, libDir, filename, symbol, namespace); err != nil {
+		return err
+	}
+	return scaffold.EnsureLine(proj.Root, cmake,
+		fmt.Sprintf("target_sources(%s PRIVATE %s.cpp)", name, filename))
+}
+
+// writeCompiledSource renders and writes a compiled component's <filename>.cpp
+// definition (its .h counterpart is written by the caller). Build-system-agnostic
+// — shared by the CMake wiring in addCompiledDefinition and the Make path.
+func writeCompiledSource(proj *project.Project, kind, libDir, filename, symbol, namespace string) error {
 	cpp, err := scaffold.Render(proj.Root, "headers", kind, "source.cpp.tmpl",
 		stdVars(proj, "symbol", symbol, "namespace", namespace, "header", filename+".h"))
 	if err != nil {
 		return err
 	}
-	if _, err := scaffold.WriteFile(proj.Root, filepath.Join(libDir, filename+".cpp"), cpp); err != nil {
-		return err
-	}
-	return scaffold.EnsureLine(proj.Root, cmake,
-		fmt.Sprintf("target_sources(%s PRIVATE %s.cpp)", name, filename))
+	_, err = scaffold.WriteFile(proj.Root, filepath.Join(libDir, filename+".cpp"), cpp)
+	return err
 }
 
 // renderComponent writes a lib's first component: for a compiled kind the

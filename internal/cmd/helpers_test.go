@@ -44,6 +44,28 @@ func newProject(t *testing.T, std int) *project.Project {
 	return &project.Project{Root: root, Config: project.Config{Name: "demo", CppStandard: std}}
 }
 
+// newMakeProject writes a minimal Make-backed project skeleton: a cup.toml with
+// build_tool = "make", an empty root Makefile, and the src/{apps,libs} directories
+// the Makefile's discovery globs over (no CMakeLists.txt). std must be a headers
+// standard (< 20).
+func newMakeProject(t *testing.T, std int) *project.Project {
+	t.Helper()
+	root := t.TempDir()
+	cfg := project.Config{Name: "demo", CppStandard: std, BuildTool: project.ToolMake}
+	if err := project.WriteConfig(root, cfg); err != nil {
+		t.Fatalf("WriteConfig: %v", err)
+	}
+	for _, sub := range []string{"apps", "libs"} {
+		if err := os.MkdirAll(filepath.Join(root, "src", sub), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", sub, err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(root, "Makefile"), []byte("# root makefile\n"), 0o644); err != nil {
+		t.Fatalf("seed Makefile: %v", err)
+	}
+	return &project.Project{Root: root, Config: cfg}
+}
+
 // newProjectWithImage is newProject plus a default build image named "demo" on a
 // gcc:14 base, for exercising the flows that keep docker/<name>/Dockerfile in sync
 // with the project's dependencies.

@@ -98,3 +98,36 @@ func TestRunConfigureOutsideProject(t *testing.T) {
 		t.Error("RunConfigure outside project = nil error, want error")
 	}
 }
+
+// Under Make, Build shells out to `make MODE=<mode>` and Configure is a no-op.
+func TestBuildDispatchMake(t *testing.T) {
+	proj := newMakeProject(t, 17)
+	calls := stubRunCommand(t, nil)
+
+	if err := Configure(proj, "Debug"); err != nil {
+		t.Fatalf("Configure(make): %v", err)
+	}
+	if len(*calls) != 0 {
+		t.Errorf("Configure(make) shelled out: %v, want no calls", *calls)
+	}
+
+	if err := Build(proj, "Release"); err != nil {
+		t.Fatalf("Build(make): %v", err)
+	}
+	if len(*calls) != 1 || (*calls)[0] != "make MODE=Release" {
+		t.Fatalf("Build(make) calls = %v, want [make MODE=Release]", *calls)
+	}
+}
+
+// Under Make, `cup test` runs the Makefile's test target for the mode.
+func TestRunTestDispatchMake(t *testing.T) {
+	proj := newMakeProject(t, 17)
+	t.Chdir(proj.Root)
+	calls := stubRunCommand(t, nil)
+	if err := RunTest([]string{"Coverage"}); err != nil {
+		t.Fatalf("RunTest(make): %v", err)
+	}
+	if len(*calls) != 1 || (*calls)[0] != "make MODE=Coverage test" {
+		t.Fatalf("RunTest(make) calls = %v, want [make MODE=Coverage test]", *calls)
+	}
+}

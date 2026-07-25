@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"cup/internal/project"
 )
 
 // registerDownload is pure filesystem work (no external tools), so the full
@@ -270,5 +272,69 @@ func TestRemoveDownloadAbsent(t *testing.T) {
 	}
 	if err := removeDownload(proj, "ghost"); err == nil {
 		t.Error("removeDownload(absent) = nil error, want error")
+	}
+}
+
+// --- Make backend ----------------------------------------------------------
+
+// registerSubmodule under Make records the dependency in third_party.mk (not a
+// CMakeLists), tagged so discoverDependencies and removeSubmodule can round-trip
+// it, and never touches the root Makefile.
+func TestRegisterSubmoduleMake(t *testing.T) {
+	proj := newMakeProject(t, 17)
+	makefileBefore := readFile(t, filepath.Join(proj.Root, "Makefile"))
+	stubRunCommand(t, nil)
+	feed(t, "cli11\nhttps://github.com/CLIUtils/CLI11\nv2.4.1\n")
+	if err := registerSubmodule(proj); err != nil {
+		t.Fatalf("registerSubmodule(make): %v", err)
+	}
+	mk := thirdPartyMake(proj)
+	assertFile(t, mk, "CUP_TP_INCLUDES += -Ithird_party/cli11")
+	assertFile(t, mk, cupDepMarker+" "+methodSubmodule+" cli11")
+	if isFile(thirdPartyCmake(proj)) {
+		t.Error("Make register wrote a third_party/CMakeLists.txt")
+	}
+	if got := readFile(t, filepath.Join(proj.Root, "Makefile")); got != makefileBefore {
+		t.Error("root Makefile was modified by register under Make")
+	}
+
+	deps := discoverDependencies(proj)
+	if len(deps) != 1 || deps[0].name != "cli11" || deps[0].method != methodSubmodule {
+		t.Fatalf("discoverDependencies(make) = %+v", deps)
+	}
+
+	stubRunCommand(t, nil)
+	if err := removeSubmodule(proj, "cli11"); err != nil {
+		t.Fatalf("removeSubmodule(make): %v", err)
+	}
+	if deps := discoverDependencies(proj); len(deps) != 0 {
+		t.Errorf("dependency still registered after removeSubmodule(make): %+v", deps)
+	}
+}
+
+// registerApt under Make tags third_party.mk with the package (no find_package)
+// and regenerates the default build image's Dockerfile to install it.
+func TestRegisterAptMakeSyncsImage(t *testing.T) {
+	proj := newMakeProject(t, 17)
+	proj.Config.Docker = project.DockerConfig{Images: []project.DockerImage{
+		{Name: "demo", Base: "gcc:14", Default: true},
+	}}
+	t.Chdir(proj.Root)
+	feed(t, "libboost-dev\nn\n") // apt package, decline install
+	if err := registerApt(proj); err != nil {
+		t.Fatalf("registerApt(make): %v", err)
+	}
+	assertFile(t, thirdPartyMake(proj), aptMarker+" libboost-dev")
+	if pkgs := aptPackages(proj); len(pkgs) != 1 || pkgs[0] != "libboost-dev" {
+		t.Fatalf("aptPackages(make) = %v, want [libboost-dev]", pkgs)
+	}
+	assertFile(t, dockerfilePath(proj, "demo"), "libboost-dev")
+
+	if err := removeApt(proj, "libboost-dev"); err != nil {
+		t.Fatalf("removeApt(make): %v", err)
+	}
+	b, _ := os.ReadFile(dockerfilePath(proj, "demo"))
+	if strings.Contains(string(b), "libboost-dev") {
+		t.Errorf("Dockerfile still installs libboost-dev after unregister:\n%s", b)
 	}
 }
