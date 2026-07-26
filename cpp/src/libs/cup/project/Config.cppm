@@ -44,7 +44,13 @@ struct DockerImage {
     // "default", so cup.toml is unchanged.
     bool is_default = false;
 
-    friend bool operator==(const DockerImage&, const DockerImage&) = default;
+    // Spelled out rather than `= default`: GCC 16 segfaults in
+    // module_state::mangle(bool) when serialising a defaulted friend
+    // operator== for this struct as part of a module interface.
+    friend bool operator==(const DockerImage& lhs, const DockerImage& rhs) {
+        return lhs.name == rhs.name && lhs.base == rhs.base && lhs.version == rhs.version &&
+               lhs.hash == rhs.hash && lhs.is_default == rhs.is_default;
+    }
 };
 
 // DockerConfig is the `[docker]` table in cup.toml: the build images cup manages
@@ -55,7 +61,11 @@ struct DockerConfig {
     std::string registry;
     std::vector<DockerImage> images;
 
-    friend bool operator==(const DockerConfig&, const DockerConfig&) = default;
+    // See DockerImage::operator== for why this is spelled out rather than
+    // `= default`.
+    friend bool operator==(const DockerConfig& lhs, const DockerConfig& rhs) {
+        return lhs.registry == rhs.registry && lhs.images == rhs.images;
+    }
 
     // default_image returns the project's auto-updating default build image, or
     // nullptr when none is configured (projects created before the [docker] table
@@ -110,7 +120,11 @@ struct CompilerConfig {
     std::optional<int> clang;
     std::string verify_image;
 
-    friend bool operator==(const CompilerConfig&, const CompilerConfig&) = default;
+    // See DockerImage::operator== for why this is spelled out rather than
+    // `= default`.
+    friend bool operator==(const CompilerConfig& lhs, const CompilerConfig& rhs) {
+        return lhs.gcc == rhs.gcc && lhs.clang == rhs.clang && lhs.verify_image == rhs.verify_image;
+    }
 
     // gcc_floor and clang_floor return the pinned major version, or 0 when the
     // compiler is unpinned, so callers can work in plain ints (0 = no floor).
@@ -148,7 +162,14 @@ struct Config {
     CompilerConfig compiler;
     DockerConfig docker;
 
-    friend bool operator==(const Config&, const Config&) = default;
+    // See DockerImage::operator== for why this is spelled out rather than
+    // `= default`.
+    friend bool operator==(const Config& lhs, const Config& rhs) {
+        return lhs.name == rhs.name && lhs.cup_version == rhs.cup_version &&
+               lhs.cpp_standard == rhs.cpp_standard && lhs.std_module == rhs.std_module &&
+               lhs.build_tool == rhs.build_tool && lhs.compiler == rhs.compiler &&
+               lhs.docker == rhs.docker;
+    }
 
     // standard returns the project's C++ standard, defaulting to 23 when unset so
     // projects created before cpp_standard existed keep behaving as C++23.

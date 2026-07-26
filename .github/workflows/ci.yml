@@ -177,6 +177,8 @@ jobs:
         run: |
           gcovr --root . \
                 --gcov-executable gcov-14 \
+                --gcov-exclude '.*/_deps/.*' \
+                --gcov-ignore-errors no_working_dir_found \
                 --exclude '.*/_deps/.*' \
                 --exclude '.*/generated/.*' \
                 --exclude 'cpp/src/tests/.*' \
