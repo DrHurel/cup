@@ -39,15 +39,17 @@ namespace {
             case '\n': out += "\\n"; break;
             case '\f': out += "\\f"; break;
             case '\r': out += "\\r"; break;
-            default:
-                if (static_cast<unsigned char>(c) < 0x20) {
-                    constexpr std::string_view kHex = "0123456789ABCDEF";
+            default: {
+                const auto uc = static_cast<unsigned char>(c);
+                if (uc < 0x20 || uc == 0x7f) {
+                    constexpr std::string_view kHex = "0123456789abcdef";
                     out += "\\u00";
-                    out.push_back(kHex[(static_cast<unsigned char>(c) >> 4) & 0xF]);
-                    out.push_back(kHex[static_cast<unsigned char>(c) & 0xF]);
+                    out.push_back(kHex[(uc >> 4) & 0xF]);
+                    out.push_back(kHex[uc & 0xF]);
                 } else {
                     out.push_back(c);
                 }
+            }
         }
     }
     out.push_back('"');
