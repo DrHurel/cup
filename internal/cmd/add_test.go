@@ -221,7 +221,7 @@ func TestAddAppMakeNoSharedEdit(t *testing.T) {
 	if isFile(filepath.Join(proj.Src(), "apps", "CMakeLists.txt")) {
 		t.Error("Make add should not create src/apps/CMakeLists.txt")
 	}
-	if got := readFile(t, filepath.Join(proj.Root, "Makefile")); got != makefileBefore {
+	if readFile(t, filepath.Join(proj.Root, "Makefile")) != makefileBefore {
 		t.Error("root Makefile was modified by `cup add app` under Make")
 	}
 }
@@ -247,7 +247,7 @@ func TestAddLibMakeNoSharedEdit(t *testing.T) {
 	if isFile(filepath.Join(proj.Src(), "libs", "CMakeLists.txt")) {
 		t.Error("Make add should not create src/libs/CMakeLists.txt")
 	}
-	if got := readFile(t, filepath.Join(proj.Root, "Makefile")); got != makefileBefore {
+	if readFile(t, filepath.Join(proj.Root, "Makefile")) != makefileBefore {
 		t.Error("root Makefile was modified by `cup add lib` under Make")
 	}
 }

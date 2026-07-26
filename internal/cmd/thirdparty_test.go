@@ -294,7 +294,7 @@ func TestRegisterSubmoduleMake(t *testing.T) {
 	if isFile(thirdPartyCmake(proj)) {
 		t.Error("Make register wrote a third_party/CMakeLists.txt")
 	}
-	if got := readFile(t, filepath.Join(proj.Root, "Makefile")); got != makefileBefore {
+	if readFile(t, filepath.Join(proj.Root, "Makefile")) != makefileBefore {
 		t.Error("root Makefile was modified by register under Make")
 	}
 

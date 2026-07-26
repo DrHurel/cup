@@ -97,7 +97,6 @@ func addFileToHeaderLib(proj *project.Project, libDir string) error {
 	name := filepath.Base(libDir)
 	namespace := scaffold.PathToNamespace(proj.Src(), libDir)
 	primary := filepath.Join(libDir, name+".hpp")
-	cmake := filepath.Join(libDir, cmakelists)
 	compiled := tmpl.IsCompiled(proj.Root, "headers", kind)
 	ext := headerExt(compiled)
 
@@ -110,25 +109,30 @@ func addFileToHeaderLib(proj *project.Project, libDir string) error {
 	if err != nil || !wrote {
 		return err
 	}
-	// Under Make there is no per-lib CMakeLists: the .cpp is discovered by path and
-	// the only shared file touched is this lib's own aggregator header.
+	if err := wireHeaderComponent(proj, kind, libDir, name, filename, symbol, namespace, compiled); err != nil {
+		return err
+	}
+	return scaffold.EnsureLine(proj.Root, primary, fmt.Sprintf("#include \"%s\"", filename+ext))
+}
+
+// wireHeaderComponent registers a component whose header has just been written with
+// the lib's build system. Under Make there is no per-lib CMakeLists — a compiled
+// component's .cpp is written and then discovered by path — so the only shared file
+// the caller touches is the lib's own aggregator header. Under CMake the .cpp is
+// additionally listed among the lib's PRIVATE sources, alongside the header.
+func wireHeaderComponent(proj *project.Project, kind, libDir, name, filename, symbol, namespace string, compiled bool) error {
 	if proj.UsesMake() {
-		if compiled {
-			if err := writeCompiledSource(proj, kind, libDir, filename, symbol, namespace); err != nil {
-				return err
-			}
+		if !compiled {
+			return nil
 		}
-		return scaffold.EnsureLine(proj.Root, primary, fmt.Sprintf("#include \"%s\"", filename+ext))
+		return writeCompiledSource(proj, kind, libDir, filename, symbol, namespace)
 	}
 	if compiled {
 		if err := addCompiledDefinition(proj, kind, libDir, name, filename, symbol, namespace); err != nil {
 			return err
 		}
 	}
-	if err := scaffold.AddHeaderSource(proj.Root, cmake, filename+ext); err != nil {
-		return err
-	}
-	return scaffold.EnsureLine(proj.Root, primary, fmt.Sprintf("#include \"%s\"", filename+ext))
+	return scaffold.AddHeaderSource(proj.Root, filepath.Join(libDir, cmakelists), filename+headerExt(compiled))
 }
 
 // addCompiledDefinition wires a compiled component's definition into an existing
