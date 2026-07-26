@@ -154,11 +154,15 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install toolchain
-        # samurai is alpine's ninja; the *-static packages carry the archives a
-        # fully static link of libcurl needs.
+        # Real ninja, not alpine's default samurai: samurai advertises ninja 1.9
+        # compatibility and has no dyndep support, so CMake refuses to scan for
+        # modules ("Ninja 1.11 or higher is required"). ninja-is-really-ninja
+        # points the `ninja` command at ninja-build (and excludes samurai).
+        # The *-static packages carry the archives a fully static link of libcurl
+        # needs.
         run: |
           apk add --no-cache \
-            build-base cmake samurai git \
+            build-base cmake ninja-build ninja-is-really-ninja git \
             curl-dev curl-static \
             openssl-libs-static zlib-static nghttp2-static brotli-static
 
@@ -166,6 +170,8 @@ jobs:
         run: |
           g++ --version | head -1
           cmake --version | head -1
+          # Must be >= 1.11, or module scanning is unavailable.
+          ninja --version
 
       - name: Configure (Release, static)
         working-directory: cpp
