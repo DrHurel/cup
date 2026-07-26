@@ -130,7 +130,10 @@ namespace detail {
         if (!answer.has_value()) {
             return std::unexpected(std::move(answer).error());
         }
-        if (const auto decided = detail::decide(*answer, def)) {
+        // has_value(), not the optional's own contextual conversion: the
+        // contained type is bool, so `if (decided)` would read as a test of the
+        // answer rather than of whether there was one.
+        if (const auto decided = detail::decide(*answer, def); decided.has_value()) {
             return *decided;
         }
     }

@@ -5,6 +5,7 @@ module;
 // below re-exports them, so consumers see only the accessors in this partition.
 #include <cup/embedded_templates.hpp>
 
+#include <functional>
 #include <optional>
 #include <set>
 #include <string>
@@ -61,7 +62,8 @@ struct BuiltinFile {
 // the Go implementation's trailing sort.Strings.
 [[nodiscard]] std::vector<std::string> builtin_kinds(std::string_view family) {
     const std::string prefix = std::string(family) + "/";
-    std::set<std::string> dirs;
+    // std::less<> so the string_view segments below need no intermediate string.
+    std::set<std::string, std::less<>> dirs;
     for (const auto& entry : templates::all()) {
         if (!entry.path.starts_with(prefix)) {
             continue;
@@ -86,10 +88,10 @@ struct BuiltinFile {
             continue;
         }
         const std::string_view name = entry.path.substr(prefix.size());
-        if (name.find('/') != std::string_view::npos) {
+        if (name.contains('/')) {
             continue;  // nested directory, not a file of this kind
         }
-        files.push_back({std::string(name), entry.content});
+        files.emplace_back(std::string(name), entry.content);
     }
     return files;
 }

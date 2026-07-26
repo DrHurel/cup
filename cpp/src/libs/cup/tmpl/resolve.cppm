@@ -2,6 +2,7 @@ module;
 #include <expected>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <ios>
 #include <iterator>
 #include <optional>
@@ -110,7 +111,7 @@ namespace detail {
                                                             std::string_view family,
                                                             std::string_view kind,
                                                             std::string_view name) {
-    auto resolved = detail::local_read(root, kind, name).or_else([&] {
+    auto resolved = detail::local_read(root, kind, name).or_else([family, kind, name] {
         return builtin_read(family, kind, name).transform(
             [](std::string_view content) { return std::string(content); });
     });
@@ -141,8 +142,9 @@ namespace detail {
 [[nodiscard]] std::vector<std::string> kinds(const std::filesystem::path& root,
                                              std::string_view family) {
     // std::set both dedupes the union and sorts it, matching Go's map + sort.Strings.
-    std::set<std::string> seen;
-    const auto add = [&](const std::string& name) {
+    // std::less<> so a string_view can be looked up without building a string.
+    std::set<std::string, std::less<>> seen;
+    const auto add = [&root, family, &seen](const std::string& name) {
         if (name == "app" || name == "test" || name == "project") {
             return;
         }
@@ -193,7 +195,7 @@ namespace detail {
                                                              std::string_view kind,
                                                              const std::filesystem::path& dst) {
     return detail::create_dir(dst)
-        .and_then([&] { return detail::kind_files(family, kind); })
+        .and_then([family, kind] { return detail::kind_files(family, kind); })
         .and_then([&dst](const std::vector<BuiltinFile>& files) {
             return error::for_each(files, [&dst](const BuiltinFile& file) {
                 return detail::write_file(dst / file.name, file.content);

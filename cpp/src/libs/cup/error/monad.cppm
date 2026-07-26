@@ -54,8 +54,8 @@ template <typename T>
 template <typename Item, typename Range, typename Step>
 [[nodiscard]] std::expected<std::vector<Item>, Error> collect(Range&& range, Step step) {
     std::expected<std::vector<Item>, Error> gathered{std::in_place};
-    for (auto&& element : range) {
-        gathered = std::move(gathered).and_then([&](std::vector<Item> items) {
+    for (auto&& element : std::forward<Range>(range)) {
+        gathered = std::move(gathered).and_then([&step, &element](std::vector<Item> items) {
             return step(element).transform([&items](Item item) {
                 items.push_back(std::move(item));
                 return std::move(items);
@@ -70,8 +70,8 @@ template <typename Item, typename Range, typename Step>
 template <typename Range, typename Step>
 [[nodiscard]] std::expected<void, Error> for_each(Range&& range, Step step) {
     std::expected<void, Error> done;
-    for (auto&& element : range) {
-        done = std::move(done).and_then([&] { return step(element); });
+    for (auto&& element : std::forward<Range>(range)) {
+        done = std::move(done).and_then([&step, &element] { return step(element); });
     }
     return done;
 }

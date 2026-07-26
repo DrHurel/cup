@@ -47,6 +47,10 @@ struct DockerImage {
     // Spelled out rather than `= default`: GCC 16 segfaults in
     // module_state::mangle(bool) when serialising a defaulted friend
     // operator== for this struct as part of a module interface.
+    //
+    // Sonar's "use =default" is deliberately left unsuppressed, so the issue
+    // stays open as the reminder to revisit this — and drop the workaround —
+    // once the GCC bug is fixed.
     friend bool operator==(const DockerImage& lhs, const DockerImage& rhs) {
         return lhs.name == rhs.name && lhs.base == rhs.base && lhs.version == rhs.version &&
                lhs.hash == rhs.hash && lhs.is_default == rhs.is_default;
@@ -71,38 +75,54 @@ struct DockerConfig {
     // nullptr when none is configured (projects created before the [docker] table
     // existed). Go returns (*DockerImage, bool); a null pointer carries the same
     // information without the second return.
-    [[nodiscard]] const DockerImage* default_image() const {
-        for (const auto& image : images) {
+    [[nodiscard]] const DockerImage* default_image() const { return seek_default(*this); }
+    [[nodiscard]] DockerImage* default_image() { return seek_default(*this); }
+
+    // find returns the image with the given name, or nullptr if the project
+    // defines no such build image.
+    [[nodiscard]] const DockerImage* find(std::string_view name) const {
+        return seek_named(*this, name);
+    }
+    [[nodiscard]] DockerImage* find(std::string_view name) { return seek_named(*this, name); }
+
+    // empty reports whether the table would serialise to nothing, which is when
+    // cup.toml leaves `[docker]` out entirely.
+    [[nodiscard]] bool empty() const { return registry.empty() && images.empty(); }
+
+private:
+    // The two lookups above are each written once here rather than as a const
+    // version plus a const_cast off it. Self deduces the caller's constness, so
+    // the pointer that comes back is const exactly when the config is — no
+    // qualification is ever cast away, and the null case picks up the same
+    // pointer type from images.data().
+    //
+    // Private member *functions* leave the aggregate alone: registry and images
+    // are still public non-static data members, so DockerConfig{.registry = ...}
+    // keeps working.
+    //
+    // The return type is spelled as a trailing decltype rather than deduced: the
+    // callers above sit earlier in the class, and a deduced `auto*` is not
+    // available to them ("use of ... before deduction of 'auto'").
+    template <typename Self>
+    [[nodiscard]] static auto seek_default(Self& self) -> decltype(self.images.data()) {
+        for (auto& image : self.images) {
             if (image.is_default) {
                 return &image;
             }
         }
         return nullptr;
     }
-    [[nodiscard]] DockerImage* default_image() {
-        // const_cast off the const overload: the object is non-const here, so the
-        // pointer it hands back was never really const.
-        return const_cast<DockerImage*>(
-            static_cast<const DockerConfig&>(*this).default_image());
-    }
 
-    // find returns the image with the given name, or nullptr if the project
-    // defines no such build image.
-    [[nodiscard]] const DockerImage* find(std::string_view name) const {
-        for (const auto& image : images) {
+    template <typename Self>
+    [[nodiscard]] static auto seek_named(Self& self, std::string_view name)
+        -> decltype(self.images.data()) {
+        for (auto& image : self.images) {
             if (image.name == name) {
                 return &image;
             }
         }
         return nullptr;
     }
-    [[nodiscard]] DockerImage* find(std::string_view name) {
-        return const_cast<DockerImage*>(static_cast<const DockerConfig&>(*this).find(name));
-    }
-
-    // empty reports whether the table would serialise to nothing, which is when
-    // cup.toml leaves `[docker]` out entirely.
-    [[nodiscard]] bool empty() const { return registry.empty() && images.empty(); }
 };
 
 // CompilerConfig is the `[compiler]` table in cup.toml: the minimum compiler major

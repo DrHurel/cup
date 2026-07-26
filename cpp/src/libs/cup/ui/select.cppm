@@ -139,8 +139,9 @@ void redraw_final(std::span<const std::string> options, std::size_t cursor) {
     while (true) {
         // An abort propagates; an unusable answer just loops. text() has already
         // applied the default, so a bare Enter arrives here as "1".
-        auto choice = text("choice number?", "1").transform(
-            [&](const std::string& answer) { return parse_choice(answer, options.size()); });
+        auto choice = text("choice number?", "1").transform([options](const std::string& answer) {
+            return parse_choice(answer, options.size());
+        });
         if (!choice.has_value()) {
             return std::unexpected(std::move(choice).error());
         }

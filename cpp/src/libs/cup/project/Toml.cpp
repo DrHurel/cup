@@ -33,8 +33,8 @@ namespace {
     out.push_back('"');
     for (const char c : s) {
         switch (c) {
-            case '"': out += "\\\""; break;
-            case '\\': out += "\\\\"; break;
+            case '"': out += R"(\")"; break;
+            case '\\': out += R"(\\)"; break;
             case '\b': out += "\\b"; break;
             case '\t': out += "\\t"; break;
             case '\n': out += "\\n"; break;
@@ -43,10 +43,13 @@ namespace {
             default: {
                 const auto uc = static_cast<unsigned char>(c);
                 if (uc < 0x20 || uc == 0x7f) {
+                    // Divided rather than shifted-and-masked: the value is a
+                    // character being spelled out in hex, not a byte being taken
+                    // apart, and /16 and %16 say exactly that.
                     constexpr std::string_view kHex = "0123456789abcdef";
-                    out += "\\u00";
-                    out.push_back(kHex[(uc >> 4) & 0xF]);
-                    out.push_back(kHex[uc & 0xF]);
+                    out += R"(\u00)";
+                    out.push_back(kHex[uc / 16]);
+                    out.push_back(kHex[uc % 16]);
                 } else {
                     out.push_back(c);
                 }
@@ -127,8 +130,10 @@ template <typename T, typename Field>
         return {};
     }
     return bind<int>(*compiler, "gcc", out.gcc)
-        .and_then([&] { return bind<int>(*compiler, "clang", out.clang); })
-        .and_then([&] { return bind<std::string>(*compiler, "verify_image", out.verify_image); });
+        .and_then([compiler, &out] { return bind<int>(*compiler, "clang", out.clang); })
+        .and_then([compiler, &out] {
+            return bind<std::string>(*compiler, "verify_image", out.verify_image);
+        });
 }
 
 // read_image decodes one [[docker.image]] entry.
@@ -139,11 +144,11 @@ template <typename T, typename Field>
     }
     DockerImage image;
     return bind<std::string>(*entry, "name", image.name)
-        .and_then([&] { return bind<std::string>(*entry, "base", image.base); })
-        .and_then([&] { return bind<int>(*entry, "version", image.version); })
-        .and_then([&] { return bind<std::string>(*entry, "hash", image.hash); })
+        .and_then([entry, &image] { return bind<std::string>(*entry, "base", image.base); })
+        .and_then([entry, &image] { return bind<int>(*entry, "version", image.version); })
+        .and_then([entry, &image] { return bind<std::string>(*entry, "hash", image.hash); })
         // The TOML key stays "default"; the field cannot, since that is a keyword.
-        .and_then([&] { return bind<bool>(*entry, "default", image.is_default); })
+        .and_then([entry, &image] { return bind<bool>(*entry, "default", image.is_default); })
         .transform([&image] { return std::move(image); });
 }
 
@@ -154,7 +159,7 @@ template <typename T, typename Field>
     if (docker == nullptr) {
         return {};
     }
-    return bind<std::string>(*docker, "registry", out.registry).and_then([&] {
+    return bind<std::string>(*docker, "registry", out.registry).and_then([docker, &out] {
         const auto* images = (*docker)["image"].as_array();
         if (images == nullptr) {
             return std::expected<void, error::Error>{};
@@ -264,14 +269,16 @@ std::expected<Config, error::Error> parse_config(std::string_view text) {
     return parse_table(text).and_then([](const toml::table& tbl) {
         Config cfg;
         return bind<std::string>(tbl, "name", cfg.name)
-            .and_then([&] { return bind<std::string>(tbl, "cup_version", cfg.cup_version); })
-            .and_then([&] { return bind<int>(tbl, "cpp_standard", cfg.cpp_standard); })
+            .and_then(
+                [&tbl, &cfg] { return bind<std::string>(tbl, "cup_version", cfg.cup_version); })
+            .and_then([&tbl, &cfg] { return bind<int>(tbl, "cpp_standard", cfg.cpp_standard); })
             // Left as nullopt when the key is absent — the whole point of the
             // tri-state; see bind on why one helper covers that too.
-            .and_then([&] { return bind<bool>(tbl, "std_module", cfg.std_module); })
-            .and_then([&] { return bind<std::string>(tbl, "build_tool", cfg.build_tool); })
-            .and_then([&] { return read_compiler(tbl, cfg.compiler); })
-            .and_then([&] { return read_docker(tbl, cfg.docker); })
+            .and_then([&tbl, &cfg] { return bind<bool>(tbl, "std_module", cfg.std_module); })
+            .and_then(
+                [&tbl, &cfg] { return bind<std::string>(tbl, "build_tool", cfg.build_tool); })
+            .and_then([&tbl, &cfg] { return read_compiler(tbl, cfg.compiler); })
+            .and_then([&tbl, &cfg] { return read_docker(tbl, cfg.docker); })
             .transform([&cfg] { return std::move(cfg); });
     });
 }
@@ -289,8 +296,7 @@ std::expected<void, error::Error> write_config(const std::filesystem::path& root
 
 std::expected<Project, error::Error> find_from(const std::filesystem::path& start) {
     for (std::filesystem::path dir = start;;) {
-        std::error_code ec;
-        if (std::filesystem::exists(dir / kMarker, ec)) {
+        if (std::error_code ec; std::filesystem::exists(dir / kMarker, ec)) {
             return load_project(dir);
         }
         // parent_path() of a root ("/") is itself, and of a bare relative name is
