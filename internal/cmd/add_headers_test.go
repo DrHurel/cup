@@ -75,3 +75,53 @@ func TestAddFileToHeaderLib(t *testing.T) {
 	assertFile(t, filepath.Join(libDir, "vector.cpp"), "")
 	assertFile(t, filepath.Join(libDir, "math.hpp"), "#include \"vector.h\"")
 }
+
+// Under Make the same extension writes the component's sources and the lib's own
+// aggregator, but no CMakeLists: the .cpp is found by path, so no shared build file
+// is touched.
+func TestAddFileToHeaderLibMakeCompiled(t *testing.T) {
+	proj := newMakeProject(t, 17)
+	makefileBefore := readFile(t, filepath.Join(proj.Root, "Makefile"))
+	feed(t, "math\n1\n\n")
+	if err := addLib(proj); err != nil {
+		t.Fatalf("addLib(make): %v", err)
+	}
+	libDir := filepath.Join(proj.Src(), "libs", "math")
+
+	// what=file(1), filename, kind=class(1), symbol default.
+	feed(t, "1\nvector\n1\n\n")
+	if err := extendLib(proj, libDir); err != nil {
+		t.Fatalf("extendLib(make): %v", err)
+	}
+	assertFile(t, filepath.Join(libDir, "vector.h"), "namespace")
+	assertFile(t, filepath.Join(libDir, "vector.cpp"), "")
+	assertFile(t, filepath.Join(libDir, "math.hpp"), "#include \"vector.h\"")
+	if isFile(filepath.Join(libDir, "CMakeLists.txt")) {
+		t.Error("Make lib extension should not have written a CMakeLists.txt")
+	}
+	if readFile(t, filepath.Join(proj.Root, "Makefile")) != makefileBefore {
+		t.Error("root Makefile was modified by extending a lib under Make")
+	}
+}
+
+// A header-only component under Make compiles nothing, so the extension writes just
+// the .hpp and the aggregator include.
+func TestAddFileToHeaderLibMakeHeaderOnly(t *testing.T) {
+	proj := newMakeProject(t, 17)
+	feed(t, "meta\n5\n\n")
+	if err := addLib(proj); err != nil {
+		t.Fatalf("addLib(make): %v", err)
+	}
+	libDir := filepath.Join(proj.Src(), "libs", "meta")
+
+	// what=file(1), filename, kind=templated-class(5), symbol default.
+	feed(t, "1\ntraits\n5\n\n")
+	if err := extendLib(proj, libDir); err != nil {
+		t.Fatalf("extendLib(make): %v", err)
+	}
+	assertFile(t, filepath.Join(libDir, "traits.hpp"), "namespace")
+	assertFile(t, filepath.Join(libDir, "meta.hpp"), "#include \"traits.hpp\"")
+	if isFile(filepath.Join(libDir, "traits.cpp")) {
+		t.Error("header-only kind should not produce a .cpp")
+	}
+}

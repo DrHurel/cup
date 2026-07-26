@@ -23,6 +23,22 @@ import (
 // library — created STATIC when its first component is compiled, or promoted from
 // INTERFACE when a compiled component is later added (see EnsureHeaderLibStatic).
 
+// headerComponent is one component of a header lib — the identifiers needed to
+// render its sources and wire them into the lib. Threaded through the helpers
+// below in place of a long, easily-transposed parameter list.
+type headerComponent struct {
+	kind      string // component template kind (class, interface, enum, …)
+	libDir    string // directory of the lib the component belongs to
+	lib       string // the lib target's name
+	filename  string // component file stem, without extension
+	symbol    string // primary symbol the component declares
+	namespace string
+	compiled  bool // a .h/.cpp pair, rather than a single header-only .hpp
+}
+
+// header is the component's header file name (<filename>.h or <filename>.hpp).
+func (c headerComponent) header() string { return c.filename + headerExt(c.compiled) }
+
 // createHeaderLibAt scaffolds a new header lib target and registers it with its
 // parent. Mirrors createLibAt for the headers family.
 func createHeaderLibAt(proj *project.Project, name, targetDir, parentCmake string) error {
@@ -34,16 +50,23 @@ func createHeaderLibAt(proj *project.Project, name, targetDir, parentCmake strin
 	if err != nil {
 		return err
 	}
-	namespace := scaffold.PathToNamespace(proj.Src(), targetDir)
-	compiled := tmpl.IsCompiled(proj.Root, "headers", kind)
-	ext := headerExt(compiled)
+	// A lib's first component is named after its primary symbol.
+	c := headerComponent{
+		kind:      kind,
+		libDir:    targetDir,
+		lib:       name,
+		filename:  symbol,
+		symbol:    symbol,
+		namespace: scaffold.PathToNamespace(proj.Src(), targetDir),
+		compiled:  tmpl.IsCompiled(proj.Root, "headers", kind),
+	}
 	primary := filepath.Join(targetDir, name+".hpp")
 	cmake := filepath.Join(targetDir, cmakelists)
 
-	if err := renderComponent(proj, kind, targetDir, symbol, namespace, compiled); err != nil {
+	if err := renderComponent(proj, c); err != nil {
 		return err
 	}
-	if err := writeHeaderAggregator(proj, primary, symbol+ext); err != nil {
+	if err := writeHeaderAggregator(proj, primary, c.header()); err != nil {
 		return err
 	}
 	// Under Make the root Makefile finds this lib's .cpp sources by path and
@@ -61,7 +84,7 @@ func createHeaderLibAt(proj *project.Project, name, targetDir, parentCmake strin
 	if _, err := scaffold.WriteFile(proj.Root, cmake, cml); err != nil {
 		return err
 	}
-	if err := scaffold.AddHeaderSource(proj.Root, cmake, symbol+ext); err != nil {
+	if err := scaffold.AddHeaderSource(proj.Root, cmake, c.header()); err != nil {
 		return err
 	}
 	return scaffold.EnsureLine(proj.Root, parentCmake, fmt.Sprintf("add_subdirectory(%s)", name))
@@ -94,25 +117,25 @@ func addFileToHeaderLib(proj *project.Project, libDir string) error {
 	if err != nil {
 		return err
 	}
-	name := filepath.Base(libDir)
-	namespace := scaffold.PathToNamespace(proj.Src(), libDir)
-	primary := filepath.Join(libDir, name+".hpp")
-	compiled := tmpl.IsCompiled(proj.Root, "headers", kind)
-	ext := headerExt(compiled)
-
-	src, err := scaffold.Render(proj.Root, "headers", kind, sourceTmpl(compiled),
-		stdVars(proj, "symbol", symbol, "namespace", namespace))
-	if err != nil {
-		return err
+	c := headerComponent{
+		kind:      kind,
+		libDir:    libDir,
+		lib:       filepath.Base(libDir),
+		filename:  filename,
+		symbol:    symbol,
+		namespace: scaffold.PathToNamespace(proj.Src(), libDir),
+		compiled:  tmpl.IsCompiled(proj.Root, "headers", kind),
 	}
-	wrote, err := scaffold.WriteFile(proj.Root, filepath.Join(libDir, filename+ext), src)
+
+	wrote, err := writeComponentHeader(proj, c)
 	if err != nil || !wrote {
 		return err
 	}
-	if err := wireHeaderComponent(proj, kind, libDir, name, filename, symbol, namespace, compiled); err != nil {
+	if err := wireHeaderComponent(proj, c); err != nil {
 		return err
 	}
-	return scaffold.EnsureLine(proj.Root, primary, fmt.Sprintf("#include \"%s\"", filename+ext))
+	primary := filepath.Join(libDir, c.lib+".hpp")
+	return scaffold.EnsureLine(proj.Root, primary, fmt.Sprintf("#include \"%s\"", c.header()))
 }
 
 // wireHeaderComponent registers a component whose header has just been written with
@@ -120,70 +143,73 @@ func addFileToHeaderLib(proj *project.Project, libDir string) error {
 // component's .cpp is written and then discovered by path — so the only shared file
 // the caller touches is the lib's own aggregator header. Under CMake the .cpp is
 // additionally listed among the lib's PRIVATE sources, alongside the header.
-func wireHeaderComponent(proj *project.Project, kind, libDir, name, filename, symbol, namespace string, compiled bool) error {
+func wireHeaderComponent(proj *project.Project, c headerComponent) error {
 	if proj.UsesMake() {
-		if !compiled {
+		if !c.compiled {
 			return nil
 		}
-		return writeCompiledSource(proj, kind, libDir, filename, symbol, namespace)
+		return writeCompiledSource(proj, c)
 	}
-	if compiled {
-		if err := addCompiledDefinition(proj, kind, libDir, name, filename, symbol, namespace); err != nil {
+	if c.compiled {
+		if err := addCompiledDefinition(proj, c); err != nil {
 			return err
 		}
 	}
-	return scaffold.AddHeaderSource(proj.Root, filepath.Join(libDir, cmakelists), filename+headerExt(compiled))
+	return scaffold.AddHeaderSource(proj.Root, filepath.Join(c.libDir, cmakelists), c.header())
 }
 
 // addCompiledDefinition wires a compiled component's definition into an existing
 // lib: it promotes the lib to STATIC (a no-op if already so), writes the
 // <filename>.cpp, and lists it among the lib's PRIVATE sources.
-func addCompiledDefinition(proj *project.Project, kind, libDir, name, filename, symbol, namespace string) error {
-	cmake := filepath.Join(libDir, cmakelists)
-	if err := scaffold.EnsureHeaderLibStatic(proj.Root, cmake, name); err != nil {
+func addCompiledDefinition(proj *project.Project, c headerComponent) error {
+	cmake := filepath.Join(c.libDir, cmakelists)
+	if err := scaffold.EnsureHeaderLibStatic(proj.Root, cmake, c.lib); err != nil {
 		return err
 	}
-	if err := writeCompiledSource(proj, kind, libDir, filename, symbol, namespace); err != nil {
+	if err := writeCompiledSource(proj, c); err != nil {
 		return err
 	}
 	return scaffold.EnsureLine(proj.Root, cmake,
-		fmt.Sprintf("target_sources(%s PRIVATE %s.cpp)", name, filename))
+		fmt.Sprintf("target_sources(%s PRIVATE %s.cpp)", c.lib, c.filename))
 }
 
 // writeCompiledSource renders and writes a compiled component's <filename>.cpp
-// definition (its .h counterpart is written by the caller). Build-system-agnostic
-// — shared by the CMake wiring in addCompiledDefinition and the Make path.
-func writeCompiledSource(proj *project.Project, kind, libDir, filename, symbol, namespace string) error {
-	cpp, err := scaffold.Render(proj.Root, "headers", kind, "source.cpp.tmpl",
-		stdVars(proj, "symbol", symbol, "namespace", namespace, "header", filename+".h"))
+// definition (its .h counterpart is written by writeComponentHeader).
+// Build-system-agnostic — shared by the CMake wiring in addCompiledDefinition and
+// the Make path.
+func writeCompiledSource(proj *project.Project, c headerComponent) error {
+	cpp, err := scaffold.Render(proj.Root, "headers", c.kind, "source.cpp.tmpl",
+		stdVars(proj, "symbol", c.symbol, "namespace", c.namespace, "header", c.filename+".h"))
 	if err != nil {
 		return err
 	}
-	_, err = scaffold.WriteFile(proj.Root, filepath.Join(libDir, filename+".cpp"), cpp)
+	_, err = scaffold.WriteFile(proj.Root, filepath.Join(c.libDir, c.filename+".cpp"), cpp)
 	return err
+}
+
+// writeComponentHeader renders and writes a component's header: the declaration
+// header (<filename>.h) for a compiled kind, the whole header (<filename>.hpp) for
+// a header-only one. Reports whether the file was written — a declined overwrite
+// reports false with a nil error.
+func writeComponentHeader(proj *project.Project, c headerComponent) (bool, error) {
+	src, err := scaffold.Render(proj.Root, "headers", c.kind, sourceTmpl(c.compiled),
+		stdVars(proj, "symbol", c.symbol, "namespace", c.namespace))
+	if err != nil {
+		return false, err
+	}
+	return scaffold.WriteFile(proj.Root, filepath.Join(c.libDir, c.header()), src)
 }
 
 // renderComponent writes a lib's first component: for a compiled kind the
 // <symbol>.h / <symbol>.cpp pair, for a header-only kind the single <symbol>.hpp.
-func renderComponent(proj *project.Project, kind, targetDir, symbol, namespace string, compiled bool) error {
-	src, err := scaffold.Render(proj.Root, "headers", kind, sourceTmpl(compiled),
-		stdVars(proj, "symbol", symbol, "namespace", namespace))
-	if err != nil {
+func renderComponent(proj *project.Project, c headerComponent) error {
+	if _, err := writeComponentHeader(proj, c); err != nil {
 		return err
 	}
-	if _, err := scaffold.WriteFile(proj.Root, filepath.Join(targetDir, symbol+headerExt(compiled)), src); err != nil {
-		return err
-	}
-	if !compiled {
+	if !c.compiled {
 		return nil
 	}
-	cpp, err := scaffold.Render(proj.Root, "headers", kind, "source.cpp.tmpl",
-		stdVars(proj, "symbol", symbol, "namespace", namespace, "header", symbol+".h"))
-	if err != nil {
-		return err
-	}
-	_, err = scaffold.WriteFile(proj.Root, filepath.Join(targetDir, symbol+".cpp"), cpp)
-	return err
+	return writeCompiledSource(proj, c)
 }
 
 // headerExt is the component header extension: .h for a compiled component (paired

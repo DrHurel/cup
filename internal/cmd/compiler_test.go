@@ -177,6 +177,87 @@ func TestResolveVerifyImage(t *testing.T) {
 	}
 }
 
+// With an image to verify against, `cup compiler verify` compiles the project in a
+// container: the tree is mounted read-only and the build runs container-local, so
+// the check cannot mutate or litter the project.
+func TestVerifyCompilerRunsDocker(t *testing.T) {
+	proj := newProject(t, 20)
+	proj.Config.Compiler.VerifyImage = "cup-cxx:latest"
+	calls := stubRunCommand(t, nil)
+
+	if err := verifyCompiler(proj, nil); err != nil {
+		t.Fatalf("verifyCompiler: %v", err)
+	}
+	if len(*calls) != 1 {
+		t.Fatalf("shelled-out commands = %v, want one docker run", *calls)
+	}
+	for _, want := range []string{"docker run --rm", proj.Root + ":/work:ro", "cup-cxx:latest", "cmake -S /work"} {
+		if !strings.Contains((*calls)[0], want) {
+			t.Errorf("docker invocation %q missing %q", (*calls)[0], want)
+		}
+	}
+}
+
+// A build that fails inside the verify image surfaces as an error.
+func TestVerifyCompilerDockerFails(t *testing.T) {
+	proj := newProject(t, 20)
+	stubRunCommand(t, func(string, []string) error { return os.ErrPermission })
+
+	if err := verifyCompiler(proj, []string{"--image", "cxx:15"}); err == nil {
+		t.Error("verifyCompiler with a failing build = nil error, want error")
+	}
+}
+
+// Without an override, verification targets the project's default build image: its
+// Dockerfile is regenerated (picking up current apt dependencies) and built at
+// :latest before it is used.
+func TestResolveVerifyImageBuildsDefaultImage(t *testing.T) {
+	proj := newProjectWithImage(t, 20)
+	calls := stubRunCommand(t, nil)
+
+	got, err := resolveVerifyImage(proj, "")
+	if err != nil {
+		t.Fatalf("resolveVerifyImage: %v", err)
+	}
+	if got != "demo:latest" {
+		t.Errorf("resolveVerifyImage(default image) = %q, want demo:latest", got)
+	}
+	assertFile(t, dockerfilePath(proj, "demo"), "FROM gcc:14")
+	want := "docker build -t demo:latest " + dockerImageDir(proj, "demo")
+	if len(*calls) != 1 || (*calls)[0] != want {
+		t.Fatalf("shelled-out commands = %v, want [%q]", *calls, want)
+	}
+}
+
+// A default build image that will not build leaves the verification with no image.
+func TestResolveVerifyImageBuildFails(t *testing.T) {
+	proj := newProjectWithImage(t, 20)
+	stubRunCommand(t, func(string, []string) error { return os.ErrPermission })
+
+	if _, err := resolveVerifyImage(proj, ""); err == nil {
+		t.Error("resolveVerifyImage with a failing docker build = nil error, want error")
+	}
+}
+
+// A compiler bump whose verification build fails is rolled back: the error is
+// reported and cup.toml keeps its previous floor.
+func TestSetCompilerRestoresOnVerifyFailure(t *testing.T) {
+	proj := newProject(t, 20)
+	seedGuardedCMake(t, proj, 11, 16)
+	tomlPath := filepath.Join(proj.Root, project.Marker)
+	before, _ := os.ReadFile(tomlPath)
+	stubRunCommand(t, func(string, []string) error { return os.ErrPermission })
+
+	// --image gives the verification a target, so it reaches (and fails at) docker.
+	if err := setCompiler(proj, []string{"gcc", "12", "--image", "cxx:15"}); err == nil {
+		t.Fatal("setCompiler with a failing verification = nil error, want error")
+	}
+	after, _ := os.ReadFile(tomlPath)
+	if string(before) != string(after) {
+		t.Errorf("cup.toml not restored after a failed verification:\nbefore:\n%s\nafter:\n%s", before, after)
+	}
+}
+
 func TestHasVerifyTarget(t *testing.T) {
 	proj := newProject(t, 20)
 	if hasVerifyTarget(proj, "") {

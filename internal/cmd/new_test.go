@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -147,6 +148,30 @@ func TestRunNewEndToEnd(t *testing.T) {
 	if err := RunNew([]string{"proj"}); err == nil {
 		t.Error("RunNew(existing) = nil error, want 'already exists'")
 	}
+}
+
+// A failing `git init` is reported but does not fail the bootstrap: the project is
+// scaffolded either way and the user can initialise the repository themselves.
+func TestRunNewSurvivesGitInitFailure(t *testing.T) {
+	restore := scaffold.NewestCompilersFunc
+	scaffold.NewestCompilersFunc = func() (int, int) { return 15, 20 }
+	t.Cleanup(func() { scaffold.NewestCompilersFunc = restore })
+	withStubTags(t, []string{"14"}, nil)
+	stubRunCommand(t, func(name string, _ []string) error {
+		if name == "git" {
+			return os.ErrPermission
+		}
+		return nil
+	})
+
+	dir := t.TempDir()
+	t.Chdir(dir)
+	feed(t, "1\n1\n1\n1\ngcc\n1\n")
+	if err := RunNew([]string{"proj"}); err != nil {
+		t.Fatalf("RunNew with a failing git init: %v", err)
+	}
+	assertFile(t, filepath.Join(dir, "proj", "cup.toml"), "proj")
+	assertFile(t, filepath.Join(dir, "proj", "CMakeLists.txt"), "proj")
 }
 
 // RunNew with the Make build tool scaffolds a discovery-based Makefile instead of

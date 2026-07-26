@@ -152,6 +152,39 @@ func TestRunDockerDispatch(t *testing.T) {
 	}
 }
 
+// `cup docker new` reaches dockerNew through the dispatcher and scaffolds the image
+// against the project found from the working directory.
+func TestRunDockerNew(t *testing.T) {
+	proj := newProject(t, 20)
+	t.Chdir(proj.Root)
+	withStubTags(t, []string{"trixie-slim"}, nil)
+	feed(t, "runtime\ndebian\n1\n") // image name, repo, tag choice
+	if err := RunDocker([]string{"new"}); err != nil {
+		t.Fatalf("RunDocker(new): %v", err)
+	}
+	assertFile(t, dockerfilePath(proj, "runtime"), "FROM debian:trixie-slim")
+}
+
+// A repository with more tags than the menu shows is capped to the newest 20, so
+// the picker stays usable.
+func TestChooseImageTagCapsLongTagLists(t *testing.T) {
+	var tags []string
+	for i := 0; i < 25; i++ {
+		tags = append(tags, fmt.Sprintf("v%d", i))
+	}
+	withStubTags(t, tags, nil)
+
+	// Option 20 is the last one offered; a 21st choice would fall outside the menu.
+	feed(t, "20\n")
+	got, err := chooseImageTag("gcc")
+	if err != nil {
+		t.Fatalf("chooseImageTag: %v", err)
+	}
+	if got != "v19" {
+		t.Errorf("chooseImageTag = %q, want v19 (the 20th and last offered tag)", got)
+	}
+}
+
 // buildImage fails cleanly (before invoking docker) when a non-default image has
 // no Dockerfile on disk.
 func TestBuildImageMissingDockerfile(t *testing.T) {
@@ -279,6 +312,64 @@ func TestPushImageDockerFails(t *testing.T) {
 	img.Version = 1
 	if err := pushImage(proj, "docker.io/me", img); err == nil {
 		t.Error("pushImage(docker fails) = nil error, want error")
+	}
+}
+
+// A push that fails after a successful retag aborts there, leaving the remaining
+// tags unpushed.
+func TestPushImageDockerPushFails(t *testing.T) {
+	proj := newProjectWithImage(t, 23)
+	calls := stubRunCommand(t, func(_ string, args []string) error {
+		if len(args) > 0 && args[0] == "push" {
+			return fmt.Errorf("docker boom")
+		}
+		return nil
+	})
+	img := &proj.Config.Docker.Images[0]
+	img.Version = 1
+
+	if err := pushImage(proj, "docker.io/me", img); err == nil {
+		t.Fatal("pushImage(push fails) = nil error, want error")
+	}
+	// Stopped at the first failing push: the `latest` pair never ran.
+	if len(*calls) != 2 {
+		t.Errorf("docker calls = %v, want the version tag + its failed push only", *calls)
+	}
+}
+
+// Cancelling the registry prompt aborts the push without saving a registry.
+func TestDockerPushRegistryPromptCancelled(t *testing.T) {
+	proj := newProjectWithImage(t, 23)
+	proj.Config.Docker.Images[0].Version = 1
+	stubRunCommand(t, nil)
+	feed(t, "") // EOF at the prompt
+
+	if err := dockerPush(proj, []string{"demo"}); err == nil {
+		t.Fatal("dockerPush with a cancelled registry prompt = nil error, want error")
+	}
+	if proj.Config.Docker.Registry != "" {
+		t.Errorf("registry = %q, want it left unset", proj.Config.Docker.Registry)
+	}
+}
+
+// Cancelling either prompt of `cup docker new` leaves the project untouched.
+func TestDockerNewCancelled(t *testing.T) {
+	proj := newProject(t, 20)
+	withStubTags(t, []string{"trixie-slim"}, nil)
+
+	feed(t, "") // EOF at the image-name prompt
+	if err := dockerNew(proj); err == nil {
+		t.Error("dockerNew with a cancelled name prompt = nil error, want error")
+	}
+	feed(t, "runtime\n") // name given, then EOF at the base-image repo prompt
+	if err := dockerNew(proj); err == nil {
+		t.Error("dockerNew with a cancelled base-image prompt = nil error, want error")
+	}
+	if len(proj.Config.Docker.Images) != 0 {
+		t.Errorf("cancelled dockerNew registered images: %+v", proj.Config.Docker.Images)
+	}
+	if isFile(dockerfilePath(proj, "runtime")) {
+		t.Error("cancelled dockerNew wrote a Dockerfile")
 	}
 }
 
