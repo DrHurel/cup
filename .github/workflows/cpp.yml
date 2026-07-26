@@ -84,8 +84,14 @@ jobs:
       - name: Collect coverage
         working-directory: cpp
         run: |
+          # `source` is not optional: some .gcda name Catch2 headers by a path that
+          # does not resolve in the build tree (build/Coverage/src/catch2/reporters/
+          # catch_reporter_sonarqube.hpp), and geninfo treats an unopenable source as a
+          # hard error. Excluding _deps at capture also skips ~100 Catch2 objects that
+          # the --remove below would drop anyway.
           lcov --capture --directory build/Coverage --output-file coverage.info \
-               --gcov-tool gcov-14 --ignore-errors empty,mismatch
+               --gcov-tool gcov-14 --exclude '*/_deps/*' \
+               --ignore-errors empty,mismatch,source
           # Third-party and generated sources are not ours to cover.
           lcov --remove coverage.info \
                '/usr/*' '*/build/*/_deps/*' '*/build/*/generated/*' \
