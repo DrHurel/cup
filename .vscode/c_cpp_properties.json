@@ -1,0 +1,31 @@
+{
+    "configurations": [
+        {
+            "name": "cup-cpp (gcc-14, C++23 named modules)",
+            // compile_commands.json is the authority: cup's CMake sets
+            // CMAKE_EXPORT_COMPILE_COMMANDS, so every translation unit is described
+            // with the exact flags it is built with. Configure once
+            // (`cmake -G Ninja -B build/Debug -DCMAKE_BUILD_TYPE=Debug` in cpp/, or
+            // CMake Tools) and IntelliSense follows the build.
+            "compileCommands": "${workspaceFolder}/cpp/build/Debug/compile_commands.json",
+            // Fallback for files the database does not cover yet — a .cppm that has
+            // not been added to a target, and the embedded-template header generated
+            // by cmake/EmbedTemplates.cmake.
+            "includePath": [
+                "${workspaceFolder}/cpp/src/**",
+                "${workspaceFolder}/cpp/build/Debug/generated/**"
+            ],
+            "defines": [],
+            // GCC 14 is the project's floor and the only local compiler that builds
+            // named modules; g++-13 on this machine cannot.
+            "compilerPath": "/usr/bin/g++-14",
+            "compilerArgs": [
+                "-std=c++23"
+            ],
+            "cStandard": "c23",
+            "cppStandard": "c++23",
+            "intelliSenseMode": "linux-gcc-x64"
+        }
+    ],
+    "version": 4
+}
