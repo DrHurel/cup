@@ -28,7 +28,7 @@ func family(proj *project.Project) string {
 // stdVars builds the variable map passed to scaffold.Render: the per-standard
 // values (std_lib, std_number, hello, …) merged with the given key/value pairs.
 func stdVars(proj *project.Project, kv ...string) map[string]string {
-	vars := scaffold.StdVars(proj.Config.Standard())
+	vars := scaffold.StdVars(proj.Config.Standard(), proj.Config.UsesStdModule())
 	for i := 0; i+1 < len(kv); i += 2 {
 		vars[kv[i]] = kv[i+1]
 	}
@@ -197,7 +197,7 @@ func createLibAt(proj *project.Project, name, targetDir, parentCmake string) err
 // aggregator over one partition. A declined overwrite leaves the existing primary
 // untouched.
 func writePrimaryAggregator(proj *project.Project, primary, module, partition string) error {
-	content := primaryPreamble(proj.Config.Standard()) + fmt.Sprintf("export module %s;\n", module)
+	content := primaryPreamble(proj.Config) + fmt.Sprintf("export module %s;\n", module)
 	wrote, err := scaffold.WriteFile(proj.Root, primary, content)
 	if err != nil || !wrote {
 		return err
@@ -222,11 +222,11 @@ func writePrimaryAggregator(proj *project.Project, primary, module, partition st
 // of a module may carry <print>, <format> or <iostream> before GCC 14 breaks in
 // the same way, so the aggregator must not spend that budget on itself.
 //
-// C++23 projects reach the standard library through `import std;` rather than a
-// global module fragment, so their partitions have none and their aggregator needs
-// none either.
-func primaryPreamble(std int) string {
-	if !scaffold.UsesStdModule(std) {
+// A project on the std module reaches the standard library through `import std;`
+// rather than a global module fragment, so its partitions have none and its
+// aggregator needs none either.
+func primaryPreamble(cfg project.Config) string {
+	if !cfg.UsesStdModule() {
 		return "module;\n#include <string>\n"
 	}
 	return ""

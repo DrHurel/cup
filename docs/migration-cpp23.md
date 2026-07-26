@@ -13,7 +13,7 @@ possible demo.
 | | Target |
 |---|---|
 | Language | C++23 (`-std=c++23`, no GNU extensions) |
-| Structure | Named modules (`.cppm`), **no `import std;` yet** |
+| Structure | Named modules (`.cppm`), **no `import std;` yet** — `cpp_standard = 23` + `std_module = false` |
 | Compiler floor | GCC 14 / Clang 18 (with libstdc++ 14) |
 | Build | CMake 3.28+, **Ninja only** |
 | Release binary | musl-static, built in `alpine:3.22` |
@@ -90,19 +90,33 @@ valuable risk-reduction step in the plan.
 **0.3 Tag the Go implementation.** `git tag v0.1.0-go` and push. This is the
 fallback if the port stalls.
 
-### Known gap: C++23 without `import std;`
+### Closed gap: C++23 without `import std;`
 
-`scaffold.StdVars` (`internal/scaffold/std.go:62-74`) emits `import std;`
-unconditionally for std ≥ 23, and `scaffold.MinCompilers`
-(`internal/scaffold/compiler.go:26`) maps 23 → GCC 15. Our target is C++23 +
-named modules + GCC 14, which cup cannot currently express.
+`scaffold.StdVars` used to emit `import std;` unconditionally for std ≥ 23, so
+C++23 + named modules + GCC 14 — our target — was not expressible, and the plan
+was to scaffold as C++20 and hand-edit the standard up. That left `cup.toml`
+recording a standard the project did not build at, which is a lie in the one file
+that is supposed to describe the project, and it aimed `cup add` at the wrong
+source shape as soon as the standard was corrected.
 
-**Do not add this feature to the Go cup** — we are about to delete it. Instead,
-scaffold as C++20 and adjust once by hand (Phase 1.2). But record it: *"C++23
-without the std module"* is a genuine product gap, and the C++ cup should ship
-it as a first-class option. Same for a `cup embed <dir>` command — the CMake
-codegen that replaces `//go:embed` is hand-written in Phase 1.3 and is a feature
-other C++ CLI projects would want.
+So cup.toml now carries the two decisions separately:
+
+```toml
+cpp_standard = 23
+std_module = false     # named modules, global module fragment, GCC 14 floor
+```
+
+`std_module` is read by `project.Config.UsesStdModule` and honoured by `cup add`
+(source shape) and `cup new` (the CMake floor and the `CMAKE_CXX_MODULE_STD`
+opt-in). Unset, it follows the standard, so nothing else changes: C++23 still
+means `import std;` and C++20 still means a global module fragment. `cup new` has
+no picker for it yet — `cpp/cup.toml` sets it by hand — and `scaffold.MinCompilers`
+still maps 23 → GCC 15, which is only a *default*: cpp/ pins GCC 14 / Clang 18 in
+`[compiler]`, and pinned floors win.
+
+Still open: a `cup embed <dir>` command. The CMake codegen that replaces
+`//go:embed` is hand-written in Phase 1.3 and is a feature other C++ CLI projects
+would want.
 
 ---
 
@@ -117,8 +131,10 @@ cup new cup --std 20 --build-tool cmake     # modules family, global module frag
 C++20 is deliberate: it yields the modules template family with the global
 module fragment shape we want, rather than `import std;`.
 
-**1.2 Raise the language, keep the shape.** One hand edit to the root
-`CMakeLists.txt`: `cxx_std_20` → `cxx_std_23`. Then set the floor through cup:
+**1.2 Raise the language, keep the shape.** Record both decisions in `cup.toml`
+— `cpp_standard = 23` and `std_module = false` — and set the standard in the root
+`CMakeLists.txt` (`set(CMAKE_CXX_STANDARD 23)`, which is what cup would now
+render). Then set the floor through cup:
 
 ```sh
 cup compiler set gcc 14
@@ -198,6 +214,17 @@ plain structs with explicit `to_toml`/`from_toml`. Watch round-tripping: cup
 rewrites `cup.toml` in place, so comment and ordering preservation matters more
 than it looks.
 
+Two fields are **tri-state, not bool/int**, and the distinction is load-bearing:
+`[compiler]`'s `gcc`/`clang` (`*int` — unset means "no floor", not zero) and
+`std_module` (`*bool` — unset means "follow the standard", which is not the same
+as `false`). In C++ they are `std::optional<int>` / `std::optional<bool>`, and
+`to_toml` must **omit** an empty one rather than write a default. Getting this
+wrong is silent: an `std_module = false` dropped on rewrite flips cup's own
+project onto `import std;`, and cup rewrites `cup.toml` on every
+`cup compiler set`. `Config::uses_std_module()` carries the fallback
+(`std_module` when set, else `standard() >= 23`) — port it as a method, not as an
+`if` at each call site; there are three.
+
 **Milestone:** `cup.ui`, `cup.tmpl`, `cup.project` build as modules and their
 Catch2 suites pass. This is the point at which you know GCC 14 modules are
 workable — if they are not, this is the cheapest place to discover it.
@@ -222,6 +249,13 @@ Two notes:
   shipping without libcurl is a supported degradation, not a regression.
 - **`:releases` concurrency**: the two goroutines + `WaitGroup` at
   `compiler_releases.go:64-67` become two `std::async` + `.get()`.
+- **`:std`** is where cup's own configuration lives, so port it faithfully:
+  `std_vars(std, std_module)` takes the std-module decision as an argument rather
+  than deriving it from the standard, and has *three* module-family cases — C++23
+  with `import std;`, C++23 without it (a `module;` + `#include <print>` prelude,
+  still `std::println`), and C++20 (`<iostream>` prelude, `std::cout`). The middle
+  one is what builds cup itself; if it regresses, `cup add` starts writing sources
+  cup's own GCC 14 floor cannot compile.
 
 **Milestone:** the C++ `cup.scaffold` reproduces every golden tree from Phase
 0.2 byte for byte.
@@ -265,7 +299,11 @@ Do not switch on vibes. The handover is gated on four checks:
    on cup's own source tree, green.
 3. **Cross-validation**: a harness runs both binaries across the full
    `cup new` matrix (std × build tool × family) and diffs the results. Zero
-   diffs.
+   diffs. The matrix does not reach `std_module` — no picker sets it — so add one
+   case outside it: scaffold C++23, set `std_module = false` in `cup.toml`, run
+   the `cup add` flows, diff. That is cup's own configuration, so both binaries
+   must agree on it before the handover
+   (`TestAddWithoutStdModule` in `internal/cmd/add_test.go` is the Go side).
 4. **Coverage parity**: the Catch2 suite covers at least what the Go suite did
    (Sonar gate stays green).
 
@@ -325,6 +363,8 @@ the Go binary shippable at every commit.
 **Sonar/coverage rework.** `coverage.out` → gcov/lcov is a known quantity but
 easy to leave until it blocks the merge. Do it in Phase 1.5, not Phase 6.
 
-**Scope creep into new features.** The two identified gaps — C++23-without-`import std;`
-and `cup embed` — are tempting. Both are post-relay work. The migration ships
+**Scope creep into new features.** Of the two identified gaps, only
+C++23-without-`import std;` landed in the Go cup, and only because the alternative
+was a `cup.toml` that misreported the project's own standard (one field, one
+predicate, no new pickers). `cup embed` stays post-relay. The migration ships
 behaviour parity, nothing more.

@@ -33,12 +33,6 @@ func ParseStd(s string) (int, error) {
 // cup scaffolds classic headers instead.
 func UsesModules(std int) bool { return std >= 20 }
 
-// UsesStdModule reports whether std reaches the standard library through
-// `import std;` rather than a global module fragment of #includes. It is the
-// condition behind StdVars' std_import / std_prelude split, named so callers that
-// only need to know *which* form applies do not have to inspect those strings.
-func UsesStdModule(std int) bool { return std >= 23 }
-
 // Family maps a standard onto its template family: "modules" for C++20/23,
 // "headers" for C++11/14/17. The family selects which embedded template subtree
 // (files/<family>/…) cup renders from.
@@ -54,24 +48,35 @@ func Family(std int) string {
 //
 //   - std_number  the bare standard, for `cxx_std_<n>` (e.g. "23")
 //   - std_lib     standard-library access from a plain translation unit
-//     (app/test): `import std;` on C++23, `#include <iostream>` below
+//     (app/test): `import std;` with the std module, a #include without it
 //   - hello       the statement printing the app's greeting
 //
 // Module-interface (.cppm) templates additionally use std_prelude (a global
 // module fragment carrying standard-library #includes, placed before the module
-// declaration — set only on C++20) and std_import (`import std;`, placed after
-// the declaration — set only on C++23).
-func StdVars(std int) map[string]string {
+// declaration) and std_import (`import std;`, placed after the declaration).
+// Exactly one of the two is set, chosen by stdModule — the project's
+// project.Config.UsesStdModule. It is a parameter rather than a function of std
+// because C++23 can be built either way: `import std;` needs GCC 15 and CMake
+// 3.30, so a C++23 project on a GCC 14 floor keeps the global module fragment
+// while still getting C++23's std::println.
+func StdVars(std int, stdModule bool) map[string]string {
 	vars := map[string]string{
 		"std_number": strconv.Itoa(std),
 	}
 	switch {
-	case std >= 23:
+	case std >= 23 && stdModule:
 		vars["std_lib"] = "import std;"
 		vars["std_prelude"] = ""
 		// Surrounding blank lines so the .cppm greeting matches C++23's original
 		// spacing; empty std_prelude leaves nothing before the module decl.
 		vars["std_import"] = "\nimport std;\n"
+		vars["hello"] = `std::println("Hello from {{name}}!");`
+	case std >= 23:
+		// C++23 without the std module: std::println comes from <print>, which is
+		// the standard header — only the *module* form of the library is missing.
+		vars["std_lib"] = "#include <print>"
+		vars["std_prelude"] = "module;\n#include <print>\n"
+		vars["std_import"] = ""
 		vars["hello"] = `std::println("Hello from {{name}}!");`
 	case std >= 20:
 		vars["std_lib"] = "#include <iostream>"

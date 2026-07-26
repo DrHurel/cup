@@ -87,8 +87,8 @@ func TestFamily(t *testing.T) {
 }
 
 func TestStdVars(t *testing.T) {
-	// C++23: import std, no prelude, blank-line-wrapped std_import.
-	v23 := StdVars(23)
+	// C++23 on the std module: import std, no prelude, blank-line-wrapped std_import.
+	v23 := StdVars(23, true)
 	if v23["std_number"] != "23" {
 		t.Errorf("StdVars(23) std_number = %q, want %q", v23["std_number"], "23")
 	}
@@ -105,8 +105,28 @@ func TestStdVars(t *testing.T) {
 		t.Errorf("StdVars(23) hello = %q, want std::println greeting", v23["hello"])
 	}
 
+	// C++23 without the std module (GCC 14): the standard's std::println through a
+	// global-module-fragment <print>, and never an `import std;`.
+	v23noStd := StdVars(23, false)
+	if v23noStd["std_number"] != "23" {
+		t.Errorf("StdVars(23, false) std_number = %q, want %q", v23noStd["std_number"], "23")
+	}
+	if v23noStd["std_lib"] != "#include <print>" {
+		t.Errorf("StdVars(23, false) std_lib = %q, want #include <print>", v23noStd["std_lib"])
+	}
+	if v23noStd["std_prelude"] != "module;\n#include <print>\n" {
+		t.Errorf("StdVars(23, false) std_prelude = %q, want a <print> prelude", v23noStd["std_prelude"])
+	}
+	if v23noStd["std_import"] != "" {
+		t.Errorf("StdVars(23, false) std_import = %q, want empty", v23noStd["std_import"])
+	}
+	if !strings.Contains(v23noStd["hello"], "std::println") {
+		t.Errorf("StdVars(23, false) hello = %q, want std::println greeting", v23noStd["hello"])
+	}
+
 	// C++20: modules but no import std — uses a global-module-fragment prelude.
-	v20 := StdVars(20)
+	// The std module is not available at all, so the flag cannot turn it on.
+	v20 := StdVars(20, true)
 	if v20["std_number"] != "20" {
 		t.Errorf("StdVars(20) std_number = %q, want %q", v20["std_number"], "20")
 	}
@@ -124,7 +144,7 @@ func TestStdVars(t *testing.T) {
 	}
 
 	// C++17 (and below): classic headers, no module-only keys.
-	v17 := StdVars(17)
+	v17 := StdVars(17, false)
 	if v17["std_number"] != "17" {
 		t.Errorf("StdVars(17) std_number = %q, want %q", v17["std_number"], "17")
 	}

@@ -16,7 +16,8 @@
 
 `cup` scaffolds and manages C++ projects from a single Go binary. Pick a
 standard when you create a project and `cup` scaffolds to match it: **C++20/23**
-projects are built from C++ modules (`import std;` on C++23), while
+projects are built from C++ modules (`import std;` on C++23 unless you opt out —
+see [Toolchain requirements](#toolchain-requirements)), while
 **C++11/14/17** projects use classic headers. Either way the projects it creates
 are *thin* — just source, a build file, and a `cup.toml` marker. All build and
 scaffolding logic lives in `cup` itself, so one installed binary manages every
@@ -123,7 +124,7 @@ cup completion <install|bash|zsh|fish>  install or print shell completion
 
 ```
 myproj/
-  cup.toml                 project marker (name, cup version, cpp_standard, [compiler])
+  cup.toml                 project marker (name, cup version, cpp_standard, std_module, [compiler])
   CMakeLists.txt           per-mode build tree, coverage; import std on C++23
   .gitignore
   src/apps/<name>/         executables (one file per app dir)
@@ -159,6 +160,22 @@ Requirements scale with the standard you pick:
 - **C++20** named modules need **CMake ≥ 3.28**.
 - **C++11/14/17** have no special requirements beyond a conforming compiler.
 
+Named modules and `import std;` are separate capabilities, so C++23 does not have
+to cost you GCC 15: setting
+
+```toml
+cpp_standard = 23
+std_module = false
+```
+
+in `cup.toml` keeps the **CMake 3.28 / GCC 14** requirements of C++20 modules while
+`cup add` scaffolds C++23 sources — a `module;` + `#include <print>` global module
+fragment instead of `import std;`, with `std::println` and `std::expected`
+available as ordinary standard-library features. Leave `std_module` out and the
+standard decides (C++23 uses the std module, C++20 cannot). `cup new` has no
+prompt for it yet, so set it by hand; cup's own C++ port under `cpp/` is built
+this way.
+
 On an older toolchain `cup build` stops at CMake's version check — scaffolding
 still works everywhere.
 
@@ -173,7 +190,9 @@ out of `cup.toml` and unenforced. The version picker offers the range from the
 standard's baseline up to the newest released compiler:
 
 - The **baseline** (lowest version that can build a standard — C++23 needs GCC
-  15 for `import std;`) is a small curated map of stable language facts.
+  15 for `import std;`) is a small curated map of stable language facts. It is
+  only the *default*: a floor already pinned in `cup.toml` wins, so a C++23
+  project with `std_module = false` can sit on GCC 14.
 - The **ceiling** is discovered live from the GNU gcc release index and the LLVM
   GitHub releases, so the list never goes stale as new compilers ship. The
   result is cached (~/.cache/cup) for a week and falls back to a bundled default

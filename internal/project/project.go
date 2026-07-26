@@ -21,10 +21,15 @@ const (
 )
 
 // Config is the parsed contents of cup.toml.
+//
+// StdModule overrides how a modules-family project reaches the standard library;
+// see UsesStdModule. It is a pointer so "unset" (follow the standard) is
+// distinguishable from an explicit `std_module = false`.
 type Config struct {
 	Name        string         `toml:"name"`
 	CupVersion  string         `toml:"cup_version,omitempty"`
 	CppStandard int            `toml:"cpp_standard,omitempty"`
+	StdModule   *bool          `toml:"std_module,omitempty"`
 	BuildTool   string         `toml:"build_tool,omitempty"`
 	Compiler    CompilerConfig `toml:"compiler,omitempty"`
 	Docker      DockerConfig   `toml:"docker,omitempty"`
@@ -123,6 +128,23 @@ func (c Config) Standard() int {
 		return 23
 	}
 	return c.CppStandard
+}
+
+// UsesStdModule reports whether the project reaches the standard library through
+// `import std;` rather than through a global module fragment of #includes. It is
+// the condition behind the std_import / std_prelude split in scaffolded sources.
+//
+// cup.toml's std_module decides when set; otherwise the standard does, since C++23
+// is the first with a std module. The two are separate capabilities in practice:
+// named modules need GCC 14, while `import std;` additionally needs GCC 15 and
+// CMake 3.30 behind an experimental gate. A project that wants C++23 on a GCC 14
+// floor — cup's own C++ port under cpp/ — records `std_module = false`, and cup
+// keeps scaffolding global-module-fragment sources at the newer standard.
+func (c Config) UsesStdModule() bool {
+	if c.StdModule != nil {
+		return *c.StdModule
+	}
+	return c.Standard() >= 23
 }
 
 // Tool returns the project's build tool, defaulting to CMake when unset so
