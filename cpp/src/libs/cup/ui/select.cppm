@@ -129,7 +129,8 @@ void redraw_final(std::span<const std::string> options, std::size_t cursor) {
         std::size_t index = 0;
         const std::string& s = *choice;
         const auto [ptr, ec] = std::from_chars(s.data(), s.data() + s.size(), index);
-        if (ec == std::errc{} && index >= 1 && index <= options.size()) {
+        if (ec == std::errc{} && ptr == s.data() + s.size() && index >= 1 &&
+            index <= options.size()) {
             return options[index - 1];
         }
     }
