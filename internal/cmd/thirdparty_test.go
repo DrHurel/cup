@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"cup/internal/project"
 )
 
 // registerDownload is pure filesystem work (no external tools), so the full
@@ -270,5 +272,192 @@ func TestRemoveDownloadAbsent(t *testing.T) {
 	}
 	if err := removeDownload(proj, "ghost"); err == nil {
 		t.Error("removeDownload(absent) = nil error, want error")
+	}
+}
+
+// --- Make backend ----------------------------------------------------------
+
+// registerSubmodule under Make records the dependency in third_party.mk (not a
+// CMakeLists), tagged so discoverDependencies and removeSubmodule can round-trip
+// it, and never touches the root Makefile.
+func TestRegisterSubmoduleMake(t *testing.T) {
+	proj := newMakeProject(t, 17)
+	makefileBefore := readFile(t, filepath.Join(proj.Root, "Makefile"))
+	stubRunCommand(t, nil)
+	feed(t, "cli11\nhttps://github.com/CLIUtils/CLI11\nv2.4.1\n")
+	if err := registerSubmodule(proj); err != nil {
+		t.Fatalf("registerSubmodule(make): %v", err)
+	}
+	mk := thirdPartyMake(proj)
+	assertFile(t, mk, "CUP_TP_INCLUDES += -Ithird_party/cli11")
+	assertFile(t, mk, cupDepMarker+" "+methodSubmodule+" cli11")
+	if isFile(thirdPartyCmake(proj)) {
+		t.Error("Make register wrote a third_party/CMakeLists.txt")
+	}
+	if readFile(t, filepath.Join(proj.Root, "Makefile")) != makefileBefore {
+		t.Error("root Makefile was modified by register under Make")
+	}
+
+	deps := discoverDependencies(proj)
+	if len(deps) != 1 || deps[0].name != "cli11" || deps[0].method != methodSubmodule {
+		t.Fatalf("discoverDependencies(make) = %+v", deps)
+	}
+
+	stubRunCommand(t, nil)
+	if err := removeSubmodule(proj, "cli11"); err != nil {
+		t.Fatalf("removeSubmodule(make): %v", err)
+	}
+	if deps := discoverDependencies(proj); len(deps) != 0 {
+		t.Errorf("dependency still registered after removeSubmodule(make): %+v", deps)
+	}
+}
+
+// Make has no FetchContent, so a download registration vendors the sources with a
+// shallow clone and exposes their headers through third_party.mk; unregistering
+// drops both the directory and the marker line.
+func TestRegisterDownloadMake(t *testing.T) {
+	proj := newMakeProject(t, 17)
+	makefileBefore := readFile(t, filepath.Join(proj.Root, "Makefile"))
+	calls := stubRunCommand(t, nil)
+	feed(t, "fmt\nhttps://github.com/fmtlib/fmt\n10.2.1\n")
+	if err := registerDownload(proj); err != nil {
+		t.Fatalf("registerDownload(make): %v", err)
+	}
+
+	want := "git clone --depth 1 --branch 10.2.1 https://github.com/fmtlib/fmt third_party/fmt"
+	if len(*calls) != 1 || (*calls)[0] != want {
+		t.Fatalf("shelled-out commands = %v, want [%q]", *calls, want)
+	}
+	mk := thirdPartyMake(proj)
+	assertFile(t, mk, "CUP_TP_INCLUDES += -Ithird_party/fmt")
+	assertFile(t, mk, cupDepMarker+" "+methodDownload+" fmt")
+	if isFile(thirdPartyCmake(proj)) {
+		t.Error("Make register wrote a third_party/CMakeLists.txt")
+	}
+	if readFile(t, filepath.Join(proj.Root, "Makefile")) != makefileBefore {
+		t.Error("root Makefile was modified by register under Make")
+	}
+
+	deps := discoverDependencies(proj)
+	if len(deps) != 1 || deps[0].name != "fmt" || deps[0].method != methodDownload {
+		t.Fatalf("discoverDependencies(make) = %+v", deps)
+	}
+
+	// The vendored sources stand in for what the clone would have produced.
+	vendored := proj.Path("third_party", "fmt")
+	if err := os.MkdirAll(vendored, 0o755); err != nil {
+		t.Fatalf("seed vendored dir: %v", err)
+	}
+	if err := removeDownload(proj, "fmt"); err != nil {
+		t.Fatalf("removeDownload(make): %v", err)
+	}
+	if isDir(vendored) {
+		t.Error("removeDownload(make) left the vendored sources behind")
+	}
+	if deps := discoverDependencies(proj); len(deps) != 0 {
+		t.Errorf("dependency still registered after removeDownload(make): %+v", deps)
+	}
+}
+
+// A clone that fails under Make aborts the registration before third_party.mk is
+// touched, so a retry does not have to unwind a half-registered dependency.
+func TestRegisterDownloadMakeCloneFails(t *testing.T) {
+	proj := newMakeProject(t, 17)
+	stubRunCommand(t, func(name string, _ []string) error {
+		if name == "git" {
+			return os.ErrPermission
+		}
+		return nil
+	})
+	feed(t, "fmt\nhttps://github.com/fmtlib/fmt\n10.2.1\n")
+
+	if err := registerDownload(proj); err == nil {
+		t.Fatal("registerDownload with a failing clone = nil error, want error")
+	}
+	if isFile(thirdPartyMake(proj)) {
+		t.Error("failed clone still wrote third_party/third_party.mk")
+	}
+}
+
+// A failing apt install aborts the registration rather than recording a package
+// the image would then fail to install.
+func TestRegisterAptMakeInstallFails(t *testing.T) {
+	proj := newMakeProject(t, 17)
+	stubRunCommand(t, func(string, []string) error { return os.ErrPermission })
+	feed(t, "libfmt-dev\ny\n")
+
+	if err := registerApt(proj); err == nil {
+		t.Fatal("registerApt with a failing install = nil error, want error")
+	}
+	if deps := discoverDependencies(proj); len(deps) != 0 {
+		t.Errorf("failed install still registered %+v", deps)
+	}
+}
+
+// Unregistering a download that was never registered reports it rather than
+// silently succeeding.
+func TestRemoveDownloadMakeAbsent(t *testing.T) {
+	proj := newMakeProject(t, 17)
+	feed(t, "cli11\nhttps://github.com/CLIUtils/CLI11\nv2.4.1\n")
+	stubRunCommand(t, nil)
+	if err := registerDownload(proj); err != nil {
+		t.Fatalf("registerDownload(make): %v", err)
+	}
+	if err := removeDownload(proj, "fmt"); err == nil {
+		t.Error("removeDownload(make) of an unregistered dependency = nil error, want error")
+	}
+}
+
+// registerApt under Make tags third_party.mk with the package (no find_package)
+// and regenerates the default build image's Dockerfile to install it.
+func TestRegisterAptMakeSyncsImage(t *testing.T) {
+	proj := newMakeProject(t, 17)
+	proj.Config.Docker = project.DockerConfig{Images: []project.DockerImage{
+		{Name: "demo", Base: "gcc:14", Default: true},
+	}}
+	t.Chdir(proj.Root)
+	feed(t, "libboost-dev\nn\n") // apt package, decline install
+	if err := registerApt(proj); err != nil {
+		t.Fatalf("registerApt(make): %v", err)
+	}
+	assertFile(t, thirdPartyMake(proj), aptMarker+" libboost-dev")
+	if pkgs := aptPackages(proj); len(pkgs) != 1 || pkgs[0] != "libboost-dev" {
+		t.Fatalf("aptPackages(make) = %v, want [libboost-dev]", pkgs)
+	}
+	assertFile(t, dockerfilePath(proj, "demo"), "libboost-dev")
+
+	if err := removeApt(proj, "libboost-dev"); err != nil {
+		t.Fatalf("removeApt(make): %v", err)
+	}
+	b, _ := os.ReadFile(dockerfilePath(proj, "demo"))
+	if strings.Contains(string(b), "libboost-dev") {
+		t.Errorf("Dockerfile still installs libboost-dev after unregister:\n%s", b)
+	}
+}
+
+// Accepting the install prompt under Make runs apt-get for the package, and the
+// registration reads back out of third_party.mk as an apt dependency.
+func TestRegisterAptMakeInstalls(t *testing.T) {
+	proj := newMakeProject(t, 17)
+	calls := stubRunCommand(t, nil)
+	feed(t, "libfmt-dev\ny\n") // apt package, accept install
+	if err := registerApt(proj); err != nil {
+		t.Fatalf("registerApt(make): %v", err)
+	}
+	want := "sudo apt-get install -y libfmt-dev"
+	if len(*calls) != 1 || (*calls)[0] != want {
+		t.Fatalf("shelled-out commands = %v, want [%q]", *calls, want)
+	}
+	deps := discoverDependencies(proj)
+	if len(deps) != 1 || deps[0].name != "libfmt-dev" || deps[0].method != methodApt {
+		t.Fatalf("discoverDependencies(make) = %+v, want one apt dep libfmt-dev", deps)
+	}
+}
+
+// With no third_party.mk written yet there is nothing to discover.
+func TestDiscoverMakeDependenciesNoFile(t *testing.T) {
+	proj := newMakeProject(t, 17)
+	if deps := discoverDependencies(proj); len(deps) != 0 {
+		t.Errorf("discoverDependencies(no third_party.mk) = %+v, want none", deps)
 	}
 }

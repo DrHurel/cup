@@ -13,11 +13,19 @@ import (
 // Marker is the file whose presence identifies a cup project root.
 const Marker = "cup.toml"
 
+// Build tools cup can scaffold and drive. CMake is the default; Make targets the
+// headers family (C++11/14/17) with discovery-based Makefiles.
+const (
+	ToolCMake = "cmake"
+	ToolMake  = "make"
+)
+
 // Config is the parsed contents of cup.toml.
 type Config struct {
 	Name        string         `toml:"name"`
 	CupVersion  string         `toml:"cup_version,omitempty"`
 	CppStandard int            `toml:"cpp_standard,omitempty"`
+	BuildTool   string         `toml:"build_tool,omitempty"`
 	Compiler    CompilerConfig `toml:"compiler,omitempty"`
 	Docker      DockerConfig   `toml:"docker,omitempty"`
 }
@@ -117,6 +125,15 @@ func (c Config) Standard() int {
 	return c.CppStandard
 }
 
+// Tool returns the project's build tool, defaulting to CMake when unset so
+// projects created before build_tool existed keep building with CMake.
+func (c Config) Tool() string {
+	if c.BuildTool == "" {
+		return ToolCMake
+	}
+	return c.BuildTool
+}
+
 // Project is a located cup project.
 type Project struct {
 	Root   string
@@ -129,6 +146,9 @@ func (p *Project) Src() string { return filepath.Join(p.Root, "src") }
 // UsesModules reports whether the project's standard supports C++ modules
 // (C++20 and later); below that, cup scaffolds classic headers.
 func (p *Project) UsesModules() bool { return p.Config.Standard() >= 20 }
+
+// UsesMake reports whether the project builds with Make rather than CMake.
+func (p *Project) UsesMake() bool { return p.Config.Tool() == ToolMake }
 
 // Path joins parts onto the project root.
 func (p *Project) Path(parts ...string) string {

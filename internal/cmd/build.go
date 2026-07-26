@@ -29,8 +29,14 @@ func buildDir(proj *project.Project, mode string) string {
 	return proj.Path("build", mode)
 }
 
-// Configure generates the CMake build system for mode under build/<mode>.
+// Configure generates the CMake build system for mode under build/<mode>. Make
+// projects need no configure step (the Makefile discovers components at build
+// time), so it is a no-op there.
 func Configure(proj *project.Project, mode string) error {
+	if proj.UsesMake() {
+		ui.Skipped("make needs no configure step")
+		return nil
+	}
 	return runCommand(proj.Root, "cmake",
 		"-G", "Ninja",
 		"-DCMAKE_BUILD_TYPE="+mode,
@@ -41,6 +47,9 @@ func Configure(proj *project.Project, mode string) error {
 
 // Build configures (if needed) then compiles mode.
 func Build(proj *project.Project, mode string) error {
+	if proj.UsesMake() {
+		return makeBuild(proj, mode)
+	}
 	if err := Configure(proj, mode); err != nil {
 		return err
 	}
@@ -71,6 +80,9 @@ func RunTest(args []string) error {
 		return err
 	}
 	mode, _ := parseMode(args)
+	if proj.UsesMake() {
+		return makeTest(proj, mode)
+	}
 	if err := Build(proj, mode); err != nil {
 		return err
 	}

@@ -22,7 +22,12 @@ func RunNew(args []string) error {
 		return err
 	}
 
-	std, err := chooseStandard()
+	tool, err := chooseBuildTool()
+	if err != nil {
+		return err
+	}
+
+	std, err := chooseStandard(tool)
 	if err != nil {
 		return err
 	}
@@ -51,6 +56,7 @@ func RunNew(args []string) error {
 		Name:        name,
 		CupVersion:  version,
 		CppStandard: std,
+		BuildTool:   tool,
 		Compiler:    project.NewCompilerConfig(gcc, clang),
 		Docker: project.DockerConfig{Images: []project.DockerImage{
 			{Name: strings.ToLower(name), Base: base, Default: true},
@@ -78,15 +84,42 @@ func RunNew(args []string) error {
 	ui.Success("done.")
 	ui.Next(fmt.Sprintf("cd %s", name))
 	ui.Next("cup add app     # scaffold your first executable")
-	ui.Next("cup build       # configure + compile (Debug)")
+	ui.Next("cup build       # compile (Debug)")
 	ui.Next("cup docker build   # build the toolchain image")
 	return nil
+}
+
+// chooseBuildTool asks which build system to scaffold. CMake (the default) drives
+// C++11–23 (headers or modules); Make targets the headers family (C++11/14/17)
+// with discovery-based Makefiles that stay conflict-free on rebase.
+func chooseBuildTool() (string, error) {
+	return ui.Select("build system?",
+		[]string{project.ToolCMake, project.ToolMake}, project.ToolCMake)
+}
+
+// standardChoices returns the C++ standards offered for a build tool: all of them
+// for CMake, only the headers family (C++11/14/17) for Make, which cannot robustly
+// build C++20/23 modules.
+func standardChoices(tool string) []int {
+	if tool != project.ToolMake {
+		return scaffold.Standards
+	}
+	var out []int
+	for _, s := range scaffold.Standards {
+		if !scaffold.UsesModules(s) {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // scaffoldProjectTree writes the files a fresh project needs beyond its cup.toml
 // marker: the root CMakeLists, .gitignore, the empty src/{apps,libs} CMakeLists,
 // and the default build image's Dockerfile.
 func scaffoldProjectTree(proj *project.Project, std, gcc, clang int) error {
+	if proj.UsesMake() {
+		return scaffoldMakeTree(proj, std)
+	}
 	root, family := proj.Root, scaffold.Family(std)
 	rootCmake, err := scaffold.Render(root, family, "project", "CMakeLists.txt.tmpl", map[string]string{
 		"name":             proj.Config.Name,
@@ -122,6 +155,43 @@ func scaffoldProjectTree(proj *project.Project, std, gcc, clang int) error {
 	return syncDefaultBuildImage(proj)
 }
 
+// scaffoldMakeTree writes a Make-backed project's files: the discovery-based root
+// Makefile, a Make-flavoured .gitignore, the empty src/{apps,libs} directories the
+// Makefile globs over, and the default build image's Dockerfile. No per-directory
+// build files are written — the Makefile finds components by path — so `cup add`
+// never has to touch a shared file.
+func scaffoldMakeTree(proj *project.Project, std int) error {
+	root := proj.Root
+	makefile, err := scaffold.Render(root, project.ToolMake, "project", "Makefile.tmpl", map[string]string{
+		"name":       proj.Config.Name,
+		"std_number": fmt.Sprintf("%d", std),
+	})
+	if err != nil {
+		return err
+	}
+	if _, err := scaffold.WriteFile(root, filepath.Join(root, "Makefile"), makefile); err != nil {
+		return err
+	}
+
+	gitignore, err := scaffold.Render(root, project.ToolMake, "project", "gitignore.tmpl", nil)
+	if err != nil {
+		return err
+	}
+	if _, err := scaffold.WriteFile(root, filepath.Join(root, ".gitignore"), gitignore); err != nil {
+		return err
+	}
+
+	// src/apps and src/libs need to exist so the Makefile's find(1)-based discovery
+	// has somewhere to look; unlike CMake they carry no CMakeLists.txt.
+	for _, sub := range []string{"apps", "libs"} {
+		if err := os.MkdirAll(filepath.Join(proj.Src(), sub), 0o755); err != nil {
+			return err
+		}
+	}
+
+	return syncDefaultBuildImage(proj)
+}
+
 // resolveProjectName takes the project name from args or prompts for it, then
 // validates it as a C++ identifier.
 func resolveProjectName(args []string) (string, error) {
@@ -142,11 +212,13 @@ func resolveProjectName(args []string) (string, error) {
 }
 
 // chooseStandard asks which C++ standard the project targets, defaulting to the
-// newest. The choice decides everything downstream: C++20/23 scaffold modules,
-// C++11/14/17 scaffold classic headers.
-func chooseStandard() (int, error) {
-	labels := make([]string, len(scaffold.Standards))
-	for i, s := range scaffold.Standards {
+// newest offered for the build tool. The choice decides everything downstream:
+// C++20/23 scaffold modules, C++11/14/17 scaffold classic headers. Make offers
+// only the headers standards (see standardChoices).
+func chooseStandard(tool string) (int, error) {
+	stds := standardChoices(tool)
+	labels := make([]string, len(stds))
+	for i, s := range stds {
 		labels[i] = scaffold.StdLabel(s)
 	}
 	choice, err := ui.Select("c++ standard?", labels, labels[0])

@@ -18,9 +18,31 @@
 standard when you create a project and `cup` scaffolds to match it: **C++20/23**
 projects are built from C++ modules (`import std;` on C++23), while
 **C++11/14/17** projects use classic headers. Either way the projects it creates
-are *thin* — just source, `CMakeLists.txt`, and a `cup.toml` marker. All build
-and scaffolding logic lives in `cup` itself, so one installed binary manages
-every project.
+are *thin* — just source, a build file, and a `cup.toml` marker. All build and
+scaffolding logic lives in `cup` itself, so one installed binary manages every
+project.
+
+## Build systems
+
+`cup new` asks which build system to scaffold, recorded as `build_tool` in
+`cup.toml`:
+
+- **`cmake`** (default) — drives every standard, C++11 through C++23 (headers or
+  modules). `cup add` registers each component with `add_subdirectory(...)` in a
+  parent `CMakeLists.txt`.
+- **`make`** — for the many projects still built with Makefiles. Make cannot
+  robustly build C++20/23 modules, so it is offered only for the **headers
+  family (C++11/14/17)**. The generated root `Makefile` **discovers** components
+  by path (every `.cpp` under `src/libs` becomes an archive; each `src/apps/*`
+  and `src/tests/*.cpp` a binary) and generates all its rules from that list.
+
+Because the Make backend discovers components instead of listing them, `cup add`
+writes **only files inside the new component's own directory** — it never edits
+the root `Makefile`. Adding components on different branches therefore produces
+no rebase/merge conflicts in a shared build file. Objects land under
+`build/<mode>/obj`, archives under `build/<mode>/lib`, and binaries under
+`build/<mode>/bin` — the same `build/<mode>` layout as the CMake backend, so
+`cup build|run|test|clean [Debug|Release|Coverage]` work identically either way.
 
 ## Build & install
 

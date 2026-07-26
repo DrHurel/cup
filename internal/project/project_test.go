@@ -59,6 +59,30 @@ func TestUsesModules(t *testing.T) {
 	}
 }
 
+func TestConfigTool(t *testing.T) {
+	// Projects created before build_tool existed keep building with CMake.
+	if got := (Config{}).Tool(); got != ToolCMake {
+		t.Errorf("unset Tool() = %q, want %q (default)", got, ToolCMake)
+	}
+	if got := (Config{BuildTool: ToolMake}).Tool(); got != ToolMake {
+		t.Errorf("Tool() = %q, want %q", got, ToolMake)
+	}
+}
+
+func TestUsesMake(t *testing.T) {
+	cases := map[string]bool{
+		"":        false, // unset -> CMake
+		ToolCMake: false,
+		ToolMake:  true,
+	}
+	for tool, want := range cases {
+		p := &Project{Config: Config{BuildTool: tool}}
+		if got := p.UsesMake(); got != want {
+			t.Errorf("UsesMake() with build_tool=%q = %v, want %v", tool, got, want)
+		}
+	}
+}
+
 func TestSrcAndPath(t *testing.T) {
 	p := &Project{Root: filepath.FromSlash("/proj")}
 	if got, want := p.Src(), filepath.FromSlash("/proj/src"); got != want {
