@@ -16,6 +16,11 @@
 coverage.*
 *.coverprofile
 profile.cov
+# gcov leaves these wherever it is run from, and the C++ coverage report is
+# generated from the repository root (see .github/workflows/ci.yml).
+*.gcov
+*.gcda
+*.gcno
 
 # Dependency directories (remove the comment below to include it)
 # vendor/

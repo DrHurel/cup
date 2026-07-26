@@ -54,8 +54,17 @@ endif()
 
 # Coverage build: instrument with gcov so a report can be generated.
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+  set(_cup_coverage_flags "-O0 -g --coverage")
+  # -fprofile-abs-path records absolute source paths in the .gcno files, so gcov
+  # can resolve a translation unit's source from any working directory. The Sonar
+  # scan needs that: it runs gcovr from the repository root rather than from the
+  # build tree, because --root decides the paths written into the report and Sonar
+  # keys these files as cpp/src/... . GCC-only — Clang has no such flag.
+  if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    string(APPEND _cup_coverage_flags " -fprofile-abs-path")
+  endif()
   foreach(lang C CXX)
-    set(CMAKE_${lang}_FLAGS_COVERAGE "-O0 -g --coverage" CACHE STRING
+    set(CMAKE_${lang}_FLAGS_COVERAGE "${_cup_coverage_flags}" CACHE STRING
         "Flags used by the ${lang} compiler for the Coverage build" FORCE)
   endforeach()
   foreach(kind EXE SHARED MODULE)

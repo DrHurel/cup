@@ -3,9 +3,11 @@ module;
 #include <charconv>
 #include <cstddef>
 #include <expected>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 export module cup.ui:select;
 
 import :io;
@@ -59,9 +61,9 @@ void move_up(std::size_t n) {
 void render(std::span<const std::string> options, std::size_t cursor) {
     for (std::size_t i = 0; i < options.size(); ++i) {
         if (i == cursor) {
-            emit(color(bold(kCyan), "> ") + color(bold(kCyan), options[i]) + "\r\n");
+            emit(format_text("{}{}\r\n", color(bold(kCyan), "> "), color(bold(kCyan), options[i])));
         } else {
-            emit("  " + options[i] + "\r\n");
+            emit(format_text("  {}\r\n", options[i]));
         }
     }
 }
@@ -71,9 +73,10 @@ void render(std::span<const std::string> options, std::size_t cursor) {
 void redraw_final(std::span<const std::string> options, std::size_t cursor) {
     for (std::size_t i = 0; i < options.size(); ++i) {
         if (i == cursor) {
-            emit(color(bold(kGreen), "> ") + color(bold(kGreen), options[i]) + "\r\n");
+            emit(format_text("{}{}\r\n", color(bold(kGreen), "> "),
+                             color(bold(kGreen), options[i])));
         } else {
-            emit("  " + color(kGrey, options[i]) + "\r\n");
+            emit(format_text("  {}\r\n", color(kGrey, options[i])));
         }
     }
 }
@@ -81,8 +84,8 @@ void redraw_final(std::span<const std::string> options, std::size_t cursor) {
 // select_interactive drives the raw-mode arrow-key menu, starting at cursor.
 [[nodiscard]] std::expected<std::string, error::Error> select_interactive(
     std::string_view question, std::span<const std::string> options, std::size_t cursor) {
-    emit(color(bold(kCyan), "?") + " " + std::string(question) + " " +
-         color(kGrey, "(up/down, enter)") + "\r\n");
+    emit(format_text("{} {} {}\r\n", color(bold(kCyan), "?"), question,
+                     color(kGrey, "(up/down, enter)")));
     render(options, cursor);
 
     std::array<unsigned char, 3> buf{};
@@ -113,6 +116,19 @@ void redraw_final(std::span<const std::string> options, std::size_t cursor) {
     }
 }
 
+// parse_choice reads a menu answer as a 1-based index into a list of count
+// options. Anything that is not a whole number in range is nullopt — not an error,
+// but the signal to put the question again.
+[[nodiscard]] std::optional<std::size_t> parse_choice(std::string_view answer,
+                                                      std::size_t count) {
+    std::size_t index = 0;
+    const auto [ptr, ec] = std::from_chars(answer.data(), answer.data() + answer.size(), index);
+    if (ec != std::errc{} || ptr != answer.data() + answer.size() || index < 1 || index > count) {
+        return std::nullopt;
+    }
+    return index;
+}
+
 // select_numbered is the fallback for a non-terminal stdin: a numbered list read
 // from one line, so cup still works over a pipe.
 [[nodiscard]] std::expected<std::string, error::Error> select_numbered(
@@ -122,16 +138,16 @@ void redraw_final(std::span<const std::string> options, std::size_t cursor) {
         emit_numbered_line(i + 1, options[i]);
     }
     while (true) {
-        const auto choice = text("choice number?", "1");
-        if (!choice) {
-            return std::unexpected(choice.error());
+        // An abort propagates; an unusable answer just loops. text() has already
+        // applied the default, so a bare Enter arrives here as "1".
+        auto choice = text("choice number?", "1").transform([options](const std::string& answer) {
+            return parse_choice(answer, options.size());
+        });
+        if (!choice.has_value()) {
+            return std::unexpected(std::move(choice).error());
         }
-        std::size_t index = 0;
-        const std::string& s = *choice;
-        const auto [ptr, ec] = std::from_chars(s.data(), s.data() + s.size(), index);
-        if (ec == std::errc{} && ptr == s.data() + s.size() && index >= 1 &&
-            index <= options.size()) {
-            return options[index - 1];
+        if (choice->has_value()) {
+            return options[**choice - 1];
         }
     }
 }

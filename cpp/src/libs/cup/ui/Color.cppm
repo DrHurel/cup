@@ -46,12 +46,12 @@ bool set_use_color(bool enabled) {
     if (!use_color()) {
         return std::string(s);
     }
-    return std::string("\x{1b}[").append(code).append("m").append(s).append("\x{1b}[0m");
+    return format_text("\x{1b}[{}m{}\x{1b}[0m", code, s);
 }
 
 // bold builds the ";1" variant of a palette entry, used for the emphasised lines.
 [[nodiscard]] std::string bold(std::string_view code) {
-    return std::string(code) + ";1";
+    return format_text("{};1", code);
 }
 
 namespace detail {
@@ -59,7 +59,7 @@ namespace detail {
 // status prints one "  <label> <message>" line. Labels are padded to a common
 // width by their callers so the messages line up in a column.
 void status(std::string_view code, std::string_view label, std::string_view msg) {
-    emit_line("  " + color(code, label) + " " + std::string(msg));
+    emit_line(format_text("  {} {}", color(code, label), msg));
 }
 
 }  // namespace detail
