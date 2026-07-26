@@ -121,10 +121,14 @@ jobs:
       # cpp/ sonar.sources covers: before this the project's language breakdown
       # was `go=3230;yaml=112`, with no C++ in it at all.
       #
-      # *Configure* only, no `cmake --build`. The analyser wants each translation
-      # unit's compile flags and builds its own BMIs for the module units, so the
-      # generate step is all it needs — and that keeps this job cheap and keeps a
-      # broken C++ *build* out of the Go gate, which is cpp.yml's job to catch.
+      # This used to *configure* only, which was enough for the compilation
+      # database. Phase 1.5 dropped `sonar.coverage.exclusions=cpp/**`, and
+      # importing coverage means the tests have to actually run here — so the job
+      # now configures, builds and tests the Coverage tree, and one build serves
+      # both the database and the gcov data.
+      #
+      # cpp.yml still owns the *matrix* (GCC 14 floor, GCC 16 canary, musl-static);
+      # this job builds one configuration purely to feed the scanner.
       #
       # The toolchain is installed here rather than carried in from cpp.yml
       # because CFamily runs the real compiler to learn its built-in macros and
@@ -133,12 +137,12 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            g++-14 ninja-build cmake libcurl4-openssl-dev
+            g++-14 ninja-build cmake libcurl4-openssl-dev gcovr
 
       - name: Cache FetchContent dependencies
         uses: actions/cache@v4
         with:
-          path: cpp/build/Debug/_deps
+          path: cpp/build/Coverage/_deps
           key: ${{ runner.os }}-sonar-deps-${{ hashFiles('cpp/third_party/CMakeLists.txt') }}
           restore-keys: ${{ runner.os }}-sonar-deps-
 
@@ -148,7 +152,38 @@ jobs:
         env:
           CC: gcc-14
           CXX: g++-14
-        run: cmake -B build/Debug -DCMAKE_BUILD_TYPE=Debug
+        run: cmake -B build/Coverage -DCMAKE_BUILD_TYPE=Coverage
+
+      - name: Build the C++ port
+        working-directory: cpp
+        run: cmake --build build/Coverage
+
+      # Produces the .gcda files gcovr reads. Without --no-tests=ignore, so a
+      # suite that stops being discovered fails here instead of quietly reporting
+      # zero coverage and failing the gate with a far less obvious message.
+      - name: Test the C++ port
+        working-directory: cpp
+        run: ctest --test-dir build/Coverage --output-on-failure
+
+      # Run from the repository root on purpose: --root decides the paths written
+      # into the report, and Sonar keys C++ files as cpp/src/... . Rooting this at
+      # cpp/ would emit src/... and match nothing, which shows up as 0% coverage
+      # rather than as an error.
+      #
+      # gcov-14 must match the compiler; the default `gcov` is GCC 13 on this
+      # runner and rejects the notes files. Vendored, generated and test sources
+      # are excluded to match sonar.exclusions.
+      - name: Generate the C++ coverage report
+        run: |
+          gcovr --root . \
+                --gcov-executable gcov-14 \
+                --exclude '.*/_deps/.*' \
+                --exclude '.*/generated/.*' \
+                --exclude 'cpp/src/tests/.*' \
+                --sonarqube cpp/coverage.xml \
+                cpp/build/Coverage
+          echo "--- coverage.xml head ---"
+          head -5 cpp/coverage.xml
 
       - name: SonarCloud scan
         uses: SonarSource/sonarqube-scan-action@22918119ff8e1ca75a623e15c8296b6ea4fbe28f # v8.2.1
