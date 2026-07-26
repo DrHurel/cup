@@ -113,6 +113,45 @@ TEST_CASE("a project-local directory adds a new kind", "[tmpl][override][kinds]"
     REQUIRE(contains(cup::tmpl::kinds(root, "headers"), "widget"));
 }
 
+// Not in the Go suite: its TestKinds only ever pointed at directories that were
+// already valid kinds. .cup/templates is a directory the user edits by hand, so what
+// `cup add` offers has to survive whatever is sitting in there — and an entry that is
+// not a usable kind must be left out rather than offered and then failing to scaffold.
+TEST_CASE("kinds ignores project template entries that are not usable kinds",
+          "[tmpl][kinds][override]") {
+    const TempDir root;
+    const std::filesystem::path templates(cup::tmpl::kProjectTemplateDir);
+    // A plain file where a kind directory would go — a stray note, or a .gitkeep.
+    root.write(templates / "notes.md", "not a kind");
+    // And a directory carrying no component source for this family: real enough to
+    // walk into, but nothing `cup add lib` could scaffold from.
+    root.write(templates / "empty-kind" / "README.md", "no source here");
+
+    const auto kinds = cup::tmpl::kinds(root, "headers");
+    REQUIRE_FALSE(contains(kinds, "notes.md"));
+    REQUIRE_FALSE(contains(kinds, "empty-kind"));
+    // The built-ins are still there: an unusable entry is skipped, not fatal.
+    REQUIRE(contains(kinds, "class"));
+}
+
+// is_compiled is what decides whether `cup add lib` scaffolds a .cpp alongside the
+// header and lists it in the component's CMakeLists. Half a pair is not a compiled
+// kind — treating it as one writes a CMakeLists naming a source file that the
+// template cannot produce.
+TEST_CASE("is_compiled needs both halves of the declaration/definition pair",
+          "[tmpl][compiled][override]") {
+    const TempDir root;
+    root.write(std::filesystem::path(cup::tmpl::kProjectTemplateDir) / "halfclass" /
+                   "source.h.tmpl",
+               "// declaration only");
+
+    REQUIRE(cup::tmpl::exists(root, "headers", "halfclass", "source.h.tmpl"));
+    REQUIRE_FALSE(cup::tmpl::exists(root, "headers", "halfclass", "source.cpp.tmpl"));
+    REQUIRE_FALSE(cup::tmpl::is_compiled(root, "headers", "halfclass"));
+    // And so it is no component kind at all: header-only wants source.hpp.tmpl.
+    REQUIRE_FALSE(contains(cup::tmpl::kinds(root, "headers"), "halfclass"));
+}
+
 // Go: TestCopyBuiltin
 TEST_CASE("copy_builtin writes every file of a built-in kind", "[tmpl][copy]") {
     const TempDir tmp;

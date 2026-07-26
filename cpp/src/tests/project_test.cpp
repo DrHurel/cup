@@ -30,6 +30,7 @@ import cup.project;
 
 namespace {
 
+using cup::project::CompilerConfig;
 using cup::project::Config;
 using cup::project::DockerConfig;
 using cup::project::DockerImage;
@@ -204,6 +205,92 @@ TEST_CASE("the [docker] table round-trips and its lookups work", "[project][dock
     REQUIRE(DockerConfig{}.default_image() == nullptr);
 }
 
+// No Go counterpart: Go compared configs with reflect.DeepEqual, so there was no
+// equality of cup's own to check. The port hand-writes one per struct — see the note
+// on DockerImage::operator== for why they are not `= default` — and a hand-written
+// comparison is exactly the kind that quietly loses a field. One that did would make
+// a changed config compare equal to the one on disk, and `cup compiler set` would
+// skip the rewrite it was asked for.
+TEST_CASE("config equality accounts for every field", "[project][config][equality]") {
+    const Config base{
+        .name = "demo",
+        .cup_version = "0.1.0",
+        .cpp_standard = 23,
+        .std_module = false,
+        .build_tool = "cmake",
+        .compiler = CompilerConfig{.gcc = 14, .clang = 18, .verify_image = "gcc:14"},
+        .docker = DockerConfig{.registry = "docker.io/youruser",
+                               .images = {DockerImage{.name = "demo",
+                                                      .base = "gcc:14",
+                                                      .version = 3,
+                                                      .hash = "abc",
+                                                      .is_default = true}}}};
+
+    REQUIRE(base == Config(base));  // every field equal: the whole chain runs
+
+    const auto changed = [&base](auto&& mutate) {
+        Config other = base;
+        mutate(other);
+        return other;
+    };
+    const std::vector<std::pair<const char*, Config>> cases{
+        {"name", changed([](Config& c) { c.name = "other"; })},
+        {"cup_version", changed([](Config& c) { c.cup_version = "0.2.0"; })},
+        {"cpp_standard", changed([](Config& c) { c.cpp_standard = 20; })},
+        {"std_module", changed([](Config& c) { c.std_module = true; })},
+        {"build_tool", changed([](Config& c) { c.build_tool = "make"; })},
+        {"compiler.gcc", changed([](Config& c) { c.compiler.gcc = 15; })},
+        {"compiler.clang", changed([](Config& c) { c.compiler.clang = 19; })},
+        {"compiler.verify_image", changed([](Config& c) { c.compiler.verify_image = "gcc:15"; })},
+        {"docker.registry", changed([](Config& c) { c.docker.registry = "ghcr.io/youruser"; })},
+        {"docker.images", changed([](Config& c) { c.docker.images.clear(); })},
+        {"image.name", changed([](Config& c) { c.docker.images[0].name = "other"; })},
+        {"image.base", changed([](Config& c) { c.docker.images[0].base = "gcc:15"; })},
+        {"image.version", changed([](Config& c) { c.docker.images[0].version = 4; })},
+        {"image.hash", changed([](Config& c) { c.docker.images[0].hash = "def"; })},
+        {"image.default", changed([](Config& c) { c.docker.images[0].is_default = false; })},
+    };
+
+    for (const auto& [field, other] : cases) {
+        INFO("differs in " << field);
+        REQUIRE_FALSE(base == other);
+        REQUIRE_FALSE(other == base);
+    }
+}
+
+// empty() is what decides whether a sub-table is written to cup.toml at all, so a
+// table that is not empty for a reason no test names would be dropped on the next
+// rewrite — taking the setting it held with it.
+TEST_CASE("empty reports the tables cup.toml leaves out", "[project][config]") {
+    REQUIRE(CompilerConfig{}.empty());
+    REQUIRE_FALSE(cup::project::make_compiler_config(14, 0).empty());
+    REQUIRE_FALSE(cup::project::make_compiler_config(0, 18).empty());
+    // A recorded verify_image is not a floor (has_floor says so), but it is still
+    // content: the table has to be written for it to survive.
+    REQUIRE_FALSE(CompilerConfig{.verify_image = "gcc:14-bookworm"}.empty());
+
+    REQUIRE(DockerConfig{}.empty());
+    REQUIRE_FALSE(DockerConfig{.registry = "docker.io/youruser"}.empty());
+    REQUIRE_FALSE(DockerConfig{.images = {DockerImage{.name = "demo"}}}.empty());
+}
+
+// The lookups walk to the end of the list and report nothing rather than handing
+// back the last image they looked at. Projects predating the [docker] table have no
+// default at all, and `cup docker build` picks its image from this.
+TEST_CASE("default_image reports none when no image is marked default", "[project][docker]") {
+    const DockerConfig docker{
+        .images = {DockerImage{.name = "one"}, DockerImage{.name = "two"}}};
+
+    REQUIRE(docker.default_image() == nullptr);
+    REQUIRE(docker.find("one") != nullptr);
+    REQUIRE(docker.find("two")->name == "two");
+
+    // The non-const overloads are a separate instantiation, and share the walk.
+    DockerConfig mutable_docker = docker;
+    REQUIRE(mutable_docker.default_image() == nullptr);
+    REQUIRE(mutable_docker.find("two") != nullptr);
+}
+
 // Go: TestFindWalksUp
 TEST_CASE("find_from walks up to the project root", "[project][find]") {
     const TempDir root;
@@ -220,6 +307,16 @@ TEST_CASE("find_from walks up to the project root", "[project][find]") {
 TEST_CASE("find_from errors outside any project", "[project][find]") {
     const TempDir dir;
     const auto found = cup::project::find_from(dir);
+    REQUIRE_FALSE(found.has_value());
+    REQUIRE(found.error().message().starts_with("not inside a cup project"));
+}
+
+// The walk's other stopping condition. parent_path() of an absolute root is the root
+// itself, which the case above reaches, but of a bare relative name it is empty — and
+// a loop that only compared parent to dir would spin on "" for ever rather than
+// report that there is no project.
+TEST_CASE("find_from stops on a relative start with no parent", "[project][find]") {
+    const auto found = cup::project::find_from("no-such-directory-relative-to-cwd");
     REQUIRE_FALSE(found.has_value());
     REQUIRE(found.error().message().starts_with("not inside a cup project"));
 }
@@ -322,6 +419,18 @@ TEST_CASE("parse_config rejects a docker.image entry that is not a table", "[pro
     REQUIRE(cfg.error().message() == "docker.image entries must be tables");
 }
 
+// A [docker] table can carry a registry and no images at all — `cup docker push`
+// pointed at a registry before any image was added. The array is optional, not a
+// requirement of the table, so its absence leaves an empty list rather than failing
+// the decode or abandoning the registry that was read just before it.
+TEST_CASE("parse_config accepts a [docker] table with no images", "[project][toml]") {
+    const auto cfg = cup::project::parse_config("[docker]\nregistry = \"docker.io/youruser\"\n");
+    REQUIRE(cfg.has_value());
+    REQUIRE(cfg->docker.registry == "docker.io/youruser");
+    REQUIRE(cfg->docker.images.empty());
+    REQUIRE_FALSE(cfg->docker.empty());  // and so it is still written back out
+}
+
 // Unknown keys are ignored, matching the Go decoder, so a cup.toml written by a newer
 // cup still loads instead of failing the whole run.
 TEST_CASE("parse_config ignores keys it does not know", "[project][toml]") {
@@ -378,6 +487,19 @@ cpp_standard = 0
 [compiler]
   gcc = 14
   verify_image = "gcc:14-bookworm"
+)");
+}
+
+// The mirror of that case: pinned clang, unpinned gcc. The omitted key is the first
+// one in the table this time, so the [compiler] header still has to be written and
+// the surviving floor still has to follow it.
+TEST_CASE("to_toml omits an unpinned gcc", "[project][toml][parity]") {
+    const Config cfg{.name = "demo", .compiler = cup::project::make_compiler_config(0, 18)};
+    REQUIRE(cup::project::to_toml(cfg) == R"(name = "demo"
+cpp_standard = 0
+
+[compiler]
+  clang = 18
 )");
 }
 

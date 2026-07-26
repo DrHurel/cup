@@ -5,9 +5,14 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <fcntl.h>
+#include <stdlib.h>  // posix_openpt, grantpt, unlockpt, ptsname
+#include <termios.h>
 #include <unistd.h>
 
 #include <array>
+#include <atomic>
+#include <chrono>
 #include <cstddef>
 #include <cstdio>
 #include <expected>
@@ -18,6 +23,7 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 import cup.ui;
@@ -74,6 +80,96 @@ public:
     }
 
 private:
+    int saved_ = -1;
+};
+
+// ScopedTerminalStdin puts a real pseudo-terminal on descriptor 0, types keys into
+// it, and puts the original descriptor back afterwards.
+//
+// ScopedStdin cannot stand in for it. select_one asks platform::is_tty before doing
+// anything else and takes the numbered fallback when the answer is no — so with a
+// pipe on descriptor 0 the whole interactive path, raw mode included, is
+// unreachable. Only a terminal gets there, and ctest hands the suite a pipe.
+//
+// The keys are typed from a second thread, which is not incidental: enter_raw_mode
+// applies its settings with TCSAFLUSH, and that *discards* whatever input is already
+// queued. Keys written before the menu starts are therefore thrown away by the very
+// call the test is here to exercise, leaving it blocked on a keypress that has
+// already been eaten — the flake this shape exists to avoid. So the thread waits for
+// the terminal to actually leave canonical mode, and types only then.
+class ScopedTerminalStdin {
+public:
+    explicit ScopedTerminalStdin(std::string_view keys) : keys_(keys) {
+        master_ = ::posix_openpt(O_RDWR | O_NOCTTY);
+        REQUIRE(master_ >= 0);
+        REQUIRE(::grantpt(master_) == 0);
+        REQUIRE(::unlockpt(master_) == 0);
+        const char* const name = ::ptsname(master_);
+        REQUIRE(name != nullptr);
+        // O_NOCTTY: this must not become the runner's controlling terminal, or a
+        // keystroke the line discipline turns into a signal would land on it.
+        slave_ = ::open(name, O_RDWR | O_NOCTTY);
+        REQUIRE(slave_ >= 0);
+
+        saved_ = ::dup(STDIN_FILENO);
+        REQUIRE(saved_ >= 0);
+        REQUIRE(::dup2(slave_, STDIN_FILENO) == STDIN_FILENO);
+
+        typist_ = std::thread([this] { type(); });
+    }
+
+    ScopedTerminalStdin(const ScopedTerminalStdin&) = delete;
+    ScopedTerminalStdin& operator=(const ScopedTerminalStdin&) = delete;
+
+    ~ScopedTerminalStdin() {
+        typist_.join();
+        ::dup2(saved_, STDIN_FILENO);
+        ::close(saved_);
+        ::close(slave_);
+        if (master_ >= 0) {
+            ::close(master_);
+        }
+    }
+
+    // typed_in_raw_mode reports whether the keys went in after the menu took the
+    // terminal, which is the condition the wait below can time out on. Asserted by
+    // the test so a menu that never entered raw mode reads as that, rather than as
+    // whatever the keys happened to do on the way through the line discipline.
+    [[nodiscard]] bool typed_in_raw_mode() const { return raw_seen_; }
+
+private:
+    void type() {
+        // Canonical mode off is raw mode on: it is the flag select_one clears that
+        // the reader depends on. The wait is bounded so a menu that never gets there
+        // fails the assertion instead of hanging the suite, and the keys are typed
+        // either way so the read cannot block for ever.
+        for (int waited = 0; waited < 2000 && !raw_seen_; ++waited) {
+            termios now{};
+            if (::tcgetattr(slave_, &now) == 0 &&
+                (now.c_lflag & static_cast<tcflag_t>(ICANON)) == 0) {
+                raw_seen_ = true;
+            } else {
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
+        }
+
+        if (::write(master_, keys_.data(), keys_.size()) !=
+            static_cast<ssize_t>(keys_.size())) {
+            // Catch2's assertions are not thread-safe, so a failed write cannot be
+            // reported from here. Closing the master ends the menu's input instead:
+            // it reads end-of-input and aborts, so the test fails on its result
+            // rather than waiting on a key that is never coming. The destructor
+            // joins before it closes anything, so this needs no further guard.
+            ::close(master_);
+            master_ = -1;
+        }
+    }
+
+    std::string keys_;
+    std::atomic<bool> raw_seen_ = false;
+    std::thread typist_;
+    int master_ = -1;
+    int slave_ = -1;
     int saved_ = -1;
 };
 
@@ -440,6 +536,30 @@ TEST_CASE("select_numbered picks by index and repeats when out of range", "[ui][
     }
 }
 
+// No Go counterpart: Go's selectNumbered took strconv.Atoi's error as the whole
+// rejection rule, while parse_choice spells out four — from_chars failing, trailing
+// bytes it did not consume, and either end of the range. Each is a way for a typed
+// answer to be neither a choice nor an abort, and getting one wrong either indexes
+// the option list out of bounds or refuses a legitimate answer.
+TEST_CASE("select_numbered puts the question again for an answer it cannot use",
+          "[ui][select]") {
+    const std::vector<std::string> options{"red", "green", "blue"};
+
+    // Every line but the last is unusable in a different way; the prompt loops on
+    // each and only "2" ends it.
+    std::istringstream in(
+        "abc\n"  // not a number at all
+        "1x\n"   // a number with something after it
+        "0\n"    // below the first option: the list is 1-based
+        "4\n"    // past the last option
+        "2\n");
+    const cup::ui::ScopedInput scoped(in);
+
+    const auto got = cup::ui::detail::select_numbered("pick?", options);
+    REQUIRE(got.has_value());
+    REQUIRE(*got == "green");
+}
+
 // Go: TestSelectNumberedAbort
 TEST_CASE("select_numbered aborts on EOF", "[ui][select]") {
     const std::vector<std::string> options{"a", "b"};
@@ -478,6 +598,33 @@ TEST_CASE("select_one falls back to the numbered list off a terminal", "[ui][sel
     const auto got = cup::ui::select_one("pick?", options, "green");
     REQUIRE(got.has_value());
     REQUIRE(*got == "blue");
+}
+
+// The other half of that branch, and the path a user actually takes: on a terminal
+// select_one enters raw mode and runs the arrow-key menu. Nothing reached it before
+// — the suite only ever drove select_interactive directly — so neither the terminal
+// check nor the raw-mode guard was exercised through the exported entry point.
+TEST_CASE("select_one drives the arrow-key menu on a terminal", "[ui][select][keys]") {
+    const std::vector<std::string> options{"red", "green", "blue"};
+
+    // One key, and deliberately one: a single byte cannot be split across two reads,
+    // so there is no arrangement of it that leaves the menu waiting. The arrow
+    // sequences are three bytes and are covered against a pipe above, where the
+    // framing is under the test's control.
+    ScopedTerminalStdin terminal("\r");
+    REQUIRE(cup::platform::is_tty(cup::platform::kStdinFd));
+
+    CapturedStdout capture;
+    const auto got = cup::ui::select_one("pick?", options, "blue");
+    const std::string painted = capture.str();
+
+    REQUIRE(terminal.typed_in_raw_mode());
+    // The default decides where the cursor starts, so committing at once returns it
+    // — and that is what tells the two paths apart: the numbered fallback would have
+    // taken its own "1" default and answered "red".
+    REQUIRE(got.has_value());
+    REQUIRE(*got == "blue");
+    REQUIRE(painted.contains("(up/down, enter)"));
 }
 
 // No Go counterpart: Go compared errors with errors.Is against ui.ErrAbort, and

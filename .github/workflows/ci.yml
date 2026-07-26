@@ -173,6 +173,27 @@ jobs:
       # gcov-14 must match the compiler; the default `gcov` is GCC 13 on this
       # runner and rejects the notes files. Vendored, generated and test sources
       # are excluded to match sonar.exclusions.
+      #
+      # The two --exclude-*-branches/lines flags are what make the imported
+      # "conditions" mean what Sonar thinks they mean, and without them the gate
+      # reads the port as barely covered:
+      #
+      #   - --exclude-throw-branches. gcov emits a branch pair for *every* call
+      #     that could throw — the landing-pad edge — and the port's style is a
+      #     dense chain of std::format, std::string and and_then/transform calls,
+      #     so this dominates: 951 branches reported for cpp/src/libs, of which
+      #     287 are exception edges no test can take without forcing bad_alloc.
+      #     Sonar counts each as an uncovered condition, which is what put
+      #     Toml.cpp at 60% branch coverage while 193 of its 197 real ones are
+      #     covered.
+      #   - --exclude-noncode-lines. Drops the lines that carry no statement of
+      #     their own — a bare `}` whose only instructions are the destructor
+      #     calls on an exception path, which gcov reports as an executable line
+      #     with a zero count.
+      #
+      # Together they take coverage on new code from 78% to 98% without a single
+      # test changing, so keep them: dropping them does not make the gate
+      # stricter, it makes it measure the compiler's exception tables.
       - name: Generate the C++ coverage report
         run: |
           gcovr --root . \
@@ -182,6 +203,8 @@ jobs:
                 --exclude '.*/_deps/.*' \
                 --exclude '.*/generated/.*' \
                 --exclude 'cpp/src/tests/.*' \
+                --exclude-throw-branches \
+                --exclude-noncode-lines \
                 --sonarqube cpp/coverage.xml \
                 cpp/build/Coverage
           echo "--- coverage.xml head ---"

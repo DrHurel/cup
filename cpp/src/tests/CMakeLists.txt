@@ -1,10 +1,18 @@
+# The ui suite types into a pseudo-terminal from a second thread — see
+# ScopedTerminalStdin on why the keys cannot be queued up front. glibc 2.34 and musl
+# both fold the pthread symbols into libc, so this resolves to nothing on the
+# toolchains cup builds against; it is named so an older one links rather than
+# failing at std::thread's constructor.
+find_package(Threads REQUIRED)
+
 add_executable(ui_test ui_test.cpp)
 target_compile_features(ui_test PRIVATE cxx_std_23)
 # cup scaffolds the target but not its dependencies: the module under test and
 # Catch2's bundled main(). platform is named because the suite imports cup.platform
 # itself to check the terminal condition select_one branches on — cup.ui imports it
 # without re-exporting it.
-target_link_libraries(ui_test PRIVATE ui error platform probe Catch2::Catch2WithMain)
+target_link_libraries(ui_test PRIVATE ui error platform probe Threads::Threads
+                                      Catch2::Catch2WithMain)
 add_test(NAME ui_test COMMAND ui_test)
 
 add_executable(platform_test platform_test.cpp)
