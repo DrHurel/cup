@@ -5,6 +5,8 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <unistd.h>  // geteuid, for the permission-dependent read failure
+
 #include <algorithm>
 // copy_builtin returns std::expected<void, Error>, whose void specialisation a
 // module cannot re-export from its global module fragment — see the note in
@@ -127,4 +129,51 @@ TEST_CASE("copy_builtin writes every file of a built-in kind", "[tmpl][copy]") {
 TEST_CASE("copy_builtin reports an unknown kind", "[tmpl][copy]") {
     const TempDir tmp;
     REQUIRE_FALSE(cup::tmpl::copy_builtin("headers", "ghost", tmp.path() / "copied").has_value());
+}
+
+// Not in the Go suite either, but the documented behaviour: a project-local file that
+// exists and cannot be read falls through to the built-in rather than failing the
+// command — Go's `if err == nil` on os.ReadFile. Without it an unreadable override
+// would break `cup add` for a kind that has a perfectly good default.
+TEST_CASE("an unreadable override falls through to the built-in", "[tmpl][override]") {
+    if (::geteuid() == 0) {
+        SKIP("root ignores the permission bits, so the override stays readable");
+    }
+    const TempDir root;
+    const std::filesystem::path override_file =
+        std::filesystem::path(cup::tmpl::kProjectTemplateDir) / "class" / "source.h.tmpl";
+    root.write(override_file, "OVERRIDE");
+    std::filesystem::permissions(root.path() / override_file, std::filesystem::perms::none);
+
+    // exists() still sees it — the file is there, it just cannot be opened.
+    REQUIRE(cup::tmpl::exists(root, "headers", "class", "source.h.tmpl"));
+
+    const auto got = cup::tmpl::read(root, "headers", "class", "source.h.tmpl");
+    REQUIRE(got.has_value());
+    REQUIRE(*got != "OVERRIDE");
+    REQUIRE(*got == cup::tmpl::read(kBuiltinsOnly, "headers", "class", "source.h.tmpl").value());
+}
+
+// `cup template new` copies a built-in kind into the project, so both ways the copy
+// can fail on the filesystem have to be reported rather than half-written.
+TEST_CASE("copy_builtin reports a destination it cannot create", "[tmpl][copy]") {
+    const TempDir tmp;
+    tmp.write("blocker", "not a directory");
+
+    // A path *under* a regular file: create_directories cannot make it.
+    const auto copied = cup::tmpl::copy_builtin("headers", "class", tmp.path() / "blocker" / "sub");
+    REQUIRE_FALSE(copied.has_value());
+    REQUIRE(copied.error().message().starts_with("creating "));
+}
+
+TEST_CASE("copy_builtin reports a file it cannot write", "[tmpl][copy]") {
+    const TempDir tmp;
+    const std::filesystem::path dst = tmp.path() / "copied";
+    // A directory standing where one of the kind's files has to be written: the
+    // destination directory itself is fine, so the failure happens mid-copy.
+    std::filesystem::create_directories(dst / "source.h.tmpl");
+
+    const auto copied = cup::tmpl::copy_builtin("headers", "class", dst);
+    REQUIRE_FALSE(copied.has_value());
+    REQUIRE(copied.error().message() == "writing " + (dst / "source.h.tmpl").string());
 }

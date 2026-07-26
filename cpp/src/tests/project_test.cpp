@@ -7,6 +7,8 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <unistd.h>  // geteuid, for the permission-dependent read failure
+
 // cup.project returns std::expected<void, Error> from write_config, but a module
 // re-exports no declaration from its global module fragment — the void
 // specialisation has to be visible here, so this consumer includes <expected>
@@ -187,6 +189,16 @@ TEST_CASE("the [docker] table round-trips and its lookups work", "[project][dock
     REQUIRE(docker.find("runtime") != nullptr);
     REQUIRE(docker.find("ghost") == nullptr);
 
+    // The non-const overloads exist so `cup docker set` can bump a version in place;
+    // they must hand back the same entries.
+    DockerConfig mutable_docker = found->config.docker;
+    REQUIRE(mutable_docker.find("runtime") != nullptr);
+    REQUIRE(mutable_docker.find("ghost") == nullptr);
+    mutable_docker.find("runtime")->version = 7;
+    REQUIRE(mutable_docker.find("runtime")->version == 7);
+    REQUIRE(mutable_docker.default_image() != nullptr);
+    REQUIRE(mutable_docker.default_image()->name == "demo");
+
     // A config with no default image reports none.
     REQUIRE(DockerConfig{}.default_image() == nullptr);
 }
@@ -221,6 +233,100 @@ TEST_CASE("find_from errors on a malformed cup.toml", "[project][find]") {
     REQUIRE(found.error().message().starts_with("reading "));
 }
 
+// No Go counterpart in name, but the behaviour is Go's: Find surfaces os.ReadFile's
+// error. A cup.toml that stat()s but cannot be opened has to be reported, not treated
+// as absent — otherwise the walk carries on past it and finds a project higher up, or
+// claims there is none.
+TEST_CASE("find_from reports a cup.toml it cannot read", "[project][find]") {
+    if (::geteuid() == 0) {
+        SKIP("root ignores the permission bits, so the file stays readable");
+    }
+    const TempDir root;
+    root.write(cup::project::kMarker, "name = \"demo\"\n");
+    const std::filesystem::path marker = root.path() / cup::project::kMarker;
+    std::filesystem::permissions(marker, std::filesystem::perms::none);
+
+    const auto found = cup::project::find_from(root);
+    REQUIRE_FALSE(found.has_value());
+    REQUIRE(found.error().message() == "reading " + marker.string());
+}
+
+// find() is find_from() rooted at the working directory, and that lookup is the only
+// thing it adds — so the check is that the two agree, wherever ctest happens to run
+// the suite from. Deliberately no chdir: the walk takes its start as a parameter
+// precisely so the tests need none.
+TEST_CASE("find starts from the working directory", "[project][find]") {
+    const auto from_cwd = cup::project::find_from(std::filesystem::current_path());
+    const auto found = cup::project::find();
+
+    REQUIRE(found.has_value() == from_cwd.has_value());
+    if (found.has_value()) {
+        REQUIRE(found->root == from_cwd->root);
+        REQUIRE(found->config == from_cwd->config);
+    } else {
+        REQUIRE(found.error().message() == from_cwd.error().message());
+    }
+}
+
+// No Go counterpart: `cup compiler set` and `cup docker add` both rewrite cup.toml
+// through write_config, so a failed write has to be reported rather than leave the
+// caller believing it landed.
+TEST_CASE("write_config reports a root it cannot write", "[project][write]") {
+    const TempDir tmp;
+    const std::filesystem::path missing = tmp.path() / "no-such-directory";
+
+    const auto wrote = cup::project::write_config(missing, Config{.name = "demo"});
+    REQUIRE_FALSE(wrote.has_value());
+    REQUIRE(wrote.error().message() == "writing " + (missing / cup::project::kMarker).string());
+}
+
+// No Go counterpart by name, but the rule is Go's: its decoder errors on a key of the
+// wrong type instead of falling back to the zero value, so a typo in cup.toml is
+// reported rather than silently changing the project — a quoted `cpp_standard = "23"`
+// must not read as C++0.
+TEST_CASE("parse_config reports a field of the wrong type", "[project][toml]") {
+    const struct Case {
+        const char* text;
+        const char* field;
+    } cases[]{
+        {"name = 1", "name"},
+        {"cup_version = 1", "cup_version"},
+        {R"(cpp_standard = "23")", "cpp_standard"},
+        {R"(std_module = "false")", "std_module"},
+        {"build_tool = 1", "build_tool"},
+        {"[compiler]\ngcc = \"14\"", "gcc"},
+        {"[compiler]\nclang = \"18\"", "clang"},
+        {"[compiler]\nverify_image = 1", "verify_image"},
+        {"[docker]\nregistry = 1", "registry"},
+        {"[[docker.image]]\nname = 1", "name"},
+        {"[[docker.image]]\nbase = 1", "base"},
+        {"[[docker.image]]\nversion = \"3\"", "version"},
+        {"[[docker.image]]\nhash = 1", "hash"},
+        {"[[docker.image]]\ndefault = \"yes\"", "default"},
+    };
+
+    for (const auto& c : cases) {
+        INFO(c.text);
+        const auto cfg = cup::project::parse_config(c.text);
+        REQUIRE_FALSE(cfg.has_value());
+        REQUIRE(cfg.error().message() == "field " + std::string(c.field) + " has the wrong type");
+    }
+}
+
+TEST_CASE("parse_config rejects a docker.image entry that is not a table", "[project][toml]") {
+    const auto cfg = cup::project::parse_config("[docker]\nimage = [1]\n");
+    REQUIRE_FALSE(cfg.has_value());
+    REQUIRE(cfg.error().message() == "docker.image entries must be tables");
+}
+
+// Unknown keys are ignored, matching the Go decoder, so a cup.toml written by a newer
+// cup still loads instead of failing the whole run.
+TEST_CASE("parse_config ignores keys it does not know", "[project][toml]") {
+    const auto cfg = cup::project::parse_config("name = \"demo\"\nfuture_thing = 1\n");
+    REQUIRE(cfg.has_value());
+    REQUIRE(cfg->name == "demo");
+}
+
 // --- Byte parity with the Go encoder -------------------------------------------
 //
 // No Go counterpart: these pin the exact bytes BurntSushi/toml produces for a
@@ -252,6 +358,23 @@ build_tool = "cmake"
 [compiler]
   gcc = 14
   clang = 18
+)");
+}
+
+// verify_image is [compiler]'s third key and its only string: `cup compiler set`
+// records the image it verified a floor change in, so a later rewrite has to keep it —
+// and keep it after the floors, which is the order the Go struct declares.
+TEST_CASE("to_toml writes verify_image after the version floors", "[project][toml][parity]") {
+    cup::project::CompilerConfig compiler = cup::project::make_compiler_config(14, 0);
+    compiler.verify_image = "gcc:14-bookworm";
+    const Config cfg{.name = "demo", .compiler = compiler};
+    // Note the absent clang line: an unpinned compiler is left out of the table.
+    REQUIRE(cup::project::to_toml(cfg) == R"(name = "demo"
+cpp_standard = 0
+
+[compiler]
+  gcc = 14
+  verify_image = "gcc:14-bookworm"
 )");
 }
 
@@ -295,6 +418,18 @@ TEST_CASE("to_toml escapes basic strings like the Go encoder", "[project][toml][
 cpp_standard = 0
 build_tool = "make"
 )");
+}
+
+// The rest of BurntSushi's escape table: the five control characters it names, then
+// the \u00XX form it falls back to. A project name never contains these, but a
+// template or an image tag pulled from a registry can, and an unescaped control byte
+// writes a cup.toml that cup itself cannot parse back.
+TEST_CASE("to_toml escapes control characters like the Go encoder", "[project][toml][parity]") {
+    // 0x01 stands for the C0 range; 0x7f is DEL, which sits above it and is the one
+    // easy to leave out. Both render lowercase, as Go's encoder writes them.
+    const Config cfg{.name = "\b\t\n\f\r\x{01}\x{7f}"};
+    REQUIRE(cup::project::to_toml(cfg) == R"(name = "\b\t\n\f\r\u0001\u007f")"
+                                          "\ncpp_standard = 0\n");
 }
 
 // The strongest parity check available: cup's own cup.toml was written by the Go
