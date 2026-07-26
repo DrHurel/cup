@@ -5,4 +5,6 @@
 add_subdirectory(platform)
 add_subdirectory(error)
 add_subdirectory(ui)
+add_subdirectory(tmpl)
+add_subdirectory(project)
 add_subdirectory(probe)

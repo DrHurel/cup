@@ -185,7 +185,7 @@ Port leaves first. For each unit: **port its Go tests to Catch2 before porting
 the implementation.** They already pass, so they define correct behaviour
 precisely.
 
-### 2.1 `cup.ui` — 241 lines + 258 test lines
+### 2.1 `cup.ui` — 241 lines + 258 test lines ✅
 
 Modules: `cup.ui` with partitions `:color`, `:prompt`, `:select`.
 
@@ -201,13 +201,22 @@ export std::expected<RawMode, Error> enter_raw_mode(int fd);   // tcgetattr/tcse
 `internal/ui/select.go:40-47` decodes arrow keys as the 3-byte `ESC [ A`
 sequence. That logic ports byte-for-byte.
 
-### 2.2 `cup.tmpl` — 149 lines + 129 test lines
+### 2.2 `cup.tmpl` — 149 lines + 129 test lines ✅
+
+Modules: `cup.tmpl` with partitions `:corpus` and `:resolve`.
 
 The `embed.FS` API surface (`ReadFile`, `ReadDir`, `Open`) becomes lookups into
 the generated table from Phase 1.3. Keep the same function signatures so
 `cup.scaffold` ports without changes.
 
-### 2.3 `cup.project` — 191 lines + 200 test lines
+The split follows the one seam that matters: `:corpus` reads the binary's
+embedded copy and touches no disk, `:resolve` layers a project's
+`.cup/templates/` overrides over it. `ReadDir` has no equivalent in the generated
+table, so directory listings are derived by prefix from the sorted entry list —
+a "directory" is any path segment followed by a separator. `std::set` supplies
+both the dedupe and the trailing `sort.Strings`.
+
+### 2.3 `cup.project` — 191 lines + 200 test lines ✅
 
 toml++ replaces BurntSushi/toml. `Config`, `DockerConfig`, `DockerImage` become
 plain structs with explicit `to_toml`/`from_toml`. Watch round-tripping: cup
@@ -225,9 +234,77 @@ project onto `import std;`, and cup rewrites `cup.toml` on every
 (`std_module` when set, else `standard() >= 23`) — port it as a method, not as an
 `if` at each call site; there are three.
 
-**Milestone:** `cup.ui`, `cup.tmpl`, `cup.project` build as modules and their
-Catch2 suites pass. This is the point at which you know GCC 14 modules are
-workable — if they are not, this is the cheapest place to discover it.
+Round-tripping turned out to need a spec, not care. `to_toml` is hand-written
+rather than delegated to toml++'s serialiser, because the target is not
+"valid TOML" but *the exact bytes BurntSushi/toml emits* — Phase 5 diffs trees
+from both binaries, and `cup.toml` is in every one. Three of that encoder's rules
+are load-bearing, and the one that bites is not the documented one:
+
+- Zero **ints** are still written (`cpp_standard = 0`, `version = 0`) despite
+  `omitempty`. Its notion of "empty" covers empty strings, `false` bools and
+  empty tables — not numeric zero.
+- Empty strings, `false` bools and wholly-empty sub-tables *are* omitted.
+- A sub-table header is preceded by a blank line, contents indent two spaces per
+  level, so `[[docker.image]]` sits at two and its keys at four.
+
+Those were captured by running the Go encoder over a matrix of configs rather
+than read off the struct tags, and they are pinned by parity tests holding the
+literal expected bytes. The strongest of them re-encodes cup's own `cpp/cup.toml`
+— written by the Go cup — and requires byte equality, which also covers the
+`std_module = false` round trip on real data.
+
+**Milestone reached.** `cup.ui`, `cup.tmpl` and `cup.project` build as modules on
+the GCC 14 floor and their Catch2 suites pass (`ui_test`, `tmpl_test`,
+`project_test`; Debug and Coverage). GCC 14 modules are workable — with two
+constraints that cost real time to find, both now documented in the source and
+carried into Phase 3 below.
+
+### The two GCC 14 constraints
+
+Both cost a day between them and both will recur, so they are rules for the rest
+of the port, not anecdotes.
+
+**1. Two partitions of one module cannot both drag in the heavy standard
+library.** `ui.cppm` states this as "at most one partition may use `<print>`,
+`<format>` or `<iostream>`". Phase 2 widened it: `cup.project` failed the same
+way with `<filesystem>` + `<algorithm>` in `:config` and toml++ in `:io` —
+neither partition mentioning any of those three headers.
+
+```
+cup.project:io: error: failed to read compiled module cluster N: Bad file data
+fatal error: failed to load pendings for 'std::_Mutex_base'
+```
+
+It is not those headers specifically; it is any two partitions reaching the
+shared `<memory>`/`<mutex>` machinery underneath them. The failure always lands
+on the *consumer*, never the partition that caused it. So: **one partition owns
+the heavy headers, the rest stay on `<string>`, `<string_view>`, `<vector>`,
+`<optional>`, `<expected>`.** In `cup.project` that meant hand-rolling two
+lookups to drop `<algorithm>` and moving `Project` — the only path-shaped type —
+out of `:config` into `:io`.
+
+**2. A large third-party header in *any* interface unit's global module fragment
+can ICE the compiler.** With `#include <toml++/toml.hpp>` in `:io`'s fragment,
+GCC 14 segfaults while the primary merges the partition's BMI:
+
+```
+In destructor 'toml::v3::impl::utf8_reader_interface::~utf8_reader_interface()':
+internal compiler error: Segmentation fault   (maybe_clone_body)
+```
+
+The fix generalises, and the repo had already reached for it once:
+**put the dependency in a module *implementation* unit** (`module cup.project;`,
+no `export`) whose global module fragment never reaches any BMI, and leave only
+declarations in the interface partition. `cpp/src/libs/cup/project/Toml.cpp` is
+the worked example; `GenerateEmbeddedTemplates.cmake` made the same call for the
+template corpus for the same reason. This is strictly better design anyway —
+consumers of `cup.project` never pay for the parser — so prefer it from the start
+rather than after an ICE.
+
+A corollary for test authors: a module re-exports no declaration from its global
+module fragment, so a consumer naming `std::expected<void, E>` must
+`#include <expected>` itself. Same rule as the `<functional>` note in
+`ui_test.cpp`.
 
 ---
 
@@ -247,6 +324,8 @@ Two notes:
   (`internal/scaffold/compiler_releases.go:22-24`) mean a failed fetch only
   narrows the picker ceiling. If static TLS in the musl container turns painful,
   shipping without libcurl is a supported degradation, not a regression.
+  **Put libcurl in an implementation unit from the start** — it is the same shape
+  as toml++ in Phase 2.3, and constraint 2 above says how that ends otherwise.
 - **`:releases` concurrency**: the two goroutines + `WaitGroup` at
   `compiler_releases.go:64-67` become two `std::async` + `.get()`.
 - **`:std`** is where cup's own configuration lives, so port it faithfully:
@@ -341,7 +420,7 @@ from-source path; everyone else gets the static release binary.
 |---|---:|---:|---|
 | 0 Prep | — | +goldens | Land Make branch, freeze spec |
 | 1 Scaffold | ~150 | — | CMake + codegen + CI |
-| 2 Leaves | 581 | 587 | ui, tmpl, project |
+| 2 Leaves | 581 | 587 | ui, tmpl, project — ✅ done |
 | 3 scaffold | 984 | 1,236 | pure logic, highest value |
 | 4 cmd | 2,510 | 1,798 | largest, incremental |
 | 5 Relay | — | +harness | Gated on 4 checks |
@@ -352,10 +431,13 @@ Expect the C++ to land at roughly 1.5× the Go line count, plus build files.
 
 ## Risks
 
-**GCC 14 module bugs.** The real one. Mitigation: Phase 2 is deliberately the
-smallest possible modules exposure — if `cup.ui` and `cup.tmpl` fight the
-compiler, you have spent days, not weeks, and can fall back to headers with the
-C++23 decision intact.
+**GCC 14 module bugs.** The real one — and now largely *characterised* rather
+than merely feared. Phase 2 hit both failure modes (BMI merge failure, and an ICE
+on a large header in an interface unit's global module fragment), and both have
+mechanical fixes that are documented above and cost nothing to apply up front:
+keep the heavy headers in one partition, and keep third-party libraries in
+implementation units. The fallback to headers with the C++23 decision intact
+remains available but no longer looks necessary.
 
 **`cup.cmd` is 60% of the port.** Mitigation: strictly command-by-command, with
 the Go binary shippable at every commit.
