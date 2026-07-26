@@ -18,3 +18,10 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(Catch2)
 find_package(CURL REQUIRED) # cup-apt: libcurl4-openssl-dev
+
+FetchContent_Declare(
+  nlohmann_json
+  GIT_REPOSITORY https://github.com/nlohmann/json.git
+  GIT_TAG v3.12.0
+)
+FetchContent_MakeAvailable(nlohmann_json)
