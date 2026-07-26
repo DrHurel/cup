@@ -18,6 +18,14 @@ export import cup.error;
 
 export namespace cup::platform {
 
+// The standard descriptors, re-exported as plain constants so callers can ask
+// about a terminal without including <unistd.h> themselves. Keeping the POSIX
+// headers behind this module is the whole point of the platform seam. POSIX fixes
+// these values, so the constants cannot drift from the macros.
+inline constexpr int kStdinFd = STDIN_FILENO;
+inline constexpr int kStdoutFd = STDOUT_FILENO;
+inline constexpr int kStderrFd = STDERR_FILENO;
+
 // is_tty reports whether fd refers to a terminal. Every prompt in cup.ui asks this
 // before attempting raw mode and falls back to a pipe-friendly path when it is
 // false — which is also what makes the prompts scriptable from tests.

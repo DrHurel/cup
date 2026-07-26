@@ -7,6 +7,10 @@
 
 #include <array>
 #include <expected>
+// cup.ui exports Validator as a std::function alias, but a module only re-exports
+// declarations from its global module fragment — instantiating the template here
+// needs the definition, so this consumer includes <functional> itself.
+#include <functional>
 #include <sstream>
 #include <string>
 #include <string_view>
