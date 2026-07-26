@@ -3,6 +3,7 @@ target_sources(platform
     PUBLIC
         FILE_SET CXX_MODULES FILES
             platform.cppm
+            Terminal.cppm
 )
 target_compile_features(platform PUBLIC cxx_std_20)
 # cup scaffolds targets but does not wire dependencies between them, so module

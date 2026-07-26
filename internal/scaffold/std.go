@@ -33,6 +33,12 @@ func ParseStd(s string) (int, error) {
 // cup scaffolds classic headers instead.
 func UsesModules(std int) bool { return std >= 20 }
 
+// UsesStdModule reports whether std reaches the standard library through
+// `import std;` rather than a global module fragment of #includes. It is the
+// condition behind StdVars' std_import / std_prelude split, named so callers that
+// only need to know *which* form applies do not have to inspect those strings.
+func UsesStdModule(std int) bool { return std >= 23 }
+
 // Family maps a standard onto its template family: "modules" for C++20/23,
 // "headers" for C++11/14/17. The family selects which embedded template subtree
 // (files/<family>/…) cup renders from.

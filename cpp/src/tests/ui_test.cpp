@@ -18,6 +18,7 @@
 
 import cup.ui;
 import cup.error;
+import cup.probe;
 
 namespace {
 
@@ -230,4 +231,12 @@ TEST_CASE("select_one rejects an empty option list", "[ui][select]") {
     const auto got = cup::ui::select_one("pick?", none, "");
     REQUIRE_FALSE(got.has_value());
     REQUIRE(got.error().message() == "no options to choose from");
+}
+
+// Regression guard for the scaffolding fix: a library scaffolded by `cup add lib`
+// must be importable. Before cmd.primaryPreamble existed, cup generated an
+// aggregator with no global module fragment, and GCC 14 then produced a BMI that
+// failed to load here rather than in the module itself.
+TEST_CASE("a scaffolded library is importable", "[scaffold][modules]") {
+    REQUIRE_NOTHROW(cup::probe::Probe());
 }

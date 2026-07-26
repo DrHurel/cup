@@ -171,7 +171,9 @@ file src/libs/lib_class/Lib_class.cppm (177 bytes)
 >| 
 >| }  // namespace lib_class
 >| 
-file src/libs/lib_class/lib_class.cppm (52 bytes)
+file src/libs/lib_class/lib_class.cppm (78 bytes)
+>| module;
+>| #include <string>
 >| export module lib_class;
 >| 
 >| export import :lib_class;
@@ -197,7 +199,9 @@ file src/libs/lib_enum/Lib_enum.cppm (114 bytes)
 >| 
 >| }  // namespace lib_enum
 >| 
-file src/libs/lib_enum/lib_enum.cppm (50 bytes)
+file src/libs/lib_enum/lib_enum.cppm (76 bytes)
+>| module;
+>| #include <string>
 >| export module lib_enum;
 >| 
 >| export import :lib_enum;
@@ -223,7 +227,9 @@ file src/libs/lib_free_function/Lib_free_function.cppm (154 bytes)
 >| 
 >| }  // namespace lib_free_function
 >| 
-file src/libs/lib_free_function/lib_free_function.cppm (68 bytes)
+file src/libs/lib_free_function/lib_free_function.cppm (94 bytes)
+>| module;
+>| #include <string>
 >| export module lib_free_function;
 >| 
 >| export import :lib_free_function;
@@ -251,7 +257,9 @@ file src/libs/lib_interface/Lib_interface.cppm (182 bytes)
 >| 
 >| }  // namespace lib_interface
 >| 
-file src/libs/lib_interface/lib_interface.cppm (60 bytes)
+file src/libs/lib_interface/lib_interface.cppm (86 bytes)
+>| module;
+>| #include <string>
 >| export module lib_interface;
 >| 
 >| export import :lib_interface;
@@ -280,7 +288,9 @@ file src/libs/lib_templated_class/Lib_templated_class.cppm (231 bytes)
 >| 
 >| }  // namespace lib_templated_class
 >| 
-file src/libs/lib_templated_class/lib_templated_class.cppm (72 bytes)
+file src/libs/lib_templated_class/lib_templated_class.cppm (98 bytes)
+>| module;
+>| #include <string>
 >| export module lib_templated_class;
 >| 
 >| export import :lib_templated_class;

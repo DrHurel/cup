@@ -99,6 +99,31 @@ func TestChooseCompilerFloorsSubset(t *testing.T) {
 	}
 }
 
+// A lib's primary interface unit needs a global module fragment whenever its
+// partitions have one, or GCC 14 emits a BMI that consumers cannot read. That is
+// the C++20 modules case; C++23 reaches the standard library through `import std;`
+// instead, so neither its partitions nor its aggregator carry a fragment.
+func TestPrimaryPreamble(t *testing.T) {
+	got := primaryPreamble(20)
+	if !strings.HasPrefix(got, "module;\n") {
+		t.Errorf("primaryPreamble(20) = %q, want a global module fragment", got)
+	}
+	// A token fragment does not satisfy GCC 14 — it needs a real standard header.
+	if !strings.Contains(got, "#include <") {
+		t.Errorf("primaryPreamble(20) = %q, want a standard-library include", got)
+	}
+	// The aggregator must not spend the module's one <print>/<format>/<iostream>
+	// budget, which belongs to a partition that actually does I/O.
+	for _, heavy := range []string{"<print>", "<format>", "<iostream>"} {
+		if strings.Contains(got, heavy) {
+			t.Errorf("primaryPreamble(20) includes %s; that header may appear in only one partition", heavy)
+		}
+	}
+	if got := primaryPreamble(23); got != "" {
+		t.Errorf("primaryPreamble(23) = %q, want empty (C++23 uses `import std;`)", got)
+	}
+}
+
 func TestModuleStdSetup(t *testing.T) {
 	if !strings.Contains(moduleStdSetup(23), "CMAKE_CXX_MODULE_STD") {
 		t.Error("c++23 setup missing std-module opt-in")
