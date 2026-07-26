@@ -1,0 +1,17 @@
+name = "cup"
+cup_version = "0.1.0"
+cpp_standard = 23
+std_module = false
+build_tool = "cmake"
+
+[compiler]
+  gcc = 14
+  clang = 18
+
+[docker]
+
+  [[docker.image]]
+    name = "cup"
+    base = "gcc:14"
+    version = 0
+    default = true

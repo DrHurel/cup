@@ -124,7 +124,7 @@ func scaffoldProjectTree(proj *project.Project, std, gcc, clang int) error {
 	rootCmake, err := scaffold.Render(root, family, "project", "CMakeLists.txt.tmpl", map[string]string{
 		"name":             proj.Config.Name,
 		"standard":         fmt.Sprintf("%d", std),
-		"module_std_setup": moduleStdSetup(std),
+		"module_std_setup": moduleStdSetup(proj.Config),
 		"compiler_guard":   scaffold.CompilerGuard(gcc, clang),
 	})
 	if err != nil {
@@ -280,11 +280,12 @@ func chooseCompilerFloor(name string, choices []int) (int, error) {
 }
 
 // moduleStdSetup returns the top-of-file CMake block for the modules family: the
-// minimum-version line plus, on C++23, the experimental `import std` opt-in.
-// C++20 modules don't use the std module, so they get only the version floor.
-// It is unused (and empty) for the headers family.
-func moduleStdSetup(std int) string {
-	if std >= 23 {
+// minimum-version line plus, for a project on the std module, the experimental
+// `import std` opt-in. Without it there is only the version floor — C++20 has no
+// std module, and a C++23 project can opt out of it (`std_module = false`) to stay
+// on a GCC 14 floor. It is unused (and empty) for the headers family.
+func moduleStdSetup(cfg project.Config) string {
+	if cfg.UsesStdModule() {
 		return `# ` + "`import std;`" + ` requires CMake >= 3.30 (CMAKE_CXX_MODULE_STD support for GCC)
 # and a compiler that ships the std-module manifest (GCC 15+).
 cmake_minimum_required(VERSION 3.30)
@@ -300,7 +301,7 @@ set(CMAKE_EXPERIMENTAL_CXX_IMPORT_STD "f35a9ac6-8463-4d38-8eec-5d6008153e7d")
 set(CMAKE_CXX_MODULE_STD ON)
 `
 	}
-	// C++20 named modules need CMake >= 3.28; no std module.
+	// Named modules alone need CMake >= 3.28, whatever the standard.
 	return `# Named modules need CMake >= 3.28.
 cmake_minimum_required(VERSION 3.28)
 `

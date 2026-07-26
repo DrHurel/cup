@@ -28,7 +28,7 @@ func family(proj *project.Project) string {
 // stdVars builds the variable map passed to scaffold.Render: the per-standard
 // values (std_lib, std_number, hello, …) merged with the given key/value pairs.
 func stdVars(proj *project.Project, kv ...string) map[string]string {
-	vars := scaffold.StdVars(proj.Config.Standard())
+	vars := scaffold.StdVars(proj.Config.Standard(), proj.Config.UsesStdModule())
 	for i := 0; i+1 < len(kv); i += 2 {
 		vars[kv[i]] = kv[i+1]
 	}
@@ -197,11 +197,39 @@ func createLibAt(proj *project.Project, name, targetDir, parentCmake string) err
 // aggregator over one partition. A declined overwrite leaves the existing primary
 // untouched.
 func writePrimaryAggregator(proj *project.Project, primary, module, partition string) error {
-	wrote, err := scaffold.WriteFile(proj.Root, primary, fmt.Sprintf("export module %s;\n", module))
+	content := primaryPreamble(proj.Config) + fmt.Sprintf("export module %s;\n", module)
+	wrote, err := scaffold.WriteFile(proj.Root, primary, content)
 	if err != nil || !wrote {
 		return err
 	}
 	return scaffold.AddPartitionImport(proj.Root, primary, partition)
+}
+
+// primaryPreamble returns the global module fragment a lib's primary interface
+// unit carries before its module declaration, even though an aggregator declares
+// nothing of its own.
+//
+// It is there for GCC 14, which cannot produce a usable BMI for a module whose
+// partitions carry a global module fragment unless the primary carries one too.
+// The resulting failure is nasty to diagnose because it never points at the module
+// itself — the importing file is what fails, with:
+//
+//	error: failed to read compiled module cluster N: Bad file data
+//	fatal error: failed to load pendings for 'std::basic_string_view'
+//
+// A token fragment does not satisfy it: `#include <cstddef>` still fails where
+// <string> succeeds. <string> is also deliberately light — at most one partition
+// of a module may carry <print>, <format> or <iostream> before GCC 14 breaks in
+// the same way, so the aggregator must not spend that budget on itself.
+//
+// A project on the std module reaches the standard library through `import std;`
+// rather than a global module fragment, so its partitions have none and its
+// aggregator needs none either.
+func primaryPreamble(cfg project.Config) string {
+	if !cfg.UsesStdModule() {
+		return "module;\n#include <string>\n"
+	}
+	return ""
 }
 
 func addFileToLib(proj *project.Project, libDir string) error {

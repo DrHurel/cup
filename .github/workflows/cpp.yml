@@ -1,0 +1,216 @@
+name: C++ CI
+
+# Build and test the C++ port under cpp/, which the Go cup scaffolded and which
+# will eventually replace it (see docs/migration-cpp23.md).
+#
+# This pipeline is deliberately separate from ci.yml: the Go binary must stay
+# shippable for the whole migration, so nothing here can affect the Go gate.
+#
+# Everything is built with plain `cmake -G Ninja`, not with cup. That is not an
+# oversight — the first C++ cup has no cup to build it, and that bootstrap path is
+# the one contributors follow, so CI must exercise it.
+
+on:
+  push:
+    branches: [main]
+    paths: ['cpp/**', '.github/workflows/cpp.yml']
+  pull_request:
+    paths: ['cpp/**', '.github/workflows/cpp.yml']
+  workflow_dispatch:
+
+concurrency:
+  group: cpp-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Named modules require Ninja: CMake's Makefile generator does not implement the
+  # dyndep scanning protocol modules need, and never will.
+  CMAKE_GENERATOR: Ninja
+
+jobs:
+  # The compiler floor. cup pins GCC >= 14 / Clang >= 18, and GCC's module
+  # implementation has its sharpest edges at 14 — so the floor is where the build
+  # must be proven, not just the newest toolchain.
+  build-gcc14:
+    name: gcc-14 (floor) — build + test + coverage
+    runs-on: ubuntu-24.04
+
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            g++-14 ninja-build cmake libcurl4-openssl-dev lcov
+
+      - name: Show toolchain versions
+        run: |
+          g++-14 --version | head -1
+          cmake --version | head -1
+          ninja --version
+
+      # FetchContent clones toml++ and Catch2 on every configure; cache the
+      # populated _deps tree so PRs do not re-clone them each run.
+      - name: Cache FetchContent dependencies
+        uses: actions/cache@v4
+        with:
+          path: cpp/build/Coverage/_deps
+          key: ${{ runner.os }}-deps-${{ hashFiles('cpp/third_party/CMakeLists.txt') }}
+          restore-keys: ${{ runner.os }}-deps-
+
+      # Coverage is a first-class build mode in a cup project, so the gcov run is
+      # the same build the tests run against — no second configure.
+      - name: Configure (Coverage)
+        working-directory: cpp
+        env:
+          CC: gcc-14
+          CXX: g++-14
+        run: cmake -B build/Coverage -DCMAKE_BUILD_TYPE=Coverage
+
+      - name: Build
+        working-directory: cpp
+        run: cmake --build build/Coverage
+
+      # --no-tests=ignore keeps this green until Phase 2 lands the first Catch2
+      # suite; remove it once there are tests, so an empty run fails loudly.
+      - name: Test
+        working-directory: cpp
+        run: ctest --test-dir build/Coverage --output-on-failure --no-tests=ignore
+
+      - name: Collect coverage
+        working-directory: cpp
+        run: |
+          # `source` is not optional: some .gcda name Catch2 headers by a path that
+          # does not resolve in the build tree (build/Coverage/src/catch2/reporters/
+          # catch_reporter_sonarqube.hpp), and geninfo treats an unopenable source as a
+          # hard error. Excluding _deps at capture also skips ~100 Catch2 objects that
+          # the --remove below would drop anyway.
+          lcov --capture --directory build/Coverage --output-file coverage.info \
+               --gcov-tool gcov-14 --exclude '*/_deps/*' \
+               --ignore-errors empty,mismatch,source
+          # Third-party and generated sources are not ours to cover.
+          lcov --remove coverage.info \
+               '/usr/*' '*/build/*/_deps/*' '*/build/*/generated/*' \
+               --output-file coverage.info --ignore-errors empty,unused
+          lcov --list coverage.info
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: cpp-coverage
+          path: |
+            cpp/coverage.info
+            cpp/build/Coverage/compile_commands.json
+
+  # Early warning against a newer GCC. Module support moves fast, and an ICE or a
+  # stale-BMI bug should surface here rather than in a contributor's first PR.
+  # Non-blocking on purpose: this job exists to tell us something, not to gate.
+  build-gcc-latest:
+    name: gcc-16 (canary) — build + test
+    runs-on: ubuntu-24.04
+    continue-on-error: true
+
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            g++-16 ninja-build cmake libcurl4-openssl-dev
+
+      - name: Configure
+        working-directory: cpp
+        env:
+          CC: gcc-16
+          CXX: g++-16
+        run: cmake -B build/Debug -DCMAKE_BUILD_TYPE=Debug
+
+      - name: Build
+        working-directory: cpp
+        run: cmake --build build/Debug
+
+      - name: Test
+        working-directory: cpp
+        run: ctest --test-dir build/Debug --output-on-failure --no-tests=ignore
+
+  # The release artifact: a musl-static binary built in alpine.
+  #
+  # musl rather than glibc because cup resolves ftp.gnu.org and api.github.com to
+  # discover compiler releases. glibc's getaddrinfo dlopen's NSS modules at
+  # runtime, so a -static glibc binary fails DNS on any host whose glibc differs
+  # from the build host's. musl's resolver is static-clean.
+  release-musl-static:
+    name: alpine musl-static
+    runs-on: ubuntu-24.04
+    container: alpine:3.22
+
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        # Real ninja, not alpine's default samurai: samurai advertises ninja 1.9
+        # compatibility and has no dyndep support, so CMake refuses to scan for
+        # modules ("Ninja 1.11 or higher is required"). ninja-is-really-ninja
+        # points the `ninja` command at ninja-build (and excludes samurai).
+        # The *-static packages carry the archives a fully static link of libcurl
+        # needs.
+        run: |
+          apk add --no-cache \
+            build-base cmake ninja-build ninja-is-really-ninja git \
+            curl-dev curl-static \
+            openssl-libs-static zlib-static nghttp2-static brotli-static
+
+      - name: Show toolchain versions
+        run: |
+          g++ --version | head -1
+          cmake --version | head -1
+          # Must be >= 1.11, or module scanning is unavailable.
+          ninja --version
+
+      - name: Configure (Release, static)
+        working-directory: cpp
+        run: |
+          cmake -B build/Release \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_EXE_LINKER_FLAGS="-static" \
+            -DBUILD_SHARED_LIBS=OFF
+
+      - name: Build
+        working-directory: cpp
+        run: cmake --build build/Release
+
+      # Proves the "static" in musl-static. Until Phase 4 lands an executable
+      # there is nothing to check, so an empty bin/ is not yet a failure.
+      - name: Verify the binary is static
+        working-directory: cpp
+        run: |
+          if [ ! -f build/Release/bin/cup ]; then
+            echo "no cup executable yet — skipping (expected until Phase 4)"
+            exit 0
+          fi
+          file build/Release/bin/cup
+          if ldd build/Release/bin/cup 2>&1 | grep -qv 'not a dynamic executable'; then
+            echo "ERROR: binary is dynamically linked"
+            ldd build/Release/bin/cup
+            exit 1
+          fi
+          ./build/Release/bin/cup --help || true
+
+      - name: Upload release binary
+        if: hashFiles('cpp/build/Release/bin/cup') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: cup-musl-static
+          path: cpp/build/Release/bin/cup

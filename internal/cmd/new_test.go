@@ -99,17 +99,60 @@ func TestChooseCompilerFloorsSubset(t *testing.T) {
 	}
 }
 
-func TestModuleStdSetup(t *testing.T) {
-	if !strings.Contains(moduleStdSetup(23), "CMAKE_CXX_MODULE_STD") {
-		t.Error("c++23 setup missing std-module opt-in")
+// A lib's primary interface unit needs a global module fragment whenever its
+// partitions have one, or GCC 14 emits a BMI that consumers cannot read. That is
+// the C++20 modules case; C++23 reaches the standard library through `import std;`
+// instead, so neither its partitions nor its aggregator carry a fragment.
+func TestPrimaryPreamble(t *testing.T) {
+	got := primaryPreamble(project.Config{CppStandard: 20})
+	if !strings.HasPrefix(got, "module;\n") {
+		t.Errorf("primaryPreamble(20) = %q, want a global module fragment", got)
 	}
-	if !strings.Contains(moduleStdSetup(20), "3.28") {
-		t.Error("c++20 setup missing 3.28 floor")
+	// A token fragment does not satisfy GCC 14 — it needs a real standard header.
+	if !strings.Contains(got, "#include <") {
+		t.Errorf("primaryPreamble(20) = %q, want a standard-library include", got)
 	}
-	if strings.Contains(moduleStdSetup(20), "CMAKE_CXX_MODULE_STD") {
-		t.Error("c++20 should not enable the std module")
+	// The aggregator must not spend the module's one <print>/<format>/<iostream>
+	// budget, which belongs to a partition that actually does I/O.
+	for _, heavy := range []string{"<print>", "<format>", "<iostream>"} {
+		if strings.Contains(got, heavy) {
+			t.Errorf("primaryPreamble(20) includes %s; that header may appear in only one partition", heavy)
+		}
+	}
+	if got := primaryPreamble(project.Config{CppStandard: 23}); got != "" {
+		t.Errorf("primaryPreamble(23) = %q, want empty (C++23 uses `import std;`)", got)
+	}
+	// C++23 with the std module declined: the partitions carry a fragment again, so
+	// the aggregator must too.
+	noStd := project.Config{CppStandard: 23, StdModule: boolPtr(false)}
+	if got := primaryPreamble(noStd); !strings.HasPrefix(got, "module;\n") {
+		t.Errorf("primaryPreamble(23, std_module=false) = %q, want a global module fragment", got)
 	}
 }
+
+func TestModuleStdSetup(t *testing.T) {
+	if !strings.Contains(moduleStdSetup(project.Config{CppStandard: 23}), "CMAKE_CXX_MODULE_STD") {
+		t.Error("c++23 setup missing std-module opt-in")
+	}
+	cpp20 := moduleStdSetup(project.Config{CppStandard: 20})
+	if !strings.Contains(cpp20, "3.28") {
+		t.Error("c++20 setup missing 3.28 floor")
+	}
+	if strings.Contains(cpp20, "CMAKE_CXX_MODULE_STD") {
+		t.Error("c++20 should not enable the std module")
+	}
+	// C++23 with `std_module = false` stays on the 3.28 floor: named modules need
+	// nothing newer, and the experimental std-module gate must not be set.
+	cpp23noStd := moduleStdSetup(project.Config{CppStandard: 23, StdModule: boolPtr(false)})
+	if !strings.Contains(cpp23noStd, "3.28") {
+		t.Error("c++23 without the std module missing 3.28 floor")
+	}
+	if strings.Contains(cpp23noStd, "CMAKE_CXX_MODULE_STD") {
+		t.Error("c++23 with std_module = false should not enable the std module")
+	}
+}
+
+func boolPtr(b bool) *bool { return &b }
 
 // RunNew bootstraps a whole project (it shells out to `git init`, which is
 // available in CI). Drive it end-to-end in a temp working directory.

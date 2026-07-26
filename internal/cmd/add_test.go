@@ -3,10 +3,69 @@ package cmd
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"cup/internal/project"
 )
+
+// A C++23 project that declines the std module — `std_module = false`, the shape
+// cup's own C++ port under cpp/ records — must keep getting global-module-fragment
+// sources at the newer standard. `import std;` needs GCC 15 and CMake 3.30, and the
+// whole point of the setting is to stay on a GCC 14 floor while std::expected and
+// std::println are available.
+func TestAddWithoutStdModule(t *testing.T) {
+	pinScaffoldEnv(t)
+	root := scaffoldProject(t, goldenCell{project.ToolCMake, 23})
+
+	// `cup new` has no picker for it yet, so record it the way cpp/cup.toml does.
+	proj, err := project.Find()
+	if err != nil {
+		t.Fatalf("Find: %v", err)
+	}
+	cfg := proj.Config
+	no := false
+	cfg.StdModule = &no
+	if err := project.WriteConfig(root, cfg); err != nil {
+		t.Fatalf("WriteConfig: %v", err)
+	}
+
+	feed(t, "runner\n\n")
+	if err := RunAdd([]string{"app"}); err != nil {
+		t.Fatalf("cup add app: %v", err)
+	}
+	feed(t, addLibFeed(0, "lib_class"))
+	if err := RunAdd([]string{"lib"}); err != nil {
+		t.Fatalf("cup add lib: %v", err)
+	}
+
+	// The app is a plain translation unit: a #include, not an import.
+	app := filepath.Join(root, "src", "apps", "runner", "runner.cpp")
+	assertFile(t, app, "#include <print>")
+	assertFile(t, app, "std::println")
+
+	// The partition carries the standard library in a global module fragment, and
+	// the aggregator carries one too (GCC 14 rejects the BMI otherwise).
+	assertFile(t, filepath.Join(root, "src", "libs", "lib_class", "Lib_class.cppm"),
+		"module;\n#include <print>\n")
+	assertFile(t, filepath.Join(root, "src", "libs", "lib_class", "lib_class.cppm"),
+		"module;\n#include <string>\n")
+
+	// Nothing anywhere may reach for the std module.
+	for _, rel := range []string{
+		filepath.Join("src", "apps", "runner", "runner.cpp"),
+		filepath.Join("src", "libs", "lib_class", "Lib_class.cppm"),
+		filepath.Join("src", "libs", "lib_class", "lib_class.cppm"),
+	} {
+		b, err := os.ReadFile(filepath.Join(root, rel))
+		if err != nil {
+			t.Fatalf("reading %s: %v", rel, err)
+		}
+		if strings.Contains(string(b), "import std;") {
+			t.Errorf("%s uses `import std;` with std_module = false:\n%s", rel, b)
+		}
+	}
+}
 
 func TestFamily(t *testing.T) {
 	if got := family(&project.Project{Config: project.Config{CppStandard: 23}}); got != "modules" {

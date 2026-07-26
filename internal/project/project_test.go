@@ -59,6 +59,50 @@ func TestUsesModules(t *testing.T) {
 	}
 }
 
+func TestUsesStdModule(t *testing.T) {
+	// Unset: the standard decides, and C++23 is the first with a std module.
+	cases := map[int]bool{
+		0:  true, // default 23
+		23: true,
+		20: false,
+		17: false,
+	}
+	for std, want := range cases {
+		if got := (Config{CppStandard: std}).UsesStdModule(); got != want {
+			t.Errorf("UsesStdModule() with cpp_standard=%d = %v, want %v", std, got, want)
+		}
+	}
+
+	// std_module overrides the standard's default in both directions. `false` on
+	// C++23 is the interesting one: named modules on a GCC 14 floor, no
+	// `import std;` (cup's own C++ port).
+	no, yes := false, true
+	if (Config{CppStandard: 23, StdModule: &no}).UsesStdModule() {
+		t.Error("std_module = false on C++23 should turn the std module off")
+	}
+	if !(Config{CppStandard: 26, StdModule: &yes}).UsesStdModule() {
+		t.Error("std_module = true should keep the std module on")
+	}
+}
+
+func TestUsesStdModuleRoundTrip(t *testing.T) {
+	// `cup compiler set` rewrites cup.toml through WriteConfig, so an explicit
+	// std_module = false must survive the round trip rather than being dropped as
+	// an empty value — dropping it would silently flip the project onto `import std;`.
+	dir := canonicalTempDir(t)
+	no := false
+	if err := WriteConfig(dir, Config{Name: "cup", CppStandard: 23, StdModule: &no}); err != nil {
+		t.Fatalf("WriteConfig: %v", err)
+	}
+	cfg := findFrom(t, dir).Config
+	if cfg.StdModule == nil || *cfg.StdModule {
+		t.Errorf("std_module did not survive the round trip: %v", cfg.StdModule)
+	}
+	if cfg.UsesStdModule() {
+		t.Error("reloaded C++23 project should still decline the std module")
+	}
+}
+
 func TestConfigTool(t *testing.T) {
 	// Projects created before build_tool existed keep building with CMake.
 	if got := (Config{}).Tool(); got != ToolCMake {

@@ -1,6 +1,7 @@
 package scaffold
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -87,57 +88,82 @@ func TestFamily(t *testing.T) {
 }
 
 func TestStdVars(t *testing.T) {
-	// C++23: import std, no prelude, blank-line-wrapped std_import.
-	v23 := StdVars(23)
-	if v23["std_number"] != "23" {
-		t.Errorf("StdVars(23) std_number = %q, want %q", v23["std_number"], "23")
-	}
-	if v23["std_lib"] != "import std;" {
-		t.Errorf("StdVars(23) std_lib = %q, want %q", v23["std_lib"], "import std;")
-	}
-	if v23["std_prelude"] != "" {
-		t.Errorf("StdVars(23) std_prelude = %q, want empty", v23["std_prelude"])
-	}
-	if v23["std_import"] != "\nimport std;\n" {
-		t.Errorf("StdVars(23) std_import = %q, want %q", v23["std_import"], "\nimport std;\n")
-	}
-	if !strings.Contains(v23["hello"], "std::println") {
-		t.Errorf("StdVars(23) hello = %q, want std::println greeting", v23["hello"])
+	cases := []struct {
+		name string
+		std  int
+		// stdModule is what the project asked for; below C++23 there is no std module
+		// to grant, so asking cannot produce one.
+		stdModule bool
+		lib       string
+		hello     string
+		// modules is whether the module-only keys exist at all: the headers family
+		// must not set them, even empty.
+		modules   bool
+		prelude   string
+		importStd string
+	}{
+		{
+			name: "c++23 on the std module", std: 23, stdModule: true,
+			lib: "import std;", hello: "std::println",
+			// Blank lines around the import so the .cppm greeting keeps its spacing;
+			// an empty prelude leaves nothing before the module declaration.
+			modules: true, prelude: "", importStd: "\nimport std;\n",
+		},
+		{
+			// GCC 14: std::println comes from the standard <print>, in a global module
+			// fragment, and never from an `import std;`.
+			name: "c++23 without the std module", std: 23, stdModule: false,
+			lib: "#include <print>", hello: "std::println",
+			modules: true, prelude: "module;\n#include <print>\n", importStd: "",
+		},
+		{
+			name: "c++20 cannot have the std module", std: 20, stdModule: true,
+			lib: "#include <iostream>", hello: "std::cout",
+			modules: true, prelude: "module;\n#include <iostream>\n", importStd: "",
+		},
+		{
+			name: "c++17 headers", std: 17, stdModule: false,
+			lib: "#include <iostream>", hello: "std::cout",
+			modules: false,
+		},
 	}
 
-	// C++20: modules but no import std — uses a global-module-fragment prelude.
-	v20 := StdVars(20)
-	if v20["std_number"] != "20" {
-		t.Errorf("StdVars(20) std_number = %q, want %q", v20["std_number"], "20")
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			v := StdVars(c.std, c.stdModule)
+			if want := strconv.Itoa(c.std); v["std_number"] != want {
+				t.Errorf("std_number = %q, want %q", v["std_number"], want)
+			}
+			if v["std_lib"] != c.lib {
+				t.Errorf("std_lib = %q, want %q", v["std_lib"], c.lib)
+			}
+			if !strings.Contains(v["hello"], c.hello) {
+				t.Errorf("hello = %q, want a %s greeting", v["hello"], c.hello)
+			}
+			assertModuleKeys(t, v, c.modules, c.prelude, c.importStd)
+		})
 	}
-	if v20["std_lib"] != "#include <iostream>" {
-		t.Errorf("StdVars(20) std_lib = %q, want include", v20["std_lib"])
-	}
-	if v20["std_prelude"] != "module;\n#include <iostream>\n" {
-		t.Errorf("StdVars(20) std_prelude = %q, want module prelude", v20["std_prelude"])
-	}
-	if v20["std_import"] != "" {
-		t.Errorf("StdVars(20) std_import = %q, want empty", v20["std_import"])
-	}
-	if !strings.Contains(v20["hello"], "std::cout") {
-		t.Errorf("StdVars(20) hello = %q, want std::cout greeting", v20["hello"])
-	}
+}
 
-	// C++17 (and below): classic headers, no module-only keys.
-	v17 := StdVars(17)
-	if v17["std_number"] != "17" {
-		t.Errorf("StdVars(17) std_number = %q, want %q", v17["std_number"], "17")
+// assertModuleKeys checks the .cppm-only pair: present with the given values for the
+// modules family, absent entirely below C++20.
+func assertModuleKeys(t *testing.T, v map[string]string, modules bool, prelude, importStd string) {
+	t.Helper()
+	gotPrelude, hasPrelude := v["std_prelude"]
+	gotImport, hasImport := v["std_import"]
+	if !modules {
+		if hasPrelude || hasImport {
+			t.Errorf("headers family set module-only keys: std_prelude=%q std_import=%q", gotPrelude, gotImport)
+		}
+		return
 	}
-	if v17["std_lib"] != "#include <iostream>" {
-		t.Errorf("StdVars(17) std_lib = %q, want include", v17["std_lib"])
+	if !hasPrelude || !hasImport {
+		t.Fatalf("modules family missing a module-only key: std_prelude set=%v std_import set=%v", hasPrelude, hasImport)
 	}
-	if _, ok := v17["std_prelude"]; ok {
-		t.Errorf("StdVars(17) should not set std_prelude")
+	if gotPrelude != prelude {
+		t.Errorf("std_prelude = %q, want %q", gotPrelude, prelude)
 	}
-	if _, ok := v17["std_import"]; ok {
-		t.Errorf("StdVars(17) should not set std_import")
-	}
-	if !strings.Contains(v17["hello"], "std::cout") {
-		t.Errorf("StdVars(17) hello = %q, want std::cout greeting", v17["hello"])
+	if gotImport != importStd {
+		t.Errorf("std_import = %q, want %q", gotImport, importStd)
 	}
 }
