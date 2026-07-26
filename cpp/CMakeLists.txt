@@ -90,3 +90,4 @@ cup_embed_templates(TARGET cup_templates DIR "${CMAKE_CURRENT_SOURCE_DIR}/templa
 add_subdirectory(third_party)
 add_subdirectory(src/libs)
 add_subdirectory(src/apps)
+add_subdirectory(src/tests)
