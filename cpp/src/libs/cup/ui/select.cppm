@@ -3,9 +3,11 @@ module;
 #include <charconv>
 #include <cstddef>
 #include <expected>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 export module cup.ui:select;
 
 import :io;
@@ -113,6 +115,19 @@ void redraw_final(std::span<const std::string> options, std::size_t cursor) {
     }
 }
 
+// parse_choice reads a menu answer as a 1-based index into a list of count
+// options. Anything that is not a whole number in range is nullopt — not an error,
+// but the signal to put the question again.
+[[nodiscard]] std::optional<std::size_t> parse_choice(std::string_view answer,
+                                                      std::size_t count) {
+    std::size_t index = 0;
+    const auto [ptr, ec] = std::from_chars(answer.data(), answer.data() + answer.size(), index);
+    if (ec != std::errc{} || ptr != answer.data() + answer.size() || index < 1 || index > count) {
+        return std::nullopt;
+    }
+    return index;
+}
+
 // select_numbered is the fallback for a non-terminal stdin: a numbered list read
 // from one line, so cup still works over a pipe.
 [[nodiscard]] std::expected<std::string, error::Error> select_numbered(
@@ -122,16 +137,15 @@ void redraw_final(std::span<const std::string> options, std::size_t cursor) {
         emit_numbered_line(i + 1, options[i]);
     }
     while (true) {
-        const auto choice = text("choice number?", "1");
-        if (!choice) {
-            return std::unexpected(choice.error());
+        // An abort propagates; an unusable answer just loops. text() has already
+        // applied the default, so a bare Enter arrives here as "1".
+        auto choice = text("choice number?", "1").transform(
+            [&](const std::string& answer) { return parse_choice(answer, options.size()); });
+        if (!choice.has_value()) {
+            return std::unexpected(std::move(choice).error());
         }
-        std::size_t index = 0;
-        const std::string& s = *choice;
-        const auto [ptr, ec] = std::from_chars(s.data(), s.data() + s.size(), index);
-        if (ec == std::errc{} && ptr == s.data() + s.size() && index >= 1 &&
-            index <= options.size()) {
-            return options[index - 1];
+        if (choice->has_value()) {
+            return options[**choice - 1];
         }
     }
 }

@@ -18,6 +18,7 @@ module;
 #include <string_view>
 #include <system_error>
 #include <utility>
+#include <vector>
 module cup.project;
 
 namespace cup::project {
@@ -82,11 +83,87 @@ template <typename T>
     if (node == nullptr) {
         return std::optional<T>{};
     }
-    const auto value = node->value<T>();
-    if (!value.has_value()) {
-        return std::unexpected(error::Error("field " + std::string(key) + " has the wrong type"));
+    return error::require(node->value<T>(), "field " + std::string(key) + " has the wrong type")
+        .transform([](T value) { return std::optional<T>(std::move(value)); });
+}
+
+// bind reads key into dst, leaving dst untouched when the key is absent.
+//
+// It is the piece that lets a whole table decode as one and_then chain: every field
+// read has the same expected<void> shape, so the error path is written once at the
+// end of the chain rather than repeated after each of the fourteen reads below.
+//
+// Leaving dst alone on an absent key is what the old `value_or(default)` amounted
+// to — every default in Config is already the member's default initialiser — and it
+// is also what keeps one helper enough for the optional fields: assigning the
+// unwrapped value to an std::optional<T> dst engages it, and absence leaves the
+// nullopt that std_module's tri-state depends on.
+template <typename T, typename Field>
+[[nodiscard]] std::expected<void, error::Error> bind(const toml::table& tbl, std::string_view key,
+                                                     Field& dst) {
+    return field<T>(tbl, key).transform([&dst](std::optional<T> value) {
+        if (value.has_value()) {
+            dst = *std::move(value);
+        }
+    });
+}
+
+// parse_table turns toml++'s exception into the error channel, so parsing is a step
+// in a chain like every other.
+[[nodiscard]] std::expected<toml::table, error::Error> parse_table(std::string_view text) {
+    try {
+        return toml::parse(text);
+    } catch (const toml::parse_error& e) {
+        return std::unexpected(error::Error(std::string(e.description())));
     }
-    return std::optional<T>(*value);
+}
+
+// read_compiler decodes the [compiler] table. A missing table is not an error: it
+// leaves the defaults in place, which is what projects predating the table rely on.
+[[nodiscard]] std::expected<void, error::Error> read_compiler(const toml::table& tbl,
+                                                              CompilerConfig& out) {
+    const auto* compiler = tbl["compiler"].as_table();
+    if (compiler == nullptr) {
+        return {};
+    }
+    return bind<int>(*compiler, "gcc", out.gcc)
+        .and_then([&] { return bind<int>(*compiler, "clang", out.clang); })
+        .and_then([&] { return bind<std::string>(*compiler, "verify_image", out.verify_image); });
+}
+
+// read_image decodes one [[docker.image]] entry.
+[[nodiscard]] std::expected<DockerImage, error::Error> read_image(const toml::node& node) {
+    const auto* entry = node.as_table();
+    if (entry == nullptr) {
+        return std::unexpected(error::Error("docker.image entries must be tables"));
+    }
+    DockerImage image;
+    return bind<std::string>(*entry, "name", image.name)
+        .and_then([&] { return bind<std::string>(*entry, "base", image.base); })
+        .and_then([&] { return bind<int>(*entry, "version", image.version); })
+        .and_then([&] { return bind<std::string>(*entry, "hash", image.hash); })
+        // The TOML key stays "default"; the field cannot, since that is a keyword.
+        .and_then([&] { return bind<bool>(*entry, "default", image.is_default); })
+        .transform([&image] { return std::move(image); });
+}
+
+// read_docker decodes the [docker] table and the [[docker.image]] array under it.
+[[nodiscard]] std::expected<void, error::Error> read_docker(const toml::table& tbl,
+                                                            DockerConfig& out) {
+    const auto* docker = tbl["docker"].as_table();
+    if (docker == nullptr) {
+        return {};
+    }
+    return bind<std::string>(*docker, "registry", out.registry).and_then([&] {
+        const auto* images = (*docker)["image"].as_array();
+        if (images == nullptr) {
+            return std::expected<void, error::Error>{};
+        }
+        return error::collect<DockerImage>(*images, read_image)
+            .transform([&out](std::vector<DockerImage> decoded) {
+                out.images = std::move(decoded);
+            });
+    });
 }
 
 // read_file slurps a file whole, reporting nullopt if it cannot be opened.
@@ -96,6 +173,34 @@ template <typename T>
         return std::nullopt;
     }
     return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+}
+
+// load_project reads and decodes the cup.toml sitting in dir, as one chain: require
+// lifts an unreadable file into the error channel, transform_error names the file
+// on whatever the decoder reports, and transform seats the result in a Project.
+//
+// The two errors stay worded differently on purpose — a file cup cannot read says
+// only "reading <path>", while one it can read but not decode appends the decoder's
+// complaint — so transform_error wraps the parse alone rather than the whole chain.
+[[nodiscard]] std::expected<Project, error::Error> load_project(const std::filesystem::path& dir) {
+    const std::filesystem::path marker = dir / kMarker;
+    return error::require(read_file(marker), "reading " + marker.string())
+        .and_then([&marker](const std::string& text) {
+            return parse_config(text).transform_error([&marker](const error::Error& e) {
+                return error::Error("reading " + marker.string() + ": " + e.message());
+            });
+        })
+        .transform([&dir](Config cfg) { return Project{.root = dir, .config = std::move(cfg)}; });
+}
+
+// current_directory is getcwd in the error channel, so find() below is one chain.
+[[nodiscard]] std::expected<std::filesystem::path, error::Error> current_directory() {
+    std::error_code ec;
+    std::filesystem::path cwd = std::filesystem::current_path(ec);
+    if (ec) {
+        return std::unexpected(error::Error("getting the working directory: " + ec.message()));
+    }
+    return cwd;
 }
 
 }  // namespace
@@ -156,119 +261,19 @@ std::string to_toml(const Config& cfg) {
 }
 
 std::expected<Config, error::Error> parse_config(std::string_view text) {
-    toml::table tbl;
-    try {
-        tbl = toml::parse(text);
-    } catch (const toml::parse_error& e) {
-        return std::unexpected(error::Error(std::string(e.description())));
-    }
-
-    Config cfg;
-
-    // Each field has a different type and target, so they are read out longhand;
-    // a loop would only move the repetition somewhere less obvious.
-    const auto name = field<std::string>(tbl, "name");
-    if (!name) {
-        return std::unexpected(name.error());
-    }
-    cfg.name = name->value_or("");
-
-    const auto cup_version = field<std::string>(tbl, "cup_version");
-    if (!cup_version) {
-        return std::unexpected(cup_version.error());
-    }
-    cfg.cup_version = cup_version->value_or("");
-
-    const auto cpp_standard = field<int>(tbl, "cpp_standard");
-    if (!cpp_standard) {
-        return std::unexpected(cpp_standard.error());
-    }
-    cfg.cpp_standard = cpp_standard->value_or(0);
-
-    // Left as nullopt when the key is absent — the whole point of the tri-state.
-    const auto std_module = field<bool>(tbl, "std_module");
-    if (!std_module) {
-        return std::unexpected(std_module.error());
-    }
-    cfg.std_module = *std_module;
-
-    const auto build_tool = field<std::string>(tbl, "build_tool");
-    if (!build_tool) {
-        return std::unexpected(build_tool.error());
-    }
-    cfg.build_tool = build_tool->value_or("");
-
-    if (const auto* compiler = tbl["compiler"].as_table()) {
-        const auto gcc = field<int>(*compiler, "gcc");
-        if (!gcc) {
-            return std::unexpected(gcc.error());
-        }
-        cfg.compiler.gcc = *gcc;
-
-        const auto clang = field<int>(*compiler, "clang");
-        if (!clang) {
-            return std::unexpected(clang.error());
-        }
-        cfg.compiler.clang = *clang;
-
-        const auto verify_image = field<std::string>(*compiler, "verify_image");
-        if (!verify_image) {
-            return std::unexpected(verify_image.error());
-        }
-        cfg.compiler.verify_image = verify_image->value_or("");
-    }
-
-    if (const auto* docker = tbl["docker"].as_table()) {
-        const auto registry = field<std::string>(*docker, "registry");
-        if (!registry) {
-            return std::unexpected(registry.error());
-        }
-        cfg.docker.registry = registry->value_or("");
-
-        if (const auto* images = (*docker)["image"].as_array()) {
-            for (const auto& node : *images) {
-                const auto* entry = node.as_table();
-                if (entry == nullptr) {
-                    return std::unexpected(error::Error("docker.image entries must be tables"));
-                }
-                DockerImage image;
-
-                const auto image_name = field<std::string>(*entry, "name");
-                if (!image_name) {
-                    return std::unexpected(image_name.error());
-                }
-                image.name = image_name->value_or("");
-
-                const auto base = field<std::string>(*entry, "base");
-                if (!base) {
-                    return std::unexpected(base.error());
-                }
-                image.base = base->value_or("");
-
-                const auto version = field<int>(*entry, "version");
-                if (!version) {
-                    return std::unexpected(version.error());
-                }
-                image.version = version->value_or(0);
-
-                const auto hash = field<std::string>(*entry, "hash");
-                if (!hash) {
-                    return std::unexpected(hash.error());
-                }
-                image.hash = hash->value_or("");
-
-                const auto is_default = field<bool>(*entry, "default");
-                if (!is_default) {
-                    return std::unexpected(is_default.error());
-                }
-                image.is_default = is_default->value_or(false);
-
-                cfg.docker.images.push_back(std::move(image));
-            }
-        }
-    }
-
-    return cfg;
+    return parse_table(text).and_then([](const toml::table& tbl) {
+        Config cfg;
+        return bind<std::string>(tbl, "name", cfg.name)
+            .and_then([&] { return bind<std::string>(tbl, "cup_version", cfg.cup_version); })
+            .and_then([&] { return bind<int>(tbl, "cpp_standard", cfg.cpp_standard); })
+            // Left as nullopt when the key is absent — the whole point of the
+            // tri-state; see bind on why one helper covers that too.
+            .and_then([&] { return bind<bool>(tbl, "std_module", cfg.std_module); })
+            .and_then([&] { return bind<std::string>(tbl, "build_tool", cfg.build_tool); })
+            .and_then([&] { return read_compiler(tbl, cfg.compiler); })
+            .and_then([&] { return read_docker(tbl, cfg.docker); })
+            .transform([&cfg] { return std::move(cfg); });
+    });
 }
 
 std::expected<void, error::Error> write_config(const std::filesystem::path& root,
@@ -283,21 +288,10 @@ std::expected<void, error::Error> write_config(const std::filesystem::path& root
 }
 
 std::expected<Project, error::Error> find_from(const std::filesystem::path& start) {
-    std::filesystem::path dir = start;
-    while (true) {
-        const std::filesystem::path marker = dir / kMarker;
+    for (std::filesystem::path dir = start;;) {
         std::error_code ec;
-        if (std::filesystem::exists(marker, ec)) {
-            const auto text = read_file(marker);
-            if (!text) {
-                return std::unexpected(error::Error("reading " + marker.string()));
-            }
-            auto cfg = parse_config(*text);
-            if (!cfg) {
-                return std::unexpected(
-                    error::Error("reading " + marker.string() + ": " + cfg.error().message()));
-            }
-            return Project{.root = dir, .config = *std::move(cfg)};
+        if (std::filesystem::exists(dir / kMarker, ec)) {
+            return load_project(dir);
         }
         // parent_path() of a root ("/") is itself, and of a bare relative name is
         // empty; either means the walk has run out of ancestors.
@@ -311,13 +305,6 @@ std::expected<Project, error::Error> find_from(const std::filesystem::path& star
     }
 }
 
-std::expected<Project, error::Error> find() {
-    std::error_code ec;
-    const std::filesystem::path cwd = std::filesystem::current_path(ec);
-    if (ec) {
-        return std::unexpected(error::Error("getting the working directory: " + ec.message()));
-    }
-    return find_from(cwd);
-}
+std::expected<Project, error::Error> find() { return current_directory().and_then(find_from); }
 
 }  // namespace cup::project

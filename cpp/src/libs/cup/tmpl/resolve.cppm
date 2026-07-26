@@ -9,6 +9,7 @@ module;
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <utility>
 #include <vector>
 export module cup.tmpl:resolve;
 
@@ -41,6 +42,37 @@ namespace detail {
     return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
 }
 
+// local_read returns a project-local override's bytes, or nullopt when there is no
+// project root, no such file, or the file cannot be read. Those three cases are
+// deliberately one: each means "fall through to the built-in", which is what the Go
+// implementation's `if err == nil` amounts to.
+[[nodiscard]] std::optional<std::string> local_read(const std::filesystem::path& root,
+                                                    std::string_view kind, std::string_view name) {
+    return root.empty() ? std::nullopt : read_file(override_path(root, kind, name));
+}
+
+// write_file writes content to path verbatim, truncating what was there.
+[[nodiscard]] std::expected<void, error::Error> write_file(const std::filesystem::path& path,
+                                                           std::string_view content) {
+    std::ofstream out(path, std::ios::binary | std::ios::trunc);
+    out << content;
+    if (!out) {
+        return std::unexpected(error::Error("writing " + path.string()));
+    }
+    return {};
+}
+
+// create_dir makes dst and its parents, putting the failure in the error channel so
+// it can head a chain.
+[[nodiscard]] std::expected<void, error::Error> create_dir(const std::filesystem::path& dst) {
+    std::error_code ec;
+    std::filesystem::create_directories(dst, ec);
+    if (ec) {
+        return std::unexpected(error::Error("creating " + dst.string() + ": " + ec.message()));
+    }
+    return {};
+}
+
 }  // namespace detail
 
 // exists reports whether template file <kind>/<name> is available for family,
@@ -48,15 +80,12 @@ namespace detail {
 // consult only the built-ins.
 [[nodiscard]] bool exists(const std::filesystem::path& root, std::string_view family,
                           std::string_view kind, std::string_view name) {
-    if (!root.empty()) {
-        // std::error_code overload: a permission failure mid-walk reports "not
-        // there" rather than throwing, matching os.Stat's error return in Go.
-        std::error_code ec;
-        if (std::filesystem::exists(detail::override_path(root, kind, name), ec)) {
-            return true;
-        }
-    }
-    return builtin_exists(family, kind, name);
+    // std::error_code overload: a permission failure mid-walk reports "not there"
+    // rather than throwing, matching os.Stat's error return in Go.
+    std::error_code ec;
+    return (!root.empty() &&
+            std::filesystem::exists(detail::override_path(root, kind, name), ec)) ||
+           builtin_exists(family, kind, name);
 }
 
 // is_compiled reports whether a headers-family kind scaffolds a compiled component
@@ -74,22 +103,19 @@ namespace detail {
 // project-local copy under <root>/.cup/templates/<kind>/ over the built-in default
 // in <family>/<kind>/. root may be empty to consult only the built-in templates.
 //
-// A local file that exists but cannot be read falls through to the built-in rather
-// than failing, which is what the Go implementation's `if err == nil` does.
+// The preference is spelled or_else because that is exactly what it is: the
+// built-in is consulted only when the override yields nothing, and require then
+// turns "neither" into the one error this can report.
 [[nodiscard]] std::expected<std::string, error::Error> read(const std::filesystem::path& root,
                                                             std::string_view family,
                                                             std::string_view kind,
                                                             std::string_view name) {
-    if (!root.empty()) {
-        if (auto local = detail::read_file(detail::override_path(root, kind, name))) {
-            return *std::move(local);
-        }
-    }
-    if (const auto builtin = builtin_read(family, kind, name)) {
-        return std::string(*builtin);
-    }
-    return std::unexpected(error::Error("no such template: " + std::string(family) + "/" +
-                                        std::string(kind) + "/" + std::string(name)));
+    auto resolved = detail::local_read(root, kind, name).or_else([&] {
+        return builtin_read(family, kind, name).transform(
+            [](std::string_view content) { return std::string(content); });
+    });
+    return error::require(std::move(resolved), "no such template: " + std::string(family) + "/" +
+                                                   std::string(kind) + "/" + std::string(name));
 }
 
 namespace detail {
@@ -142,31 +168,37 @@ namespace detail {
     return {seen.begin(), seen.end()};
 }
 
+namespace detail {
+
+// kind_files lists the built-in files of <family>/<kind>. The corpus reports an
+// unknown kind by returning nothing at all, so the emptiness is turned back into
+// the error it stands for before the chain goes any further.
+[[nodiscard]] std::expected<std::vector<BuiltinFile>, error::Error> kind_files(
+    std::string_view family, std::string_view kind) {
+    auto files = builtin_files(family, kind);
+    return error::require(
+        files.empty() ? std::nullopt : std::optional(std::move(files)),
+        "no such template kind: " + std::string(family) + "/" + std::string(kind));
+}
+
+}  // namespace detail
+
 // copy_builtin writes every file of a built-in template <family>/<kind> into dst,
 // so a project can start from a copy of a default and edit it.
+//
+// The three steps stay in this order because the errors depend on it: dst is
+// created before the corpus is consulted, so an unwritable destination is reported
+// as such even when the kind does not exist either.
 [[nodiscard]] std::expected<void, error::Error> copy_builtin(std::string_view family,
                                                              std::string_view kind,
                                                              const std::filesystem::path& dst) {
-    std::error_code ec;
-    std::filesystem::create_directories(dst, ec);
-    if (ec) {
-        return std::unexpected(error::Error("creating " + dst.string() + ": " + ec.message()));
-    }
-
-    const auto files = builtin_files(family, kind);
-    if (files.empty()) {
-        return std::unexpected(error::Error("no such template kind: " + std::string(family) + "/" +
-                                            std::string(kind)));
-    }
-    for (const auto& file : files) {
-        const std::filesystem::path out = dst / file.name;
-        std::ofstream os(out, std::ios::binary | std::ios::trunc);
-        os << file.content;
-        if (!os) {
-            return std::unexpected(error::Error("writing " + out.string()));
-        }
-    }
-    return {};
+    return detail::create_dir(dst)
+        .and_then([&] { return detail::kind_files(family, kind); })
+        .and_then([&dst](const std::vector<BuiltinFile>& files) {
+            return error::for_each(files, [&dst](const BuiltinFile& file) {
+                return detail::write_file(dst / file.name, file.content);
+            });
+        });
 }
 
 }  // namespace cup::tmpl
