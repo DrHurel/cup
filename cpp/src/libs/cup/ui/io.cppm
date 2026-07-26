@@ -1,6 +1,7 @@
 module;
 #include <unistd.h>
 
+#include <cstdio>
 #include <iostream>
 #include <print>
 #include <span>
@@ -36,7 +37,7 @@ void emit_error_line(std::string_view s) { std::println(stderr, "{}", s); }
 
 // flush_output pushes buffered output out before a read, so a prompt is visible
 // before cup blocks waiting for the answer.
-void flush_output() { std::cout.flush(); }
+void flush_output() { std::fflush(stdout); }
 
 namespace detail {
 
