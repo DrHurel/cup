@@ -1,6 +1,7 @@
 module;
 #include <unistd.h>
 
+#include <cstddef>
 #include <cstdio>
 #include <iostream>
 #include <print>
@@ -32,6 +33,14 @@ void emit(std::string_view s) { std::print("{}", s); }
 // emit_line writes s followed by a newline.
 void emit_line(std::string_view s) { std::println("{}", s); }
 
+// emit_numbered_line writes "  <n>) <text>", the one line of cup's output that
+// interpolates a number. The formatting lives here rather than at the call site
+// because it has to: <format>'s machinery is as restricted to this partition as
+// <print> is.
+void emit_numbered_line(std::size_t n, std::string_view text) {
+    std::println("  {}) {}", n, text);
+}
+
 // emit_error_line writes s to stderr, so diagnostics survive a redirect of stdout.
 void emit_error_line(std::string_view s) { std::println(stderr, "{}", s); }
 
@@ -55,15 +64,16 @@ std::istream*& current_input() {
 // one when it goes out of scope. (Go: SetInput returning a restore func.)
 class ScopedInput {
 public:
-    explicit ScopedInput(std::istream& in) : previous_(detail::current_input()) {
-        detail::current_input() = &in;
-    }
+    explicit ScopedInput(std::istream& in) { detail::current_input() = &in; }
     ScopedInput(const ScopedInput&) = delete;
     ScopedInput& operator=(const ScopedInput&) = delete;
     ~ScopedInput() { detail::current_input() = previous_; }
 
 private:
-    std::istream* previous_;
+    // Captured by the default member initializer, which runs before the
+    // constructor body — so previous_ holds the stream that was installed on the
+    // way in, not the one the body swaps to.
+    std::istream* previous_ = detail::current_input();
 };
 
 // read_line reads one line, reporting false at end of input with nothing read. A

@@ -51,7 +51,7 @@ namespace detail {
 // can be redrawn in place.
 void move_up(std::size_t n) {
     for (std::size_t i = 0; i < n; ++i) {
-        emit("\x1b[1A\x1b[2K");
+        emit("\x{1b}[1A\x{1b}[2K");
     }
 }
 
@@ -119,7 +119,7 @@ void redraw_final(std::span<const std::string> options, std::size_t cursor) {
     std::string_view question, std::span<const std::string> options) {
     emit_line(question);
     for (std::size_t i = 0; i < options.size(); ++i) {
-        emit_line("  " + std::to_string(i + 1) + ") " + options[i]);
+        emit_numbered_line(i + 1, options[i]);
     }
     while (true) {
         const auto choice = text("choice number?", "1");
@@ -151,12 +151,14 @@ void redraw_final(std::span<const std::string> options, std::size_t cursor) {
     if (!platform::is_tty(platform::kStdinFd)) {
         return detail::select_numbered(question, options);
     }
-    auto raw = platform::enter_raw_mode(platform::kStdinFd);
-    if (!raw) {
-        return detail::select_numbered(question, options);
+    // raw is the guard that restores the terminal when it goes out of scope, on
+    // every path. Declaring it in the init-statement is deliberate and safe: the
+    // if's scope encloses the call below, and a local is destroyed only after the
+    // return value has been initialised.
+    if (auto raw = platform::enter_raw_mode(platform::kStdinFd); raw.has_value()) {
+        return detail::select_interactive(question, options, detail::index_of(options, def));
     }
-    // The guard restores the terminal when it goes out of scope, on every path.
-    return detail::select_interactive(question, options, detail::index_of(options, def));
+    return detail::select_numbered(question, options);
 }
 
 }  // namespace cup::ui

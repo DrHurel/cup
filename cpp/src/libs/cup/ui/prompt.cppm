@@ -66,7 +66,7 @@ namespace detail {
             value = std::string(def);
         }
         if (validate) {
-            if (const auto ok = validate(value); !ok) {
+            if (const auto ok = validate(value); !ok.has_value()) {
                 err("  " + ok.error().message());
                 continue;
             }

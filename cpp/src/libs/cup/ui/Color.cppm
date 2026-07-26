@@ -46,7 +46,7 @@ bool set_use_color(bool enabled) {
     if (!use_color()) {
         return std::string(s);
     }
-    return std::string("\x1b[").append(code).append("m").append(s).append("\x1b[0m");
+    return std::string("\x{1b}[").append(code).append("m").append(s).append("\x{1b}[0m");
 }
 
 // bold builds the ";1" variant of a palette entry, used for the emphasised lines.

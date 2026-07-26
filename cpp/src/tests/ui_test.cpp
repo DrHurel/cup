@@ -45,7 +45,7 @@ TEST_CASE("color honours the colour setting", "[ui][color]") {
     }
     SECTION("enabled wraps the text in escapes") {
         const ScopedColor guard(true);
-        REQUIRE(cup::ui::color("1", "hi") == "\x1b[1mhi\x1b[0m");
+        REQUIRE(cup::ui::color("1", "hi") == "\x{1b}[1mhi\x{1b}[0m");
     }
 }
 
