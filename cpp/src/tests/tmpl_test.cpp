@@ -13,6 +13,7 @@
 // ui_test.cpp.
 #include <expected>
 #include <filesystem>
+#include <format>
 #include <string>
 #include <vector>
 
@@ -175,5 +176,6 @@ TEST_CASE("copy_builtin reports a file it cannot write", "[tmpl][copy]") {
 
     const auto copied = cup::tmpl::copy_builtin("headers", "class", dst);
     REQUIRE_FALSE(copied.has_value());
-    REQUIRE(copied.error().message() == "writing " + (dst / "source.h.tmpl").string());
+    REQUIRE(copied.error().message() ==
+            std::format("writing {}", (dst / "source.h.tmpl").string()));
 }

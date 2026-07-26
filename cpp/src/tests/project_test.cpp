@@ -15,6 +15,7 @@
 // itself. Same rule as the <functional> note in ui_test.cpp.
 #include <expected>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <ios>
 #include <iterator>
@@ -248,7 +249,7 @@ TEST_CASE("find_from reports a cup.toml it cannot read", "[project][find]") {
 
     const auto found = cup::project::find_from(root);
     REQUIRE_FALSE(found.has_value());
-    REQUIRE(found.error().message() == "reading " + marker.string());
+    REQUIRE(found.error().message() == std::format("reading {}", marker.string()));
 }
 
 // find() is find_from() rooted at the working directory, and that lookup is the only
@@ -277,7 +278,8 @@ TEST_CASE("write_config reports a root it cannot write", "[project][write]") {
 
     const auto wrote = cup::project::write_config(missing, Config{.name = "demo"});
     REQUIRE_FALSE(wrote.has_value());
-    REQUIRE(wrote.error().message() == "writing " + (missing / cup::project::kMarker).string());
+    REQUIRE(wrote.error().message() ==
+            std::format("writing {}", (missing / cup::project::kMarker).string()));
 }
 
 // No Go counterpart by name, but the rule is Go's: its decoder errors on a key of the
@@ -309,7 +311,8 @@ TEST_CASE("parse_config reports a field of the wrong type", "[project][toml]") {
         INFO(c.text);
         const auto cfg = cup::project::parse_config(c.text);
         REQUIRE_FALSE(cfg.has_value());
-        REQUIRE(cfg.error().message() == "field " + std::string(c.field) + " has the wrong type");
+        REQUIRE(cfg.error().message() ==
+                std::format("field {} has the wrong type", c.field));
     }
 }
 

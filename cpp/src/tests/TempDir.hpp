@@ -4,6 +4,7 @@
 #include <unistd.h>
 
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <ios>
 #include <string>
@@ -25,7 +26,7 @@ public:
     TempDir() {
         static int counter = 0;
         path_ = std::filesystem::temp_directory_path() /
-                ("cup-test-" + std::to_string(::getpid()) + "-" + std::to_string(counter++));
+                std::format("cup-test-{}-{}", ::getpid(), counter++);
         std::filesystem::remove_all(path_);
         std::filesystem::create_directories(path_);
     }

@@ -1,6 +1,7 @@
 module;
 #include <expected>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <functional>
 #include <ios>
@@ -58,7 +59,7 @@ namespace detail {
     std::ofstream out(path, std::ios::binary | std::ios::trunc);
     out << content;
     if (!out) {
-        return std::unexpected(error::Error("writing " + path.string()));
+        return std::unexpected(error::Error(std::format("writing {}", path.string())));
     }
     return {};
 }
@@ -69,7 +70,8 @@ namespace detail {
     std::error_code ec;
     std::filesystem::create_directories(dst, ec);
     if (ec) {
-        return std::unexpected(error::Error("creating " + dst.string() + ": " + ec.message()));
+        return std::unexpected(
+            error::Error(std::format("creating {}: {}", dst.string(), ec.message())));
     }
     return {};
 }
@@ -115,8 +117,8 @@ namespace detail {
         return builtin_read(family, kind, name).transform(
             [](std::string_view content) { return std::string(content); });
     });
-    return error::require(std::move(resolved), "no such template: " + std::string(family) + "/" +
-                                                   std::string(kind) + "/" + std::string(name));
+    return error::require(std::move(resolved),
+                          std::format("no such template: {}/{}/{}", family, kind, name));
 }
 
 namespace detail {
@@ -178,9 +180,8 @@ namespace detail {
 [[nodiscard]] std::expected<std::vector<BuiltinFile>, error::Error> kind_files(
     std::string_view family, std::string_view kind) {
     auto files = builtin_files(family, kind);
-    return error::require(
-        files.empty() ? std::nullopt : std::optional(std::move(files)),
-        "no such template kind: " + std::string(family) + "/" + std::string(kind));
+    return error::require(files.empty() ? std::nullopt : std::optional(std::move(files)),
+                          std::format("no such template kind: {}/{}", family, kind));
 }
 
 }  // namespace detail

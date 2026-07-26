@@ -5,7 +5,9 @@ module;
 // below re-exports them, so consumers see only the accessors in this partition.
 #include <cup/embedded_templates.hpp>
 
+#include <cstddef>
 #include <functional>
+#include <initializer_list>
 #include <optional>
 #include <set>
 #include <string>
@@ -17,15 +19,29 @@ export namespace cup::tmpl {
 
 namespace detail {
 
+// concat joins segments into one string in a single allocation. It stands in for
+// std::format, which this partition cannot reach — see the note in tmpl.cppm —
+// and appending string_views is what keeps the callers from materialising a
+// std::string per segment just to get at operator+.
+[[nodiscard]] std::string concat(std::initializer_list<std::string_view> segments) {
+    std::size_t size = 0;
+    for (const std::string_view segment : segments) {
+        size += segment.size();
+    }
+    std::string joined;
+    joined.reserve(size);
+    for (const std::string_view segment : segments) {
+        joined.append(segment);
+    }
+    return joined;
+}
+
 // corpus_path builds a lookup key. The embedded layout mirrors the Go
 // implementation's internal/tmpl/files/ exactly, minus that "files/" prefix
 // (cmake globs templates/ directly), so a key is just <family>/<kind>/<name>.
 [[nodiscard]] std::string corpus_path(std::string_view family, std::string_view kind,
                                       std::string_view name) {
-    std::string path;
-    path.reserve(family.size() + kind.size() + name.size() + 2);
-    path.append(family).append("/").append(kind).append("/").append(name);
-    return path;
+    return concat({family, "/", kind, "/", name});
 }
 
 }  // namespace detail
@@ -61,7 +77,7 @@ struct BuiltinFile {
 // embed.FS's ReadDir filtered to IsDir. std::set both dedupes and sorts, matching
 // the Go implementation's trailing sort.Strings.
 [[nodiscard]] std::vector<std::string> builtin_kinds(std::string_view family) {
-    const std::string prefix = std::string(family) + "/";
+    const std::string prefix = detail::concat({family, "/"});
     // std::less<> so the string_view segments below need no intermediate string.
     std::set<std::string, std::less<>> dirs;
     for (const auto& entry : templates::all()) {
@@ -81,7 +97,7 @@ struct BuiltinFile {
 // nested DirEntries are skipped with e.IsDir().
 [[nodiscard]] std::vector<BuiltinFile> builtin_files(std::string_view family,
                                                      std::string_view kind) {
-    const std::string prefix = std::string(family) + "/" + std::string(kind) + "/";
+    const std::string prefix = detail::concat({family, "/", kind, "/"});
     std::vector<BuiltinFile> files;
     for (const auto& entry : templates::all()) {
         if (!entry.path.starts_with(prefix)) {

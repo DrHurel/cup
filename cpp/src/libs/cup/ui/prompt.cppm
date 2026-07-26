@@ -93,9 +93,9 @@ namespace detail {
 [[nodiscard]] std::expected<std::string, error::Error> text(
     std::string_view question, std::string_view def, const Validator& validate = {}) {
     while (true) {
-        std::string line = color(bold(kCyan), "?") + " " + std::string(question) + " ";
+        std::string line = format_text("{} {} ", color(bold(kCyan), "?"), question);
         if (!def.empty()) {
-            line += color(kGrey, "[" + std::string(def) + "]") + " ";
+            line += format_text("{} ", color(kGrey, format_text("[{}]", def)));
         }
         emit(line);
         flush_output();
@@ -112,7 +112,7 @@ namespace detail {
         if (!refused.has_value()) {
             return answer;
         }
-        err("  " + refused->message());
+        err(format_text("  {}", refused->message()));
     }
 }
 
@@ -121,8 +121,7 @@ namespace detail {
 [[nodiscard]] std::expected<bool, error::Error> confirm(std::string_view question, bool def) {
     const std::string_view hint = def ? "Y/n" : "y/N";
     while (true) {
-        emit(color(bold(kCyan), "?") + " " + std::string(question) + " [" + std::string(hint) +
-             "] ");
+        emit(format_text("{} {} [{}] ", color(bold(kCyan), "?"), question, hint));
         flush_output();
 
         auto answer = detail::read_answer().transform(

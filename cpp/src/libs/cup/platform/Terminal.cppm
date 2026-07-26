@@ -5,6 +5,7 @@ module;
 #include <cerrno>
 #include <cstring>
 #include <expected>
+#include <format>
 #include <string>
 #include <utility>
 export module cup.platform:terminal;
@@ -91,7 +92,7 @@ private:
     termios saved{};
     if (::tcgetattr(fd, &saved) != 0) {
         return std::unexpected(
-            cup::error::Error(std::string("tcgetattr: ") + std::strerror(errno)));
+            cup::error::Error(std::format("tcgetattr: {}", std::strerror(errno))));
     }
 
     termios raw = saved;
@@ -109,7 +110,7 @@ private:
 
     if (::tcsetattr(fd, TCSAFLUSH, &raw) != 0) {
         return std::unexpected(
-            cup::error::Error(std::string("tcsetattr: ") + std::strerror(errno)));
+            cup::error::Error(std::format("tcsetattr: {}", std::strerror(errno))));
     }
     return RawMode::make_active(fd, saved);
 }

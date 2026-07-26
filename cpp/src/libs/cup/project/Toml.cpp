@@ -10,6 +10,7 @@ module;
 
 #include <expected>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <ios>
 #include <iterator>
@@ -43,13 +44,9 @@ namespace {
             default: {
                 const auto uc = static_cast<unsigned char>(c);
                 if (uc < 0x20 || uc == 0x7f) {
-                    // Divided rather than shifted-and-masked: the value is a
-                    // character being spelled out in hex, not a byte being taken
-                    // apart, and /16 and %16 say exactly that.
-                    constexpr std::string_view kHex = "0123456789abcdef";
-                    out += R"(\u00)";
-                    out.push_back(kHex[uc / 16]);
-                    out.push_back(kHex[uc % 16]);
+                    // {:02x} is the whole rule: two lowercase hex digits, which is
+                    // what the Go encoder writes and what a \u00XX escape needs.
+                    std::format_to(std::back_inserter(out), R"(\u00{:02x})", uc);
                 } else {
                     out.push_back(c);
                 }
@@ -63,17 +60,18 @@ namespace {
 // key_string emits `<indent><key> = "<value>"`.
 void key_string(std::string& out, std::string_view indent, std::string_view key,
                 std::string_view value) {
-    out.append(indent).append(key).append(" = ").append(quote(value)).append("\n");
+    out += std::format("{}{} = {}\n", indent, key, quote(value));
 }
 
 // key_int emits `<indent><key> = <value>`.
 void key_int(std::string& out, std::string_view indent, std::string_view key, int value) {
-    out.append(indent).append(key).append(" = ").append(std::to_string(value)).append("\n");
+    out += std::format("{}{} = {}\n", indent, key, value);
 }
 
-// key_bool emits `<indent><key> = true|false`.
+// key_bool emits `<indent><key> = true|false`. std::format's default rendering of a
+// bool is already TOML's spelling, so no ternary is needed to get it.
 void key_bool(std::string& out, std::string_view indent, std::string_view key, bool value) {
-    out.append(indent).append(key).append(" = ").append(value ? "true" : "false").append("\n");
+    out += std::format("{}{} = {}\n", indent, key, value);
 }
 
 // field reads an optional key of type T, distinguishing "absent" from "present but
@@ -86,7 +84,7 @@ template <typename T>
     if (node == nullptr) {
         return std::optional<T>{};
     }
-    return error::require(node->value<T>(), "field " + std::string(key) + " has the wrong type")
+    return error::require(node->value<T>(), std::format("field {} has the wrong type", key))
         .transform([](T value) { return std::optional<T>(std::move(value)); });
 }
 
@@ -189,10 +187,11 @@ template <typename T, typename Field>
 // complaint — so transform_error wraps the parse alone rather than the whole chain.
 [[nodiscard]] std::expected<Project, error::Error> load_project(const std::filesystem::path& dir) {
     const std::filesystem::path marker = dir / kMarker;
-    return error::require(read_file(marker), "reading " + marker.string())
+    return error::require(read_file(marker), std::format("reading {}", marker.string()))
         .and_then([&marker](const std::string& text) {
             return parse_config(text).transform_error([&marker](const error::Error& e) {
-                return error::Error("reading " + marker.string() + ": " + e.message());
+                return error::Error(
+                    std::format("reading {}: {}", marker.string(), e.message()));
             });
         })
         .transform([&dir](Config cfg) { return Project{.root = dir, .config = std::move(cfg)}; });
@@ -203,7 +202,8 @@ template <typename T, typename Field>
     std::error_code ec;
     std::filesystem::path cwd = std::filesystem::current_path(ec);
     if (ec) {
-        return std::unexpected(error::Error("getting the working directory: " + ec.message()));
+        return std::unexpected(
+            error::Error(std::format("getting the working directory: {}", ec.message())));
     }
     return cwd;
 }
@@ -289,7 +289,7 @@ std::expected<void, error::Error> write_config(const std::filesystem::path& root
     std::ofstream out(marker, std::ios::binary | std::ios::trunc);
     out << to_toml(cfg);
     if (!out) {
-        return std::unexpected(error::Error("writing " + marker.string()));
+        return std::unexpected(error::Error(std::format("writing {}", marker.string())));
     }
     return {};
 }
@@ -303,9 +303,9 @@ std::expected<Project, error::Error> find_from(const std::filesystem::path& star
         // empty; either means the walk has run out of ancestors.
         const std::filesystem::path parent = dir.parent_path();
         if (parent == dir || parent.empty()) {
-            return std::unexpected(error::Error("not inside a cup project (no " +
-                                                std::string(kMarker) +
-                                                " found in this or any parent directory)"));
+            return std::unexpected(error::Error(std::format(
+                "not inside a cup project (no {} found in this or any parent directory)",
+                kMarker)));
         }
         dir = parent;
     }

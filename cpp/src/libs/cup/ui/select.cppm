@@ -61,9 +61,9 @@ void move_up(std::size_t n) {
 void render(std::span<const std::string> options, std::size_t cursor) {
     for (std::size_t i = 0; i < options.size(); ++i) {
         if (i == cursor) {
-            emit(color(bold(kCyan), "> ") + color(bold(kCyan), options[i]) + "\r\n");
+            emit(format_text("{}{}\r\n", color(bold(kCyan), "> "), color(bold(kCyan), options[i])));
         } else {
-            emit("  " + options[i] + "\r\n");
+            emit(format_text("  {}\r\n", options[i]));
         }
     }
 }
@@ -73,9 +73,10 @@ void render(std::span<const std::string> options, std::size_t cursor) {
 void redraw_final(std::span<const std::string> options, std::size_t cursor) {
     for (std::size_t i = 0; i < options.size(); ++i) {
         if (i == cursor) {
-            emit(color(bold(kGreen), "> ") + color(bold(kGreen), options[i]) + "\r\n");
+            emit(format_text("{}{}\r\n", color(bold(kGreen), "> "),
+                             color(bold(kGreen), options[i])));
         } else {
-            emit("  " + color(kGrey, options[i]) + "\r\n");
+            emit(format_text("  {}\r\n", color(kGrey, options[i])));
         }
     }
 }
@@ -83,8 +84,8 @@ void redraw_final(std::span<const std::string> options, std::size_t cursor) {
 // select_interactive drives the raw-mode arrow-key menu, starting at cursor.
 [[nodiscard]] std::expected<std::string, error::Error> select_interactive(
     std::string_view question, std::span<const std::string> options, std::size_t cursor) {
-    emit(color(bold(kCyan), "?") + " " + std::string(question) + " " +
-         color(kGrey, "(up/down, enter)") + "\r\n");
+    emit(format_text("{} {} {}\r\n", color(bold(kCyan), "?"), question,
+                     color(kGrey, "(up/down, enter)")));
     render(options, cursor);
 
     std::array<unsigned char, 3> buf{};

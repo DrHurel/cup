@@ -3,11 +3,13 @@ module;
 
 #include <cstddef>
 #include <cstdio>
+#include <format>
 #include <iostream>
 #include <print>
 #include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 export module cup.ui:io;
 
 // :io is the only partition of cup.ui allowed to touch <print>, <iostream> or
@@ -39,6 +41,49 @@ void emit_line(std::string_view s) { std::println("{}", s); }
 // <print> is.
 void emit_numbered_line(std::size_t n, std::string_view text) {
     std::println("  {}) {}", n, text);
+}
+
+// format_text is std::format made reachable from the rest of cup.ui. The other
+// partitions assemble every prompt and menu line as a string before handing it to
+// emit, and they cannot include <format> to do it — the one-partition rule above
+// is the whole reason this module is split the way it is. Routing them through
+// here keeps the header in :io while the call sites read as format strings rather
+// than chains of `+`.
+//
+// These are deliberately three fixed-arity overloads rather than the obvious
+// variadic template, and that shape is forced. A template would be *instantiated*
+// in the calling partition, and GCC 14 gets the module linkage of <format>'s
+// internals wrong when that happens:
+//
+//     error: 'std::__format::_Arg_store@cup.ui:io<...>::_Arg_store(_Tp& ...)'
+//            is private within this context
+//
+// std::make_format_args is a friend of _Arg_store, but the friendship does not
+// survive the entities being attached to :io, so every call site fails. Ordinary
+// functions have their bodies compiled here instead, where the friendship still
+// holds, and the partition boundary is never crossed mid-instantiation.
+//
+// The parameters stay std::format_string, so a placeholder that does not match its
+// argument count is still a compile error at the call site — that check runs in
+// basic_format_string's consteval constructor, which is unaffected. Every line
+// cup.ui prints interpolates strings only, so string_view arguments are enough.
+// The bodies call vformat rather than format because the parameters are lvalues by
+// the time they are forwarded: std::format would re-deduce its _Args as reference
+// types and stop matching the format_string spelled in the signature.
+[[nodiscard]] std::string format_text(std::format_string<std::string_view> fmt,
+                                      std::string_view a) {
+    return std::vformat(fmt.get(), std::make_format_args(a));
+}
+
+[[nodiscard]] std::string format_text(std::format_string<std::string_view, std::string_view> fmt,
+                                      std::string_view a, std::string_view b) {
+    return std::vformat(fmt.get(), std::make_format_args(a, b));
+}
+
+[[nodiscard]] std::string format_text(
+    std::format_string<std::string_view, std::string_view, std::string_view> fmt,
+    std::string_view a, std::string_view b, std::string_view c) {
+    return std::vformat(fmt.get(), std::make_format_args(a, b, c));
 }
 
 // emit_error_line writes s to stderr, so diagnostics survive a redirect of stdout.

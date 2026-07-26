@@ -22,7 +22,9 @@
 //    a mechanical issue"). Light headers — <string>, <string_view>, <vector>,
 //    <expected> — repeat across partitions without trouble. That is why :io owns
 //    every read and write, and the other partitions build plain strings and hand
-//    them to it.
+//    them to it. They build those strings with :io's format_text rather than with
+//    <format> directly; its fixed arity is what keeps <format>'s templates from
+//    instantiating outside :io, which GCC 14 also gets wrong. See the note there.
 //
 // Note also that `cup add lib` generates a primary aggregator with no global
 // module fragment at all — exactly the shape point 1 forbids — so every
