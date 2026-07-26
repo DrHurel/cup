@@ -14,21 +14,15 @@ elseif(CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND CMAKE_CXX_COMPILER_VERSION VER
 endif()
 # <<< cup:compiler-guard <<<
 
-# C++23 with named modules but WITHOUT `import std;`.
+# C++23 with named modules but WITHOUT `import std;` — what cup.toml records as
+# `cpp_standard = 23` + `std_module = false`.
 #
-# This line is the migration's one hand edit, and it is deliberate: cup.toml still
-# records cpp_standard = 20, because cup cannot yet express "C++23 without the std
-# module" (scaffold.StdVars emits `import std;` unconditionally for std >= 23, and
-# MinCompilers maps 23 -> GCC 15). Leaving cup.toml at 20 keeps `cup add` emitting
-# global-module-fragment sources, which is the shape we want; raising the standard
-# here makes them compile as C++23 so std::expected and std::print are available.
-#
-# The two settings do not fight: `cup add` writes per-target
-# `target_compile_features(<t> PUBLIC cxx_std_20)`, which is a *minimum*, so targets
-# still build at the 23 set here.
-#
-# Closing that gap in the C++ cup — a first-class "C++23, no std module" option —
-# is post-relay work; see docs/migration-cpp23.md.
+# The two are separate capabilities: named modules need GCC 14, while `import std;`
+# needs GCC 15 and CMake 3.30 behind an experimental gate. Declining the std module
+# keeps the GCC 14 floor (and so alpine:3.22 as the static build container) while
+# std::expected and std::print — standard-library *features*, not std-module ones —
+# are available. cup honours std_module, so `cup add` keeps scaffolding
+# global-module-fragment sources at this standard.
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)   # -std=c++23, not -std=gnu++23

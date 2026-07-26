@@ -1,6 +1,7 @@
 name = "cup"
 cup_version = "0.1.0"
-cpp_standard = 20
+cpp_standard = 23
+std_module = false
 build_tool = "cmake"
 
 [compiler]

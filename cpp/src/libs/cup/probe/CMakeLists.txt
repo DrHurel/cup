@@ -5,4 +5,4 @@ target_sources(probe
             probe.cppm
             Probe.cppm
 )
-target_compile_features(probe PUBLIC cxx_std_20)
+target_compile_features(probe PUBLIC cxx_std_23)

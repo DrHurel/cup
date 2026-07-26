@@ -5,4 +5,4 @@ target_sources(error
             error.cppm
             Error.cppm
 )
-target_compile_features(error PUBLIC cxx_std_20)
+target_compile_features(error PUBLIC cxx_std_23)
