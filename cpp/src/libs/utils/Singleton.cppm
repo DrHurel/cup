@@ -92,7 +92,6 @@ template <typename Type>
             return *instance_.get();
         }
 
-        static bool has_been_created() { return is_created_.load(); 
-    }
-}
+        static bool has_been_created() { return is_created_.load(); }
+    };
 }  // namespace utils
