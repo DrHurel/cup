@@ -49,37 +49,48 @@ export namespace utils {
 //      next. utils answers that where it arises rather than in general: see
 //      ScopedService in Service.cppm, which is the same restore-on-scope-exit
 //      guard cup.platform and cup.ui already use for their installed seams.
-template <typename Derived>
-class Singleton {
-public:
-    // instance returns the one and only Derived, constructing it on first call.
-    //
-    // The reference outlives every caller — it refers to an object with static
-    // storage duration — so callers store it as `auto&` and never as a copy. A
-    // copy would not compile anyway, which is the point.
-    [[nodiscard]] static Derived& instance() {
-        static Derived only;
-        return only;
+template <typename Type>
+    class Singleton
+    {
+    private:
+        inline static std::unique_ptr<Type> instance_;
+        inline static std::atomic<bool> is_created_{false};
+
+    protected:
+        Singleton() noexcept = default;
+        ~Singleton() noexcept = default;
+
+    public:
+        Singleton(Singleton const &) noexcept = delete;
+        Singleton(Singleton &&) noexcept = delete;
+        Singleton &operator=(Singleton const &) noexcept = delete;
+        Singleton &operator=(Singleton &&) noexcept = delete;
+        template <typename... Args>
+        static void create(Args &&...args)
+        {
+            bool expected = false;
+            if (is_created_.compare_exchange_strong(expected, true))
+            {
+                instance_.reset(new Type(std::forward<Args>(args)...));
+            }
+        }
+
+        static void destroy()
+        {
+            bool expected = true;
+            if (is_created_.compare_exchange_strong(expected, false))
+            {
+                instance_.reset();
+            }
+        }
+
+        static Type &instance() noexcept
+        {
+            assert(instance_ != nullptr);
+            return *instance_.get();
+        }
+
+        static bool has_been_created() { return is_created_.load(); 
     }
-
-    // No copies and no moves: both would produce a second object of a type whose
-    // entire contract is that there is one. Deleted rather than merely private so
-    // the failure names the reason.
-    Singleton(const Singleton&) = delete;
-    Singleton& operator=(const Singleton&) = delete;
-    Singleton(Singleton&&) = delete;
-    Singleton& operator=(Singleton&&) = delete;
-
-protected:
-    // Protected, not public: only a derived class may construct the base, so
-    // `Singleton<Registry> loose;` is rejected on its own.
-    Singleton() = default;
-
-    // Protected and non-virtual, which is the pair that matters. Non-virtual keeps
-    // the type free of a vtable it has no use for; protected is what makes
-    // `delete base_pointer` — the bug non-virtual destructors are famous for —
-    // impossible to write rather than merely undefined.
-    ~Singleton() = default;
-};
-
+}
 }  // namespace utils

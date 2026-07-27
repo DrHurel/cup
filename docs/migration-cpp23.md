@@ -435,8 +435,9 @@ contributor recognises the shape before reading the comment:
 | `:service` | `ServiceLocator` | `register_service<Interface, Impl>()` / `get<Interface>()`, keyed on `typeid` |
 | `:factory` | `Factory<Product, Key, Args...>` | run-time key → creator, `std::expected` on a miss |
 | `:pool` | `ThreadPool` | fixed workers, `std::future` results, drains on destruction |
+| `:strong_type` | `StrongType<Value, Tag, Skills…>` | a value with its own type; operations are opt-in |
 
-24 Catch2 cases pass on the GCC 14 floor (Debug and Coverage). Nothing else in cup
+32 Catch2 cases pass on the GCC 14 floor (Debug and Coverage). Nothing else in cup
 is rewritten to use them yet — Phase 3 is green and rewriting green dispatch is not
 parity work — so this phase adds a module and changes no behaviour.
 
@@ -498,6 +499,29 @@ diagnostic available. `~ThreadPool` therefore finishes what was submitted.
 **Deliberately not dependency injection.** A locator's known cost is that a type's
 dependencies stop appearing in its constructor signature. cup accepts that for
 platform seams — HTTP, the terminal, process spawning — and nowhere else.
+
+**The fifth partition is not a lifetime pattern.** `:strong_type` answers a
+different question from the other four — not who owns an object, but what a
+*signature* can say. `cup.scaffold`'s `render(root, family, kind, name, vars)` has
+three adjacent `std::string_view` parameters and `path_to_namespace(src, dir)` has
+two `std::filesystem::path`s; transposing either pair compiles, runs, and writes a
+wrong tree. `StrongType<Value, Tag, Skills…>` makes that a compile error, with an
+explicit constructor, `get()` as the only way back out, and empty-base skills so it
+costs no storage. Operations are opt-in (`Equatable`, `Ordered`, `Hashable`,
+`Viewable`) because a type that carries every operation its underlying value has is
+a typedef with extra syntax. `StrongString<Tag>` is the alias for the case cup
+actually has. Nothing is converted to it here, for the usual reason; it is what
+Phase 4's `cup new` and `cup add` reach for when they start threading a name, a
+family and a kind through four call layers each.
+
+**A data point against rule 6, for once.** The `std::hash` partial specialisation a
+strong type needs is declared inside the module and instantiated in the *consumer*,
+over a module-attached key — the exact shape that broke `std::unordered_map` in the
+locator. It merges: an `std::unordered_map<ProjectName, int>` in `utils_test.cpp`
+compiles and runs on GCC 14.2. So rule 6 is about the container being instantiated
+across the boundary from a template the interface exported, not about every
+standard-library template that touches a module-attached type. The suite keeps a
+case on it so a compiler upgrade that changes the answer says so.
 
 ### Two more GCC 14 rules
 

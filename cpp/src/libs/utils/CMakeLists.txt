@@ -23,6 +23,7 @@ target_sources(utils
             Service.cppm
             Factory.cppm
             Pool.cppm
+            StrongType.cppm
 )
 target_compile_features(utils PUBLIC cxx_std_23)
 # ThreadPool runs std::jthread workers. Named rather than assumed: glibc 2.34 and

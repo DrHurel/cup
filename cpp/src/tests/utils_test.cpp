@@ -15,13 +15,19 @@
 // A module re-exports no declaration from its global module fragment, so a
 // consumer naming std::expected, std::string or std::future includes them itself.
 // (Same rule as the <functional> note in ui_test.cpp.)
+#include <algorithm>
 #include <atomic>
+#include <concepts>
 #include <expected>
+#include <functional>
 #include <future>
+#include <map>
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <type_traits>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -29,10 +35,14 @@ import utils;
 
 namespace {
 
+using utils::Equatable;
 using utils::Factory;
+using utils::Ordered;
 using utils::ScopedService;
 using utils::ServiceLocator;
 using utils::Singleton;
+using utils::StrongString;
+using utils::StrongType;
 using utils::ThreadPool;
 
 // --- Fixtures for :singleton -------------------------------------------------
@@ -156,6 +166,31 @@ private:
 };
 
 enum class Family { Modules, Headers };
+
+// --- Fixtures for :strong_type -----------------------------------------------
+
+// The pair cup would actually declare, and the pair that motivates the partition:
+// two names that are both a std::string, adjacent in cup.scaffold::render's
+// parameter list, and transposable today without a diagnostic.
+using ProjectName = StrongString<struct ProjectNameTag>;
+using TemplateFamily = StrongString<struct TemplateFamilyTag>;
+
+// A strong type over something that is not a string, with one skill, to keep the
+// core honest about not being string-specific.
+using CppStandard = StrongType<int, struct CppStandardTag, Ordered>;
+
+// The type that takes *fewer* skills than StrongString: rendered file content
+// compares equal or not, but sorting two of them means nothing and hashing one is
+// not something cup ever wants. It is here to pin the "opt-in" half of the design —
+// every check that this type does *not* have an operation is a check that the skill
+// list is doing work.
+using Content = StrongType<std::string, struct ContentTag, Equatable>;
+
+// Whether std::hash is available for T. A concept rather than a trait because
+// std::hash is always *declared* — the question is whether the specialisation this
+// module constrains on Hashable applies, and that is a requires-expression.
+template <typename T>
+concept HasStdHash = requires(const T& value) { std::hash<T>{}(value); };
 
 }  // namespace
 
@@ -579,4 +614,156 @@ TEST_CASE("ThreadPool keeps a dropped future's task running", "[utils][pool]") {
     pool.wait_idle();
 
     REQUIRE(completed.load() == 1);
+}
+
+// =============================================================================
+// :strong_type
+// =============================================================================
+
+TEST_CASE("StrongType keeps two names of one underlying type apart", "[utils][strong_type]") {
+    // The guarantee is a compile-time one, so these are the assertions — the same
+    // shape as the Singleton case above. Nothing here can fail at run time; what a
+    // run proves is only that the checks were compiled.
+    STATIC_REQUIRE_FALSE(std::is_same_v<ProjectName, TemplateFamily>);
+
+    // Neither direction converts, which is the whole transposition guarantee:
+    // render(family, name) stops compiling once the two are strong types.
+    STATIC_REQUIRE_FALSE(std::is_convertible_v<ProjectName, TemplateFamily>);
+    STATIC_REQUIRE_FALSE(std::is_constructible_v<TemplateFamily, ProjectName>);
+
+    // Explicit in: a std::string is a ProjectName only where someone said so.
+    STATIC_REQUIRE(std::is_constructible_v<ProjectName, std::string>);
+    STATIC_REQUIRE_FALSE(std::is_convertible_v<std::string, ProjectName>);
+
+    // And explicit out: no implicit conversion back to the value, because one would
+    // restore exactly the mistake the tag prevents.
+    STATIC_REQUIRE_FALSE(std::is_convertible_v<ProjectName, std::string>);
+
+    const ProjectName name("cup");
+    REQUIRE(name.get() == "cup");
+}
+
+TEST_CASE("StrongType costs nothing to wrap a value in", "[utils][strong_type]") {
+    // The skills are empty base classes, so the wrapper adds no storage. Pinned
+    // rather than assumed: a strong type that cost a word per name would be one a
+    // reviewer could reasonably argue against using in a struct.
+    STATIC_REQUIRE(sizeof(ProjectName) == sizeof(std::string));
+    STATIC_REQUIRE(sizeof(CppStandard) == sizeof(int));
+    STATIC_REQUIRE(std::is_same_v<ProjectName::Underlying, std::string>);
+}
+
+TEST_CASE("StrongType has only the operations its skills give it", "[utils][strong_type]") {
+    // Every REQUIRE_FALSE here is the opt-in half of the design doing its work: the
+    // underlying std::string orders, hashes and views, and Content — declared with
+    // Equatable alone — does none of the three.
+    STATIC_REQUIRE(std::equality_comparable<Content>);
+    STATIC_REQUIRE_FALSE(std::totally_ordered<Content>);
+    STATIC_REQUIRE_FALSE(HasStdHash<Content>);
+    STATIC_REQUIRE_FALSE(std::convertible_to<Content, std::string_view>);
+
+    // StrongString takes all three, which is what makes it the alias for a name.
+    STATIC_REQUIRE(std::totally_ordered<ProjectName>);
+    STATIC_REQUIRE(HasStdHash<ProjectName>);
+    STATIC_REQUIRE(std::convertible_to<ProjectName, std::string_view>);
+
+    // Ordered implies Equatable — it derives from it rather than redeclaring ==, so
+    // a type cannot end up ordered but not comparable.
+    STATIC_REQUIRE(std::equality_comparable<CppStandard>);
+    // …and a skill list that omits Hashable omits the std::hash specialisation with
+    // it, whatever the underlying type is.
+    STATIC_REQUIRE_FALSE(HasStdHash<CppStandard>);
+
+    REQUIRE(Content("hello") == Content("hello"));
+    REQUIRE(Content("hello") != Content("world"));
+}
+
+TEST_CASE("StrongType orders and hashes through the underlying value",
+          "[utils][strong_type]") {
+    // Ordering exists so the containers cup already uses keep working. cup.tmpl
+    // sorts its listings and cup prints them, so a name that cannot be sorted would
+    // be a name that cannot be listed.
+    std::vector<ProjectName> names{ProjectName("utils"), ProjectName("cup"),
+                                   ProjectName("error")};
+    std::ranges::sort(names);
+    REQUIRE(names.front() == ProjectName("cup"));
+    REQUIRE(names.back() == ProjectName("utils"));
+
+    std::map<ProjectName, int> ordered;
+    ordered.emplace(ProjectName("cup"), 1);
+    REQUIRE(ordered.contains(ProjectName("cup")));
+
+    // The hashed case is the one worth having a test for. The specialisation is
+    // declared inside a module and instantiated here, in an ordinary translation
+    // unit, over a module-attached key — which is precisely the shape that broke
+    // std::unordered_map in the locator and std::move_only_function in the pool
+    // (rule 6). This one merges; the case exists so a compiler upgrade that changes
+    // that says so.
+    std::unordered_map<ProjectName, int> hashed;
+    hashed.emplace(ProjectName("cup"), 2);
+    hashed.emplace(ProjectName("utils"), 3);
+    REQUIRE(hashed.at(ProjectName("cup")) == 2);
+    REQUIRE(hashed.size() == 2);
+
+    // Hashing the wrapper is hashing the value, which is what makes the two
+    // interchangeable as keys.
+    REQUIRE(std::hash<ProjectName>{}(ProjectName("cup")) == std::hash<std::string>{}("cup"));
+
+    REQUIRE(CppStandard(23) > CppStandard(20));
+    REQUIRE(CppStandard(20) == CppStandard(20));
+}
+
+TEST_CASE("StrongString reaches a std::string_view interface unchanged",
+          "[utils][strong_type]") {
+    // Why Viewable exists: cup's functions take std::string_view almost everywhere,
+    // and a strong string that needed .get() at each of those call sites would not
+    // survive review.
+    const auto starts_with_c = [](std::string_view text) { return text.starts_with('c'); };
+
+    const ProjectName name("cup");
+    REQUIRE(starts_with_c(name));
+    REQUIRE(name == std::string_view("cup"));
+
+    // One way only: a view does not become a name.
+    STATIC_REQUIRE_FALSE(std::is_convertible_v<std::string_view, ProjectName>);
+}
+
+TEST_CASE("StrongType hands its value back by move and by reference",
+          "[utils][strong_type]") {
+    // Long enough that libstdc++ cannot hold it in the small-string buffer, so a
+    // move is observable as the source being emptied rather than as an optimisation
+    // that may or may not have happened.
+    ProjectName movable(std::string("a-name-far-too-long-for-small-string-optimisation"));
+    const std::string taken = std::move(movable).get();
+    REQUIRE(taken == "a-name-far-too-long-for-small-string-optimisation");
+
+    // Mutation in place, through the non-const overload — the deliberate hole, and
+    // the reason the alternative (a copy per edit) was not taken.
+    ProjectName editable("cup");
+    editable.get() += "-cpp";
+    REQUIRE(editable == ProjectName("cup-cpp"));
+}
+
+TEST_CASE("StrongType default-constructs to a value-initialised value",
+          "[utils][strong_type]") {
+    // cup.project's Config is an aggregate of defaulted members, which is the shape
+    // a strong type has to fit to be usable there at all. The member's `{}`
+    // initialiser is what makes the int case a zero rather than whatever was on the
+    // stack.
+    const ProjectName empty;
+    REQUIRE(empty.get().empty());
+
+    const CppStandard none;
+    REQUIRE(none.get() == 0);
+
+    STATIC_REQUIRE(std::is_default_constructible_v<ProjectName>);
+}
+
+TEST_CASE("StrongType works at compile time", "[utils][strong_type]") {
+    // Constructing, unwrapping and comparing are all constexpr, so a strong type is
+    // usable where cup keeps its constants — the fallback compiler versions in
+    // cup.scaffold:releases are the candidate.
+    static constexpr CppStandard kCpp23(23);
+    STATIC_REQUIRE(kCpp23.get() == 23);
+    STATIC_REQUIRE(kCpp23 > CppStandard(20));
+    STATIC_REQUIRE(kCpp23 == CppStandard(23));
 }

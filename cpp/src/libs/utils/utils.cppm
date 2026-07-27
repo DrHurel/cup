@@ -1,5 +1,6 @@
-// utils is the small set of object-lifetime patterns the rest of cup builds on: a
-// singleton, a service locator, an abstract factory, and a thread pool.
+// utils is the small set of patterns the rest of cup builds on: a singleton, a
+// service locator, an abstract factory, a thread pool — the four object-lifetime
+// ones — and a strong typedef, which is about signatures rather than lifetimes.
 //
 // It exists because the port arrived from Go, and Go's answer to every one of
 // these is a package-level variable plus an `init()`. That shape survived the
@@ -12,18 +13,23 @@
 // answers to those questions, and they are deliberately the *classic* ones, so a
 // C++ contributor recognises the shape before reading the comment.
 //
-// Four partitions, one idea each:
+// Five partitions, one idea each:
 //
-//   :singleton  Singleton<Derived>   — CRTP, one instance, no second one possible
-//   :service    ServiceLocator       — register_service<Interface, Impl>() / get<Interface>()
-//   :factory    Factory<Product, …>  — key -> creator, resolved at run time
-//   :pool       ThreadPool           — bounded workers, std::future results
+//   :singleton    Singleton<Derived>     — CRTP, one instance, no second one possible
+//   :service      ServiceLocator         — register_service<Interface, Impl>() / get<Interface>()
+//   :factory      Factory<Product, …>    — key -> creator, resolved at run time
+//   :pool         ThreadPool             — bounded workers, std::future results
+//   :strong_type  StrongType<Value, Tag> — a value with its own type, opt-in operations
 //
-// They compose rather than stack: ServiceLocator *is* a Singleton (there is one
-// per process, which is the whole point of a locator), a Factory is a value a
-// caller owns, and a ThreadPool is typically a service. The only thing this module
-// imports is utils.error, its sibling under src/libs/utils, so the pair sits at the
-// bottom of the graph and imports nothing from cup at all.
+// The first four compose rather than stack: ServiceLocator *is* a Singleton (there
+// is one per process, which is the whole point of a locator), a Factory is a value
+// a caller owns, and a ThreadPool is typically a service. The fifth is orthogonal
+// to all of them — it is about what a *signature* can express, not about who owns
+// what — and it is the one partition here with no lifetime opinion at all.
+//
+// The only thing this module imports is utils.error, its sibling under
+// src/libs/utils, so the pair sits at the bottom of the graph and imports nothing
+// from cup at all.
 //
 // Which is why it is `utils` and not `cup.utils`. Module names come from the path
 // under src/libs, so the directory is the naming decision, and this library lives
@@ -42,9 +48,11 @@
 //
 // On the Phase 2 rule that at most one partition may reach the heavy standard
 // library: this module tests its limit rather than respecting it, because there is
-// no arrangement of these four patterns that avoids <memory> in three of them. It
-// merges on GCC 14.2 — see the note in Pool.cppm for what is kept out of a BMI to
-// make that true, and docs/migration-cpp23.md for the restated rule.
+// no arrangement of the four lifetime patterns that avoids <memory> in three of
+// them. It merges on GCC 14.2 — see the note in Pool.cppm for what is kept out of a
+// BMI to make that true, and docs/migration-cpp23.md for the restated rule.
+// :strong_type stays on the light headers and adds nothing to that budget, which is
+// also why it has no Printable skill.
 module;
 #include <string>
 export module utils;
@@ -63,3 +71,4 @@ export import :singleton;
 export import :service;
 export import :factory;
 export import :pool;
+export import :strong_type;
