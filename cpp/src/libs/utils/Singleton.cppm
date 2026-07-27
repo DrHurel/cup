@@ -1,6 +1,8 @@
-// No global module fragment: this partition needs no standard headers at all, and
-// a fragment it does not use is one more thing for GCC 14 to merge. The primary
-// carries one for both of us (see utils.cppm).
+module;
+#include <atomic>
+#include <cassert>
+#include <memory>
+#include <utility>
 export module utils:singleton;
 
 export namespace utils {
