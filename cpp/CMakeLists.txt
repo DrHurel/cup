@@ -90,6 +90,14 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(EmbedTemplates)
 cup_embed_templates(TARGET cup_templates DIR "${CMAKE_CURRENT_SOURCE_DIR}/templates")
 
+# `cup register` writes its find_package() lines into third_party/CMakeLists.txt,
+# and an imported target created by a find module is scoped to the directory that
+# found it — so CURL::libcurl would exist in third_party/ and nowhere else, while
+# the library that needs it (cup.platform) is a sibling under src/libs. Promoting
+# find_package targets to global is the fix that leaves the cup-managed file alone;
+# a scaffolded project needs it as soon as it registers its first apt dependency.
+set(CMAKE_FIND_PACKAGE_TARGETS_GLOBAL ON)
+
 add_subdirectory(third_party)
 add_subdirectory(src/libs)
 add_subdirectory(src/apps)

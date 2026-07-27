@@ -1,9 +1,9 @@
 module;
 #include <string>
 #include <utility>
-export module cup.error:error;
+export module utils.error:error;
 
-export namespace cup::error {
+export namespace utils::error {
 
 // Error is the E of every std::expected in cup — the C++ counterpart of Go's
 // `error` interface. The Go implementation only ever carries a message (errors are
@@ -53,4 +53,4 @@ private:
     return e.is(Error::Kind::Abort);
 }
 
-}  // namespace cup::error
+}  // namespace utils::error

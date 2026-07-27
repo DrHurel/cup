@@ -47,9 +47,9 @@ module;
 #include <string>
 export module cup.tmpl;
 
-// Re-exported because cup::error::Error is the E of read()'s and copy_builtin()'s
+// Re-exported because utils::error::Error is the E of read()'s and copy_builtin()'s
 // std::expected results.
-export import cup.error;
+export import utils.error;
 
 export import :corpus;
 export import :resolve;

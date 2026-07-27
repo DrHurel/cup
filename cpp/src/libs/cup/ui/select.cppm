@@ -13,7 +13,7 @@ export module cup.ui:select;
 import :io;
 import :color;
 import :prompt;
-export import cup.error;
+export import utils.error;
 import cup.platform;
 
 export namespace cup::ui {
@@ -82,7 +82,7 @@ void redraw_final(std::span<const std::string> options, std::size_t cursor) {
 }
 
 // select_interactive drives the raw-mode arrow-key menu, starting at cursor.
-[[nodiscard]] std::expected<std::string, error::Error> select_interactive(
+[[nodiscard]] std::expected<std::string, utils::error::Error> select_interactive(
     std::string_view question, std::span<const std::string> options, std::size_t cursor) {
     emit(format_text("{} {} {}\r\n", color(bold(kCyan), "?"), question,
                      color(kGrey, "(up/down, enter)")));
@@ -92,12 +92,12 @@ void redraw_final(std::span<const std::string> options, std::size_t cursor) {
     while (true) {
         const int n = read_key(buf);
         if (n <= 0) {
-            return std::unexpected(error::abort_error());
+            return std::unexpected(utils::error::abort_error());
         }
         const std::span<const unsigned char> keys(buf.data(), static_cast<std::size_t>(n));
 
         if (buf[0] == 3 || buf[0] == 4) {  // Ctrl+C / Ctrl+D
-            return std::unexpected(error::abort_error());
+            return std::unexpected(utils::error::abort_error());
         }
         if (buf[0] == '\r' || buf[0] == '\n') {
             move_up(options.size());
@@ -131,7 +131,7 @@ void redraw_final(std::span<const std::string> options, std::size_t cursor) {
 
 // select_numbered is the fallback for a non-terminal stdin: a numbered list read
 // from one line, so cup still works over a pipe.
-[[nodiscard]] std::expected<std::string, error::Error> select_numbered(
+[[nodiscard]] std::expected<std::string, utils::error::Error> select_numbered(
     std::string_view question, std::span<const std::string> options) {
     emit_line(question);
     for (std::size_t i = 0; i < options.size(); ++i) {
@@ -159,10 +159,10 @@ void redraw_final(std::span<const std::string> options, std::size_t cursor) {
 // be entered — it falls back to the numbered list.
 //
 // Named select_one rather than select because POSIX already claims ::select.
-[[nodiscard]] std::expected<std::string, error::Error> select_one(
+[[nodiscard]] std::expected<std::string, utils::error::Error> select_one(
     std::string_view question, std::span<const std::string> options, std::string_view def) {
     if (options.empty()) {
-        return std::unexpected(error::Error("no options to choose from"));
+        return std::unexpected(utils::error::Error("no options to choose from"));
     }
     if (!platform::is_tty(platform::kStdinFd)) {
         return detail::select_numbered(question, options);

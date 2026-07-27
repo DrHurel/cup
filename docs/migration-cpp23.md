@@ -18,7 +18,7 @@ possible demo.
 | Build | CMake 3.28+, **Ninja only** |
 | Release binary | musl-static, built in `alpine:3.22` |
 | Tests | Catch2 v3 |
-| Deps | toml++, Catch2, libcurl |
+| Deps | toml++, Catch2, libcurl, nlohmann/json |
 
 ### Locked decisions and their reasons
 
@@ -308,36 +308,284 @@ module fragment, so a consumer naming `std::expected<void, E>` must
 
 ---
 
-## Phase 3 — `cup.scaffold` (984 lines + 1,236 test lines)
+## Phase 3 — `cup.scaffold` (984 lines + 1,236 test lines) ✅
 
-The pure-logic core and the highest-value port: almost no platform surface, the
-densest test coverage, and it is what the golden files from Phase 0.2 exercise.
+The pure-logic core and the highest-value port: almost no platform surface and the
+densest test coverage.
 
-Partitions: `:cmake`, `:compiler`, `:releases`, `:naming`, `:render`, `:std`,
-`:dockerhub`.
+Partitions, all seven as planned: `:std`, `:naming`, `:render`, `:cmake`,
+`:compiler`, `:releases`, `:dockerhub`. 62 Catch2 cases pass on the GCC 14 floor
+(Debug and Coverage), and `cup.platform` grew its second seam:
 
-Two notes:
+```cpp
+export module cup.platform:http;
+export std::expected<std::string, Error> http_get(std::string_view url);  // libcurl
+```
 
-- **`:releases`** holds the second platform seam. `net/http` → libcurl behind
-  `cup.platform`'s `http_get`. The design already degrades gracefully — the disk
-  cache plus `gccNewestFallback`/`clangNewestFallback`
-  (`internal/scaffold/compiler_releases.go:22-24`) mean a failed fetch only
-  narrows the picker ceiling. If static TLS in the musl container turns painful,
-  shipping without libcurl is a supported degradation, not a regression.
-  **Put libcurl in an implementation unit from the start** — it is the same shape
-  as toml++ in Phase 2.3, and constraint 2 above says how that ends otherwise.
-- **`:releases` concurrency**: the two goroutines + `WaitGroup` at
-  `compiler_releases.go:64-67` become two `std::async` + `.get()`.
-- **`:std`** is where cup's own configuration lives, so port it faithfully:
-  `std_vars(std, std_module)` takes the std-module decision as an argument rather
-  than deriving it from the standard, and has *three* module-family cases — C++23
-  with `import std;`, C++23 without it (a `module;` + `#include <print>` prelude,
-  still `std::println`), and C++20 (`<iostream>` prelude, `std::cout`). The middle
-  one is what builds cup itself; if it regresses, `cup add` starts writing sources
-  cup's own GCC 14 floor cannot compile.
+- **`:releases`** holds that seam. `net/http` → libcurl, in an implementation unit
+  from the start. The design degrades gracefully by construction — the disk cache
+  plus the fallback constants mean a failed fetch only narrows the picker ceiling,
+  so shipping without libcurl stays a supported degradation. The two goroutines +
+  `WaitGroup` became two `std::async` + `.get()`, and libcurl is initialised under
+  a `std::call_once` because of it.
+- **`:std`** is where cup's own configuration lives, and it ports faithfully:
+  `std_vars(standard, std_module)` takes the std-module decision as an argument
+  rather than deriving it from the standard, and has *three* module-family cases —
+  C++23 with `import std;`, C++23 without it (a `module;` + `#include <print>`
+  prelude, still `std::println`), and C++20 (`<iostream>` prelude, `std::cout`).
+  The middle one is what builds cup itself.
 
-**Milestone:** the C++ `cup.scaffold` reproduces every golden tree from Phase
-0.2 byte for byte.
+### What the port had to decide
+
+**A fourth dependency: nlohmann/json.** Three replies cup reads are JSON — the LLVM
+release list, the Docker Hub tag list, and cup's own release cache — so
+`encoding/json` had to be replaced by something. Registered the way any other
+dependency is (`FetchContent` in `third_party/CMakeLists.txt`, v3.12.0) and used in
+its *header* form inside implementation units: the module build (`import
+nlohmann.json;`) wants `import std;`, which needs GCC 15, and cup's floor is
+deliberately GCC 14 without it. Mechanical to switch when the floor moves.
+
+**Test seams moved one layer up.** Go points `dockerHubTagsURL` and the release
+URLs at an `httptest` server; writing an HTTP server to test an HTTP client is a
+worse trade in C++, so the suites substitute `cup.platform`'s `http_get`
+(`ScopedHttpGet`) and assert on the URL that was requested. `curl_get` itself is
+covered over `file://`, which is why it treats a zero response code as success.
+`ScopedNewestCompilers` and `ScopedDockerHubTags` mirror Go's `NewestCompilersFunc`
+/ `DockerHubTagsFunc`.
+
+**`CMAKE_FIND_PACKAGE_TARGETS_GLOBAL`.** `cup register` writes its `find_package()`
+lines into `third_party/CMakeLists.txt`, and an imported target created by a find
+module is scoped to the directory that found it — so `CURL::libcurl` existed in
+`third_party/` and nowhere else, while the library needing it is a sibling under
+`src/libs`. Setting that variable in the root `CMakeLists.txt` is the fix that
+leaves the cup-managed file alone. **Every scaffolded project hits this the moment
+it registers its first apt dependency**, so it belongs in the `cup new` template,
+not just in cup's own tree — a Phase 4 item.
+
+**Milestone, restated.** "Reproduces every golden tree byte for byte" cannot be
+checked here: a golden tree is what `cup new` assembles, and that lives in
+`cup.cmd`. It is a Phase 4 gate. What *can* be checked now, and is, is the piece of
+those trees this phase renders entirely: `scaffold_compiler_test.cpp` extracts the
+compiler-guard block from `testdata/golden/new/cmake-cpp20.txt` — bytes the Go cup
+wrote — and requires `compiler_guard(11, 16)` to equal it. The case retires itself
+when Phase 6 deletes the Go tree.
+
+### Three more GCC 14 rules
+
+Phase 2 documented two (heavy headers in one partition; third-party libraries in
+implementation units). Phase 3 found three more, and all three cost hours because
+none of them reports the line that caused it.
+
+**3. An interface unit must not *define* a function returning
+`std::expected<std::string, Error>`.** An inline definition in a partition — or a
+`std::function` instantiated over such a signature — makes every implementation
+unit of that module fail wherever it calls `std::format`:
+
+```
+error: satisfaction of atomic constraint
+       'requires{...std::expected<_Tp, _Er>::swap...}' depends on itself
+```
+
+The same body returning `std::expected<int, Error>` or `std::expected<void, Error>`
+compiles, so it is the non-trivial value type that trips the constraint machinery
+through the BMI. Two consequences, both now in force: partitions declare and
+implementation units define, and the substitutable seams (`HttpGet`,
+`NewestCompilersFunc`, `DockerHubTagsFunc`) are plain function pointers rather than
+`std::function`s — which is why a stubbed fetcher in the suites is captureless and
+keeps what it observes in a file-scope variable.
+
+**4. `<filesystem>` in a partition interface is rationed.** It repeats, but not
+without limit: four of `cup.scaffold`'s partitions carry it and merge fine; the
+fifth (`:releases`, for one `std::optional<std::filesystem::path>` on a detail
+function) produced Phase 2's "failed to read compiled module cluster N: Bad file
+data" on the *primary*. Returning that path as a `std::string` made it go away with
+nothing else changed. So a partition that wants the header only for convenience
+should not take it.
+
+**5. A `std::format` *spec* in an implementation unit can throw at run time.**
+`std::format("{:%FT%TZ}", when)` and `std::format("{:04}-{:02}", year, month)` both
+compile and then throw `format error: invalid width or precision in format-spec`
+from inside the call. The consteval check on the format string passes and a
+different parse runs. Plain `{}` substitution — all the rest of the port uses —
+is unaffected, and the timestamp writer pads by hand. Reduced test cases outside
+cup do not reproduce it, so the trigger is somewhere in the module graph; treat a
+spec in a module implementation unit as unavailable rather than as a puzzle to
+solve.
+
+---
+
+## Phase 3.5 — `utils`: leaving Go's shape behind ✅
+
+Not in the original plan, and not parity work. Phases 2 and 3 translated Go into
+C++ faithfully — which means they also translated Go's *idioms* faithfully, and
+Go's answer to every object-lifetime question is a package-level variable plus an
+`init()`. The port inherited that: `cup.platform` keeps its installed fetcher in a
+function static holding a function pointer, `cup.ui` keeps the colour flag in
+another, and `cup.scaffold` spawns a bare `std::async` per concurrent fetch. Each
+is fine alone and none of them composes — every new seam needs its own accessor,
+its own guard and its own place to remember the default, and two call sites that
+each "just fetch a couple of things" decide the process's thread count by addition.
+
+`utils` is the four C++ answers, deliberately the classic ones so a C++
+contributor recognises the shape before reading the comment:
+
+| Partition | Type | What it settles |
+|---|---|---|
+| `:singleton` | `Singleton<Derived>` | CRTP; one instance, no second one *expressible* |
+| `:service` | `ServiceLocator` | `register_service<Interface, Impl>()` / `get<Interface>()`, keyed on `typeid` |
+| `:factory` | `Factory<Product, Key, Args...>` | run-time key → creator, `std::expected` on a miss |
+| `:pool` | `ThreadPool` | fixed workers, `std::future` results, drains on destruction |
+| `:strong_type` | `StrongType<Value, Tag, Skills…>` | a value with its own type; operations are opt-in |
+
+32 Catch2 cases pass on the GCC 14 floor (Debug and Coverage). Nothing else in cup
+is rewritten to use them yet — Phase 3 is green and rewriting green dispatch is not
+parity work — so this phase adds a module and changes no behaviour.
+
+### What the design had to decide
+
+**It lives at `src/libs/utils`, and `cup.error` moved under it.** Module names come
+from the path under `src/libs`, so the directory *is* the naming decision, and
+`src/libs` now has two containers rather than one:
+
+```
+src/libs/utils/          module utils          namespace utils::
+src/libs/utils/error/    module utils.error    namespace utils::error
+src/libs/cup/<name>/     module cup.<name>     namespace cup::<name>
+```
+
+The line between them is what the code names. `cup/` knows about projects,
+templates, compilers and the terminal. `utils/` holds the four patterns and the
+error type, and neither names a cup concept — a locator keyed on `typeid` and an `E`
+carrying a message plus a sentinel `Kind` are the same in any program. The
+dependency runs one way and only one way: every library under `cup/` links
+`utils.error`, and nothing under `utils/` links anything under `cup/`.
+
+**What that cost: `error::Error` stopped resolving inside `cup::`.** The short
+spelling was never a `using`-directive, it was enclosing-namespace lookup —
+`cup::scaffold` naming `error::` found `cup::error` because both sat in `cup`. Once
+the error type became `utils::error`, 140 uses across 26 files had to be spelled
+`utils::error::Error` in full, and ~70 lines re-wrapped or re-indented behind the
+seven extra columns of the `utils::` prefix. Mechanical and loud: every site that
+needed changing failed to compile rather than silently finding something else, since
+the short spelling had no second meaning to fall back on. `utils`' own partitions
+keep writing `error::Error`, because `utils::error` is nested in `utils` and the
+same lookup now works in their favour.
+
+**`register` is a keyword.** The classic formulation is
+`register<Interface, Impl>()`, and it is not available: `register` was removed as a
+storage-class specifier in C++17 but is still reserved, so the method is
+`register_service`. Worth stating once rather than rediscovering.
+
+**The locator is a Singleton; the factory and the pool are not.** A second locator
+would mean two answers to "what is bound to `Fetcher`", which is the one question it
+exists to answer. A factory is a value a caller owns, and a pool *has a size* — the
+right number of threads depends on what it is for, so that stays a decision `main()`
+makes. Where a process wants one shared pool, it binds it as a service. Test
+isolation against the process-wide locator is `ScopedService`, the same
+restore-on-scope-exit guard as `ScopedHttpGet` and `ScopedInput`.
+
+**Erase the interface pointer, not the implementation pointer.** The locator stores
+`std::shared_ptr<void>` converted *from* `shared_ptr<Interface>`, so the base offset
+is applied before erasure. Erasing the `Impl` pointer instead is correct under single
+inheritance and silently hands out a wrongly-offset object under multiple
+inheritance — not a crash, a corrupt object. `BilingualGreeter` in the suite exists
+only to pin that case.
+
+**The pool drains rather than drops.** A task discarded before it runs destroys its
+promise unsatisfied, so the caller's `future.get()` throws `broken_promise` — an
+exception raised by a destructor on another thread, which is about the worst
+diagnostic available. `~ThreadPool` therefore finishes what was submitted.
+
+**Deliberately not dependency injection.** A locator's known cost is that a type's
+dependencies stop appearing in its constructor signature. cup accepts that for
+platform seams — HTTP, the terminal, process spawning — and nowhere else.
+
+**The fifth partition is not a lifetime pattern.** `:strong_type` answers a
+different question from the other four — not who owns an object, but what a
+*signature* can say. `cup.scaffold`'s `render(root, family, kind, name, vars)` has
+three adjacent `std::string_view` parameters and `path_to_namespace(src, dir)` has
+two `std::filesystem::path`s; transposing either pair compiles, runs, and writes a
+wrong tree. `StrongType<Value, Tag, Skills…>` makes that a compile error, with an
+explicit constructor, `get()` as the only way back out, and empty-base skills so it
+costs no storage. Operations are opt-in (`Equatable`, `Ordered`, `Hashable`,
+`Viewable`) because a type that carries every operation its underlying value has is
+a typedef with extra syntax. `StrongString<Tag>` is the alias for the case cup
+actually has. Nothing is converted to it here, for the usual reason; it is what
+Phase 4's `cup new` and `cup add` reach for when they start threading a name, a
+family and a kind through four call layers each.
+
+**A data point against rule 6, for once.** The `std::hash` partial specialisation a
+strong type needs is declared inside the module and instantiated in the *consumer*,
+over a module-attached key — the exact shape that broke `std::unordered_map` in the
+locator. It merges: an `std::unordered_map<ProjectName, int>` in `utils_test.cpp`
+compiles and runs on GCC 14.2. So rule 6 is about the container being instantiated
+across the boundary from a template the interface exported, not about every
+standard-library template that touches a module-attached type. The suite keeps a
+case on it so a compiler upgrade that changes the answer says so.
+
+### Two more GCC 14 rules
+
+Phases 2 and 3 found five, all about *where a header sits*. These two are a
+different family — about where a **template is instantiated** — and both cost a
+build to find and a bisect to name.
+
+**6. A standard-library class template instantiated *across* a module boundary can
+fail outright.** Not a header-placement problem: the container is fine, and
+instantiating it inside either side alone is fine. Instantiating it in the consumer,
+from a template an interface unit exported, is not. Two hits, one module:
+
+```
+error: invalid use of incomplete type
+       'struct std::__detail::_Select1st@utils::__1st_type<...>'
+```
+
+from `std::unordered_map` in the locator, and
+
+```
+error: cannot convert '...submit<...>(...)::<lambda()>'
+       to 'std::move_only_function@utils<void()>'
+```
+
+from the pool's task queue. Both diagnostics carry the `@utils` suffix through
+the whole instantiation stack — the tell that the standard library's own helpers
+came back module-attached and their partial specialisations stopped being found.
+
+The fix is the house rule aimed one level lower: **erase to a non-template seam and
+instantiate the container in an implementation unit.** `ServiceLocator`'s public API
+stays templated, but every template body forwards to a `store`/`lookup`/`bound`/
+`drop` taking a `const std::type_info&`, defined in `Service.cpp` — where the map is
+instantiated once, in an ordinary translation unit. The pool replaced
+`std::move_only_function` with a three-line abstract `Task` of its own, which is
+what `std::function` could never have done anyway (a `std::packaged_task` is
+move-only). Both are better designs than what they replaced; neither was chosen for
+that reason.
+
+**7. Constructing a `std::thread` or `std::jthread` from a lambda inside a module
+translation unit ICEs the compiler.**
+
+```
+during IPA pass: comdats
+internal compiler error: in ipa_comdats, at ipa-comdats.cc:355
+```
+
+Reported against the closing brace of the file, naming nothing that caused it. The
+trigger is the thread invoker's instantiated vtable — `std::thread` wraps the
+callable in an internal `_State_impl` with a virtual `_M_run()` — landing in a
+comdat group the pass cannot place for a module-attached TU. Bisected down to a
+fifteen-line reproduction, and the boundary is sharp:
+
+| Construction | GCC 14.2 |
+|---|---|
+| `jthread` / `thread` from a lambda | **ICE**, at `-O0` and `-O2` alike |
+| `jthread` from a plain function pointer | compiles |
+| `std::async` from a lambda | compiles |
+
+So the pool's workers are constructed from a static member function with the state
+passed as an argument, not from a capturing lambda. That last row is why Phase 3's
+release fetch never hit this and why the rule went unfound until something owned
+threads. It is also, once more, the shape the port already uses for its
+substitutable seams — `HttpGet` is a bare function pointer, not a `std::function`
+— arrived at from a different bug.
 
 ---
 
@@ -352,6 +600,11 @@ first, so the machinery is proven before the hard ones:
 3. `template` (84), `completion` (240)
 4. `compiler` (270) — depends on `scaffold:compiler` and `:releases`
 5. `docker` (315), `register` / `unregister` (457) — heaviest use of `runCommand`
+
+Two carry-overs from Phase 3 land here: the `CMAKE_FIND_PACKAGE_TARGETS_GLOBAL`
+line belongs in the `cup new` project template (every scaffolded project needs it
+as soon as `cup register` adds an apt dependency), and `cup new` still has no
+picker for `std_module`.
 
 `runCommand` (`internal/cmd/util.go:28`) is the third and last platform seam,
 and it is the best-positioned code in the repo for porting: **one call site**,
@@ -421,7 +674,8 @@ from-source path; everyone else gets the static release binary.
 | 0 Prep | — | +goldens | Land Make branch, freeze spec |
 | 1 Scaffold | ~150 | — | CMake + codegen + CI |
 | 2 Leaves | 581 | 587 | ui, tmpl, project — ✅ done |
-| 3 scaffold | 984 | 1,236 | pure logic, highest value |
+| 3 scaffold | 984 | 1,236 | ui, tmpl, project, scaffold — ✅ done |
+| 3.5 utils | 356 | 368 | not parity — singleton, service, factory, pool — ✅ done |
 | 4 cmd | 2,510 | 1,798 | largest, incremental |
 | 5 Relay | — | +harness | Gated on 4 checks |
 | 6 Retire | — | — | Docs, CI, cleanup |
@@ -431,13 +685,24 @@ Expect the C++ to land at roughly 1.5× the Go line count, plus build files.
 
 ## Risks
 
-**GCC 14 module bugs.** The real one — and now largely *characterised* rather
-than merely feared. Phase 2 hit both failure modes (BMI merge failure, and an ICE
-on a large header in an interface unit's global module fragment), and both have
-mechanical fixes that are documented above and cost nothing to apply up front:
-keep the heavy headers in one partition, and keep third-party libraries in
-implementation units. The fallback to headers with the C++23 decision intact
-remains available but no longer looks necessary.
+**GCC 14 module bugs.** The real one, and the only risk that has grown rather than
+shrunk: Phase 2 found two failure modes, Phase 3 found three more, Phase 3.5 found
+two more again (see the rules above). All seven have mechanical fixes that cost
+nothing once known — declarations in partitions, definitions and third-party headers
+in implementation units, heavy headers in one place, `<filesystem>` rationed, no
+format specs in an implementation unit, standard-library containers instantiated
+behind a non-template seam, threads constructed from function pointers — and none of
+them changed what cup *does*. But the pattern is that each new module of the port
+turns up another one, and Phase 3.5's two were a *new family* — about where a
+template is instantiated rather than where a header sits — so the list is not
+converging on a closed set. Budget diagnosis time for Phase 4 rather than assuming
+it is. The fallback to headers with the C++23 decision intact remains available and
+still does not look necessary.
+
+One practical lesson from Phase 3.5 worth carrying forward: rule 7 was found by
+bisecting a fifteen-line reproduction, not by reading the failing file. When GCC
+reports an ICE against a closing brace, or an error inside `<bits/…>` with an
+`@module` suffix, reducing outside the tree is faster than reasoning inside it.
 
 **`cup.cmd` is 60% of the port.** Mitigation: strictly command-by-command, with
 the Go binary shippable at every commit.
@@ -450,3 +715,9 @@ C++23-without-`import std;` landed in the Go cup, and only because the alternati
 was a `cup.toml` that misreported the project's own standard (one field, one
 predicate, no new pickers). `cup embed` stays post-relay. The migration ships
 behaviour parity, nothing more.
+
+The dependency budget did move once, in Phase 3: nlohmann/json, because three of
+the replies cup reads are JSON and `encoding/json` had to be replaced by
+something. That is parity, not a feature — but it is the kind of decision worth
+recording, because the next one ("a small HTTP server, just for the tests") would
+not be.

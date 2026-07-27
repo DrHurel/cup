@@ -15,5 +15,5 @@ target_compile_features(project PUBLIC cxx_std_23)
 # cup scaffolds targets but does not wire dependencies between them, so module
 # imports are linked by hand. toml++ is PRIVATE: it is included in :io's global
 # module fragment and appears in no exported signature, so consumers of
-# cup.project never see it. cup.error supplies the E of the std::expected results.
+# cup.project never see it. utils.error supplies the E of the std::expected results.
 target_link_libraries(project PUBLIC error PRIVATE tomlplusplus::tomlplusplus)

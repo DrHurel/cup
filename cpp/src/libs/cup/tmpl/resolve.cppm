@@ -16,8 +16,8 @@ module;
 export module cup.tmpl:resolve;
 
 import :corpus;
-// Re-exported: cup::error::Error is the E of every result below.
-export import cup.error;
+// Re-exported: utils::error::Error is the E of every result below.
+export import utils.error;
 
 export namespace cup::tmpl {
 
@@ -54,24 +54,25 @@ namespace detail {
 }
 
 // write_file writes content to path verbatim, truncating what was there.
-[[nodiscard]] std::expected<void, error::Error> write_file(const std::filesystem::path& path,
-                                                           std::string_view content) {
+[[nodiscard]] std::expected<void, utils::error::Error> write_file(const std::filesystem::path& path,
+                                                                  std::string_view content) {
     std::ofstream out(path, std::ios::binary | std::ios::trunc);
     out << content;
     if (!out) {
-        return std::unexpected(error::Error(std::format("writing {}", path.string())));
+        return std::unexpected(utils::error::Error(std::format("writing {}", path.string())));
     }
     return {};
 }
 
 // create_dir makes dst and its parents, putting the failure in the error channel so
 // it can head a chain.
-[[nodiscard]] std::expected<void, error::Error> create_dir(const std::filesystem::path& dst) {
+[[nodiscard]] std::expected<void, utils::error::Error> create_dir(
+    const std::filesystem::path& dst) {
     std::error_code ec;
     std::filesystem::create_directories(dst, ec);
     if (ec) {
         return std::unexpected(
-            error::Error(std::format("creating {}: {}", dst.string(), ec.message())));
+            utils::error::Error(std::format("creating {}: {}", dst.string(), ec.message())));
     }
     return {};
 }
@@ -109,16 +110,15 @@ namespace detail {
 // The preference is spelled or_else because that is exactly what it is: the
 // built-in is consulted only when the override yields nothing, and require then
 // turns "neither" into the one error this can report.
-[[nodiscard]] std::expected<std::string, error::Error> read(const std::filesystem::path& root,
-                                                            std::string_view family,
-                                                            std::string_view kind,
-                                                            std::string_view name) {
+[[nodiscard]] std::expected<std::string, utils::error::Error> read(
+    const std::filesystem::path& root, std::string_view family, std::string_view kind,
+    std::string_view name) {
     auto resolved = detail::local_read(root, kind, name).or_else([family, kind, name] {
         return builtin_read(family, kind, name).transform(
             [](std::string_view content) { return std::string(content); });
     });
-    return error::require(std::move(resolved),
-                          std::format("no such template: {}/{}/{}", family, kind, name));
+    return utils::error::require(std::move(resolved),
+                                 std::format("no such template: {}/{}/{}", family, kind, name));
 }
 
 namespace detail {
@@ -177,11 +177,11 @@ namespace detail {
 // kind_files lists the built-in files of <family>/<kind>. The corpus reports an
 // unknown kind by returning nothing at all, so the emptiness is turned back into
 // the error it stands for before the chain goes any further.
-[[nodiscard]] std::expected<std::vector<BuiltinFile>, error::Error> kind_files(
+[[nodiscard]] std::expected<std::vector<BuiltinFile>, utils::error::Error> kind_files(
     std::string_view family, std::string_view kind) {
     auto files = builtin_files(family, kind);
-    return error::require(files.empty() ? std::nullopt : std::optional(std::move(files)),
-                          std::format("no such template kind: {}/{}", family, kind));
+    return utils::error::require(files.empty() ? std::nullopt : std::optional(std::move(files)),
+                                 std::format("no such template kind: {}/{}", family, kind));
 }
 
 }  // namespace detail
@@ -192,13 +192,12 @@ namespace detail {
 // The three steps stay in this order because the errors depend on it: dst is
 // created before the corpus is consulted, so an unwritable destination is reported
 // as such even when the kind does not exist either.
-[[nodiscard]] std::expected<void, error::Error> copy_builtin(std::string_view family,
-                                                             std::string_view kind,
-                                                             const std::filesystem::path& dst) {
+[[nodiscard]] std::expected<void, utils::error::Error> copy_builtin(
+    std::string_view family, std::string_view kind, const std::filesystem::path& dst) {
     return detail::create_dir(dst)
         .and_then([family, kind] { return detail::kind_files(family, kind); })
         .and_then([&dst](const std::vector<BuiltinFile>& files) {
-            return error::for_each(files, [&dst](const BuiltinFile& file) {
+            return utils::error::for_each(files, [&dst](const BuiltinFile& file) {
                 return detail::write_file(dst / file.name, file.content);
             });
         });

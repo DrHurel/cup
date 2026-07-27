@@ -19,16 +19,20 @@
 // ui_test.cpp explains.
 #include <expected>
 #include <string>
+#include <string_view>
 #include <utility>
 
-// cup.error is not imported: cup.platform re-exports it, because Error appears in
-// enter_raw_mode's return type. Naming cup::error below therefore also checks that
+// The HTTP cases below read a file:// URL out of a scratch directory.
+#include "TempDir.hpp"
+
+// utils.error is not imported: cup.platform re-exports it, because Error appears in
+// enter_raw_mode's return type. Naming utils::error below therefore also checks that
 // the re-export is real.
 import cup.platform;
 
 namespace {
 
-using cup::error::Error;
+using utils::error::Error;
 using cup::platform::RawMode;
 
 // Pty is a pseudo-terminal pair, and it is what makes this suite possible at all:
@@ -250,5 +254,54 @@ TEST_CASE("enter_raw_mode reports failure off a terminal", "[platform][raw]") {
     // And it is an ordinary error, not the abort sentinel: cup.ui reads this as
     // "not an interactive terminal" and falls back to the numbered prompt.
     REQUIRE(raw.error().kind() == Error::Kind::General);
-    REQUIRE_FALSE(cup::error::is_abort(raw.error()));
+    REQUIRE_FALSE(utils::error::is_abort(raw.error()));
+}
+
+// --- the HTTP seam ----------------------------------------------------------
+//
+// No Go counterpart either: Go gets net/http from the standard library, so its
+// suite tests scaffold's *use* of it (httpGet against an httptest server) rather
+// than a transport of its own. curl_get is cup's code, and these are the parts of
+// it a caller depends on.
+//
+// The transport is exercised over file://, which libcurl speaks natively: it is a
+// real curl_easy_perform, on the real callbacks, with no network and no server to
+// stand up. It is also why curl_get treats a zero response code as success — see
+// the note there.
+
+TEST_CASE("http_get reads a URL through libcurl", "[platform][http]") {
+    const cup::test::TempDir dir;
+    dir.write("body.json", R"({"results":[{"name":"14"}]})");
+
+    const auto body = cup::platform::http_get("file://" + (dir.path() / "body.json").string());
+    REQUIRE(body.has_value());
+    REQUIRE(*body == R"({"results":[{"name":"14"}]})");
+}
+
+TEST_CASE("http_get reports a transport failure", "[platform][http]") {
+    const cup::test::TempDir dir;
+
+    // A URL that resolves to nothing: libcurl fails before any body arrives.
+    const auto missing = cup::platform::http_get("file://" + (dir.path() / "absent").string());
+    REQUIRE_FALSE(missing.has_value());
+    REQUIRE(missing.error().message().starts_with("GET file://"));
+
+    // And a URL that is not one at all.
+    const auto malformed = cup::platform::http_get("://not-a-url");
+    REQUIRE_FALSE(malformed.has_value());
+    REQUIRE(malformed.error().kind() == Error::Kind::General);
+}
+
+TEST_CASE("ScopedHttpGet substitutes the fetcher and puts it back", "[platform][http]") {
+    const cup::test::TempDir dir;
+    dir.write("body.txt", "real");
+
+    const std::string url = "file://" + (dir.path() / "body.txt").string();
+    {
+        const cup::platform::ScopedHttpGet scoped(
+            [](std::string_view) -> std::expected<std::string, Error> { return "stubbed"; });
+        REQUIRE(cup::platform::http_get(url) == "stubbed");
+    }
+    // Restored: the real transport is back, and it reads the file.
+    REQUIRE(cup::platform::http_get(url) == "real");
 }
