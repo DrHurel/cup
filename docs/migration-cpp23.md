@@ -414,6 +414,157 @@ solve.
 
 ---
 
+## Phase 3.5 — `utils`: leaving Go's shape behind ✅
+
+Not in the original plan, and not parity work. Phases 2 and 3 translated Go into
+C++ faithfully — which means they also translated Go's *idioms* faithfully, and
+Go's answer to every object-lifetime question is a package-level variable plus an
+`init()`. The port inherited that: `cup.platform` keeps its installed fetcher in a
+function static holding a function pointer, `cup.ui` keeps the colour flag in
+another, and `cup.scaffold` spawns a bare `std::async` per concurrent fetch. Each
+is fine alone and none of them composes — every new seam needs its own accessor,
+its own guard and its own place to remember the default, and two call sites that
+each "just fetch a couple of things" decide the process's thread count by addition.
+
+`utils` is the four C++ answers, deliberately the classic ones so a C++
+contributor recognises the shape before reading the comment:
+
+| Partition | Type | What it settles |
+|---|---|---|
+| `:singleton` | `Singleton<Derived>` | CRTP; one instance, no second one *expressible* |
+| `:service` | `ServiceLocator` | `register_service<Interface, Impl>()` / `get<Interface>()`, keyed on `typeid` |
+| `:factory` | `Factory<Product, Key, Args...>` | run-time key → creator, `std::expected` on a miss |
+| `:pool` | `ThreadPool` | fixed workers, `std::future` results, drains on destruction |
+
+24 Catch2 cases pass on the GCC 14 floor (Debug and Coverage). Nothing else in cup
+is rewritten to use them yet — Phase 3 is green and rewriting green dispatch is not
+parity work — so this phase adds a module and changes no behaviour.
+
+### What the design had to decide
+
+**It lives at `src/libs/utils`, and `cup.error` moved under it.** Module names come
+from the path under `src/libs`, so the directory *is* the naming decision, and
+`src/libs` now has two containers rather than one:
+
+```
+src/libs/utils/          module utils          namespace utils::
+src/libs/utils/error/    module utils.error    namespace utils::error
+src/libs/cup/<name>/     module cup.<name>     namespace cup::<name>
+```
+
+The line between them is what the code names. `cup/` knows about projects,
+templates, compilers and the terminal. `utils/` holds the four patterns and the
+error type, and neither names a cup concept — a locator keyed on `typeid` and an `E`
+carrying a message plus a sentinel `Kind` are the same in any program. The
+dependency runs one way and only one way: every library under `cup/` links
+`utils.error`, and nothing under `utils/` links anything under `cup/`.
+
+**What that cost: `error::Error` stopped resolving inside `cup::`.** The short
+spelling was never a `using`-directive, it was enclosing-namespace lookup —
+`cup::scaffold` naming `error::` found `cup::error` because both sat in `cup`. Once
+the error type became `utils::error`, 140 uses across 26 files had to be spelled
+`utils::error::Error` in full, and ~70 lines re-wrapped or re-indented behind the
+seven extra columns of the `utils::` prefix. Mechanical and loud: every site that
+needed changing failed to compile rather than silently finding something else, since
+the short spelling had no second meaning to fall back on. `utils`' own partitions
+keep writing `error::Error`, because `utils::error` is nested in `utils` and the
+same lookup now works in their favour.
+
+**`register` is a keyword.** The classic formulation is
+`register<Interface, Impl>()`, and it is not available: `register` was removed as a
+storage-class specifier in C++17 but is still reserved, so the method is
+`register_service`. Worth stating once rather than rediscovering.
+
+**The locator is a Singleton; the factory and the pool are not.** A second locator
+would mean two answers to "what is bound to `Fetcher`", which is the one question it
+exists to answer. A factory is a value a caller owns, and a pool *has a size* — the
+right number of threads depends on what it is for, so that stays a decision `main()`
+makes. Where a process wants one shared pool, it binds it as a service. Test
+isolation against the process-wide locator is `ScopedService`, the same
+restore-on-scope-exit guard as `ScopedHttpGet` and `ScopedInput`.
+
+**Erase the interface pointer, not the implementation pointer.** The locator stores
+`std::shared_ptr<void>` converted *from* `shared_ptr<Interface>`, so the base offset
+is applied before erasure. Erasing the `Impl` pointer instead is correct under single
+inheritance and silently hands out a wrongly-offset object under multiple
+inheritance — not a crash, a corrupt object. `BilingualGreeter` in the suite exists
+only to pin that case.
+
+**The pool drains rather than drops.** A task discarded before it runs destroys its
+promise unsatisfied, so the caller's `future.get()` throws `broken_promise` — an
+exception raised by a destructor on another thread, which is about the worst
+diagnostic available. `~ThreadPool` therefore finishes what was submitted.
+
+**Deliberately not dependency injection.** A locator's known cost is that a type's
+dependencies stop appearing in its constructor signature. cup accepts that for
+platform seams — HTTP, the terminal, process spawning — and nowhere else.
+
+### Two more GCC 14 rules
+
+Phases 2 and 3 found five, all about *where a header sits*. These two are a
+different family — about where a **template is instantiated** — and both cost a
+build to find and a bisect to name.
+
+**6. A standard-library class template instantiated *across* a module boundary can
+fail outright.** Not a header-placement problem: the container is fine, and
+instantiating it inside either side alone is fine. Instantiating it in the consumer,
+from a template an interface unit exported, is not. Two hits, one module:
+
+```
+error: invalid use of incomplete type
+       'struct std::__detail::_Select1st@utils::__1st_type<...>'
+```
+
+from `std::unordered_map` in the locator, and
+
+```
+error: cannot convert '...submit<...>(...)::<lambda()>'
+       to 'std::move_only_function@utils<void()>'
+```
+
+from the pool's task queue. Both diagnostics carry the `@utils` suffix through
+the whole instantiation stack — the tell that the standard library's own helpers
+came back module-attached and their partial specialisations stopped being found.
+
+The fix is the house rule aimed one level lower: **erase to a non-template seam and
+instantiate the container in an implementation unit.** `ServiceLocator`'s public API
+stays templated, but every template body forwards to a `store`/`lookup`/`bound`/
+`drop` taking a `const std::type_info&`, defined in `Service.cpp` — where the map is
+instantiated once, in an ordinary translation unit. The pool replaced
+`std::move_only_function` with a three-line abstract `Task` of its own, which is
+what `std::function` could never have done anyway (a `std::packaged_task` is
+move-only). Both are better designs than what they replaced; neither was chosen for
+that reason.
+
+**7. Constructing a `std::thread` or `std::jthread` from a lambda inside a module
+translation unit ICEs the compiler.**
+
+```
+during IPA pass: comdats
+internal compiler error: in ipa_comdats, at ipa-comdats.cc:355
+```
+
+Reported against the closing brace of the file, naming nothing that caused it. The
+trigger is the thread invoker's instantiated vtable — `std::thread` wraps the
+callable in an internal `_State_impl` with a virtual `_M_run()` — landing in a
+comdat group the pass cannot place for a module-attached TU. Bisected down to a
+fifteen-line reproduction, and the boundary is sharp:
+
+| Construction | GCC 14.2 |
+|---|---|
+| `jthread` / `thread` from a lambda | **ICE**, at `-O0` and `-O2` alike |
+| `jthread` from a plain function pointer | compiles |
+| `std::async` from a lambda | compiles |
+
+So the pool's workers are constructed from a static member function with the state
+passed as an argument, not from a capturing lambda. That last row is why Phase 3's
+release fetch never hit this and why the rule went unfound until something owned
+threads. It is also, once more, the shape the port already uses for its
+substitutable seams — `HttpGet` is a bare function pointer, not a `std::function`
+— arrived at from a different bug.
+
+---
+
 ## Phase 4 — `cup.cmd` (2,510 lines + 1,798 test lines)
 
 The largest phase. Port **command by command**, not file by file, keeping the
@@ -500,6 +651,7 @@ from-source path; everyone else gets the static release binary.
 | 1 Scaffold | ~150 | — | CMake + codegen + CI |
 | 2 Leaves | 581 | 587 | ui, tmpl, project — ✅ done |
 | 3 scaffold | 984 | 1,236 | ui, tmpl, project, scaffold — ✅ done |
+| 3.5 utils | 356 | 368 | not parity — singleton, service, factory, pool — ✅ done |
 | 4 cmd | 2,510 | 1,798 | largest, incremental |
 | 5 Relay | — | +harness | Gated on 4 checks |
 | 6 Retire | — | — | Docs, CI, cleanup |
@@ -510,14 +662,23 @@ Expect the C++ to land at roughly 1.5× the Go line count, plus build files.
 ## Risks
 
 **GCC 14 module bugs.** The real one, and the only risk that has grown rather than
-shrunk: Phase 2 found two failure modes, Phase 3 found three more (see the rules
-above). All five have mechanical fixes that cost nothing once known — declarations
-in partitions, definitions and third-party headers in implementation units, heavy
-headers in one place, `<filesystem>` rationed, no format specs in an
-implementation unit — and none of them changed what cup *does*. But the pattern is
-that each new module of the port turns up another one, so budget diagnosis time
-for Phase 4 rather than assuming the list is closed. The fallback to headers with
-the C++23 decision intact remains available and still does not look necessary.
+shrunk: Phase 2 found two failure modes, Phase 3 found three more, Phase 3.5 found
+two more again (see the rules above). All seven have mechanical fixes that cost
+nothing once known — declarations in partitions, definitions and third-party headers
+in implementation units, heavy headers in one place, `<filesystem>` rationed, no
+format specs in an implementation unit, standard-library containers instantiated
+behind a non-template seam, threads constructed from function pointers — and none of
+them changed what cup *does*. But the pattern is that each new module of the port
+turns up another one, and Phase 3.5's two were a *new family* — about where a
+template is instantiated rather than where a header sits — so the list is not
+converging on a closed set. Budget diagnosis time for Phase 4 rather than assuming
+it is. The fallback to headers with the C++23 decision intact remains available and
+still does not look necessary.
+
+One practical lesson from Phase 3.5 worth carrying forward: rule 7 was found by
+bisecting a fifteen-line reproduction, not by reading the failing file. When GCC
+reports an ICE against a closing brace, or an error inside `<bits/…>` with an
+`@module` suffix, reducing outside the tree is faster than reasoning inside it.
 
 **`cup.cmd` is 60% of the port.** Mitigation: strictly command-by-command, with
 the Go binary shippable at every commit.

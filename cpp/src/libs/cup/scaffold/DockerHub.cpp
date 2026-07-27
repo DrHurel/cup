@@ -67,7 +67,7 @@ std::vector<std::string> parse_docker_hub_tags(std::string_view body) {
     return tags;
 }
 
-std::expected<std::vector<std::string>, error::Error> fetch_docker_hub_tags(
+std::expected<std::vector<std::string>, utils::error::Error> fetch_docker_hub_tags(
     std::string_view repo) {
     // vformat rather than format: the endpoint is a constant held in the interface,
     // so the format string is a value here rather than a literal, and only the
@@ -80,7 +80,8 @@ std::expected<std::vector<std::string>, error::Error> fetch_docker_hub_tags(
 
 }  // namespace detail
 
-std::expected<std::vector<std::string>, error::Error> docker_hub_tags(std::string_view repo) {
+std::expected<std::vector<std::string>, utils::error::Error> docker_hub_tags(
+    std::string_view repo) {
     return detail::current_docker_hub_tags()(repo);
 }
 

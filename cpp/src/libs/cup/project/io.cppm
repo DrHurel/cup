@@ -20,8 +20,8 @@ module;
 export module cup.project:io;
 
 import :config;
-// Re-exported: cup::error::Error is the E of every result below.
-export import cup.error;
+// Re-exported: utils::error::Error is the E of every result below.
+export import utils.error;
 
 export namespace cup::project {
 
@@ -73,11 +73,11 @@ struct Project {
 
 // parse_config decodes cup.toml's text. Unknown keys are ignored, matching the Go
 // decoder, so a cup.toml written by a newer cup still loads.
-[[nodiscard]] std::expected<Config, error::Error> parse_config(std::string_view text);
+[[nodiscard]] std::expected<Config, utils::error::Error> parse_config(std::string_view text);
 
 // write_config writes cup.toml at root.
-[[nodiscard]] std::expected<void, error::Error> write_config(const std::filesystem::path& root,
-                                                             const Config& cfg);
+[[nodiscard]] std::expected<void, utils::error::Error> write_config(
+    const std::filesystem::path& root, const Config& cfg);
 
 // find_from walks up from start looking for a cup.toml, returning the enclosing
 // project. It errors if none is found.
@@ -85,9 +85,10 @@ struct Project {
 // Go's Find reads the working directory itself; taking the starting directory as a
 // parameter keeps the walk testable without chdir, which a parallel test runner
 // cannot do safely. find() below is the Go signature.
-[[nodiscard]] std::expected<Project, error::Error> find_from(const std::filesystem::path& start);
+[[nodiscard]] std::expected<Project, utils::error::Error> find_from(
+    const std::filesystem::path& start);
 
 // find locates the project enclosing the current working directory.
-[[nodiscard]] std::expected<Project, error::Error> find();
+[[nodiscard]] std::expected<Project, utils::error::Error> find();
 
 }  // namespace cup::project

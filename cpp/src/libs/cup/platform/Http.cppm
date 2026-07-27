@@ -11,8 +11,8 @@ module;
 #include <string_view>
 export module cup.platform:http;
 
-// Re-exported: cup::error::Error is the E of every result below.
-export import cup.error;
+// Re-exported: utils::error::Error is the E of every result below.
+export import utils.error;
 
 export namespace cup::platform {
 
@@ -26,14 +26,14 @@ export namespace cup::platform {
 // fetcher must be captureless — the suites keep what they want to observe in a
 // file-scope variable, which is what the Go tests do with their package-level
 // stubs anyway.
-using HttpGet = std::expected<std::string, error::Error> (*)(std::string_view);
+using HttpGet = std::expected<std::string, utils::error::Error> (*)(std::string_view);
 
 namespace detail {
 
 // curl_get is the real transport, defined in Http.cpp. It is the only thing in cup
 // that speaks HTTP, which is what keeps libcurl behind this seam — and what makes
 // "ship without libcurl" a supported degradation rather than a rewrite.
-[[nodiscard]] std::expected<std::string, error::Error> curl_get(std::string_view url);
+[[nodiscard]] std::expected<std::string, utils::error::Error> curl_get(std::string_view url);
 
 // current_http_get holds the installed fetcher — curl_get unless a test replaced
 // it. The one piece of mutable state in cup.platform, and the same shape as
@@ -66,7 +66,7 @@ inline HttpGet& current_http_get() {
 // std::expected<int, Error> or std::expected<void, Error> is fine, so it is the
 // non-trivial value type that does it. Declaring here and defining there costs
 // nothing and is the rule cup.scaffold's partitions follow throughout.
-[[nodiscard]] std::expected<std::string, error::Error> http_get(std::string_view url);
+[[nodiscard]] std::expected<std::string, utils::error::Error> http_get(std::string_view url);
 
 // ScopedHttpGet installs a fetcher for the lifetime of the guard and restores the
 // previous one after — the test seam that keeps the suites off the network.

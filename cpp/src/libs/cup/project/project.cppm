@@ -13,8 +13,8 @@ module;
 #include <string>
 export module cup.project;
 
-// Re-exported because cup::error::Error is the E of every result :io returns.
-export import cup.error;
+// Re-exported because utils::error::Error is the E of every result :io returns.
+export import utils.error;
 
 export import :config;
 export import :io;

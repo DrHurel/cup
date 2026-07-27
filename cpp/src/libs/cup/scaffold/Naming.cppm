@@ -7,18 +7,18 @@ module;
 #include <string_view>
 export module cup.scaffold:naming;
 
-// Re-exported: cup::error::Error is the E of the validators' results.
-export import cup.error;
+// Re-exported: utils::error::Error is the E of the validators' results.
+export import utils.error;
 
 export namespace cup::scaffold {
 
 // validate_ident fails unless text is a legal C++ identifier. It is the validator
 // behind every "class name" / "symbol name" prompt, so its message is written to be
 // read by a user mid-prompt, not by a log. (Go: ValidateIdent.)
-[[nodiscard]] std::expected<void, error::Error> validate_ident(std::string_view text);
+[[nodiscard]] std::expected<void, utils::error::Error> validate_ident(std::string_view text);
 
 // validate_non_empty fails if text is blank.
-[[nodiscard]] std::expected<void, error::Error> validate_non_empty(std::string_view text);
+[[nodiscard]] std::expected<void, utils::error::Error> validate_non_empty(std::string_view text);
 
 // capitalize upper-cases the first character, leaving the rest untouched — the
 // default symbol name derived from a lib or file name (mylib -> Mylib).

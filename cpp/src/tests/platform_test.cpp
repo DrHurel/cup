@@ -25,14 +25,14 @@
 // The HTTP cases below read a file:// URL out of a scratch directory.
 #include "TempDir.hpp"
 
-// cup.error is not imported: cup.platform re-exports it, because Error appears in
-// enter_raw_mode's return type. Naming cup::error below therefore also checks that
+// utils.error is not imported: cup.platform re-exports it, because Error appears in
+// enter_raw_mode's return type. Naming utils::error below therefore also checks that
 // the re-export is real.
 import cup.platform;
 
 namespace {
 
-using cup::error::Error;
+using utils::error::Error;
 using cup::platform::RawMode;
 
 // Pty is a pseudo-terminal pair, and it is what makes this suite possible at all:
@@ -254,7 +254,7 @@ TEST_CASE("enter_raw_mode reports failure off a terminal", "[platform][raw]") {
     // And it is an ordinary error, not the abort sentinel: cup.ui reads this as
     // "not an interactive terminal" and falls back to the numbered prompt.
     REQUIRE(raw.error().kind() == Error::Kind::General);
-    REQUIRE_FALSE(cup::error::is_abort(raw.error()));
+    REQUIRE_FALSE(utils::error::is_abort(raw.error()));
 }
 
 // --- the HTTP seam ----------------------------------------------------------

@@ -86,16 +86,16 @@ namespace {
 
 }  // namespace
 
-std::expected<void, error::Error> validate_ident(std::string_view text) {
+std::expected<void, utils::error::Error> validate_ident(std::string_view text) {
     if (is_ident(text)) {
         return {};
     }
-    return std::unexpected(error::Error("must be a valid C++ identifier"));
+    return std::unexpected(utils::error::Error("must be a valid C++ identifier"));
 }
 
-std::expected<void, error::Error> validate_non_empty(std::string_view text) {
+std::expected<void, utils::error::Error> validate_non_empty(std::string_view text) {
     if (is_blank(text)) {
-        return std::unexpected(error::Error("must not be empty"));
+        return std::unexpected(utils::error::Error("must not be empty"));
     }
     return {};
 }

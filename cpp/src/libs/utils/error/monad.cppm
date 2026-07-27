@@ -7,11 +7,11 @@ module;
 #include <string>
 #include <utility>
 #include <vector>
-export module cup.error:monad;
+export module utils.error:monad;
 
 import :error;
 
-export namespace cup::error {
+export namespace utils::error {
 
 // Every fallible function in cup returns std::expected<T, Error>, which already
 // carries and_then / transform / transform_error / or_else. So the point of this
@@ -76,4 +76,4 @@ template <typename Range, typename Step>
     return done;
 }
 
-}  // namespace cup::error
+}  // namespace utils::error

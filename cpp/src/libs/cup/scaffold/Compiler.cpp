@@ -101,14 +101,15 @@ std::string compiler_guard(int gcc, int clang) {
     return guard;
 }
 
-std::expected<void, error::Error> replace_compiler_guard(const std::filesystem::path& root,
-                                                         const std::filesystem::path& path,
-                                                         int gcc, int clang) {
+std::expected<void, utils::error::Error> replace_compiler_guard(const std::filesystem::path& root,
+                                                                const std::filesystem::path& path,
+                                                                int gcc, int clang) {
     const std::string relative = detail::rel(root, path);
 
     std::ifstream in(path, std::ios::binary);
     if (!in) {
-        return std::unexpected(error::Error(std::format("cannot update {}: not found", relative)));
+        return std::unexpected(
+            utils::error::Error(std::format("cannot update {}: not found", relative)));
     }
     const std::string content((std::istreambuf_iterator<char>(in)),
                               std::istreambuf_iterator<char>());
@@ -116,7 +117,7 @@ std::expected<void, error::Error> replace_compiler_guard(const std::filesystem::
     const std::size_t start = content.find(kGuardStart);
     const std::size_t end = content.find(kGuardEnd);
     if (start == std::string::npos || end == std::string::npos || end < start) {
-        return std::unexpected(error::Error(
+        return std::unexpected(utils::error::Error(
             std::format("no cup compiler-guard block in {} (markers \"{}\"..\"{}\" missing)",
                         relative, kGuardStart, kGuardEnd)));
     }
@@ -128,7 +129,8 @@ std::expected<void, error::Error> replace_compiler_guard(const std::filesystem::
     std::ofstream out(path, std::ios::binary | std::ios::trunc);
     out << updated;
     if (!out) {
-        return std::unexpected(error::Error(std::format("writing {}", relative)));
+        return std::unexpected(
+            utils::error::Error(std::format("writing {}", relative)));
     }
     ui::updated(std::format("{}  (compiler floor)", relative));
     return {};

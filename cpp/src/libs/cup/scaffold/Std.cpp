@@ -14,7 +14,7 @@ namespace cup::scaffold {
 
 std::string std_label(int standard) { return std::format("c++{}", standard); }
 
-std::expected<int, error::Error> parse_std(std::string_view text) {
+std::expected<int, utils::error::Error> parse_std(std::string_view text) {
     // Only a label longer than the prefix loses it, so a bare "c++" stays whole and
     // fails the parse below rather than becoming an empty string. (Go: the
     // len(s) > 3 guard.)
@@ -39,7 +39,7 @@ std::expected<int, error::Error> parse_std(std::string_view text) {
     // The message quotes the *stripped* text, so "c++99" reports 99 — matching Go's
     // %q of the same trimmed value.
     return std::unexpected(
-        error::Error(std::string("unknown C++ standard \"").append(digits).append("\"")));
+        utils::error::Error(std::string("unknown C++ standard \"").append(digits).append("\"")));
 }
 
 bool uses_modules(int standard) { return standard >= 20; }

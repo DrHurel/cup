@@ -10,14 +10,14 @@ export module cup.ui:prompt;
 
 import :io;
 import :color;
-// Re-exported: cup::error::Error is the E of every prompt's return type.
-export import cup.error;
+// Re-exported: utils::error::Error is the E of every prompt's return type.
+export import utils.error;
 
 export namespace cup::ui {
 
 // Validator reports whether an entered value is acceptable. On rejection its
 // message is shown and the prompt repeats. (Go: func(string) error.)
-using Validator = std::function<std::expected<void, error::Error>(std::string_view)>;
+using Validator = std::function<std::expected<void, utils::error::Error>(std::string_view)>;
 
 namespace detail {
 
@@ -46,11 +46,11 @@ namespace detail {
 // out — is the *only* failure a prompt has, so it is the only thing this puts in
 // the error channel; everything the user can type is a value, and what to do with
 // an unacceptable one is each prompt's own business.
-[[nodiscard]] std::expected<std::string, error::Error> read_answer() {
+[[nodiscard]] std::expected<std::string, utils::error::Error> read_answer() {
     std::string entered;
     if (!read_line(entered)) {
         emit_line("");
-        return std::unexpected(error::abort_error());
+        return std::unexpected(utils::error::abort_error());
     }
     return trim(entered);
 }
@@ -58,8 +58,8 @@ namespace detail {
 // rejection runs the validator, if there is one, and returns why the value was
 // refused — nullopt when it was accepted. A refusal is not an error of the prompt:
 // it is the signal to ask the question again, so it stays out of the expected.
-[[nodiscard]] std::optional<error::Error> rejection(const Validator& validate,
-                                                    const std::string& value) {
+[[nodiscard]] std::optional<utils::error::Error> rejection(const Validator& validate,
+                                                           const std::string& value) {
     if (!validate) {
         return std::nullopt;
     }
@@ -90,7 +90,7 @@ namespace detail {
 // text prompts for a line of input. An empty entry falls back to def. validate, if
 // set, must accept the value; otherwise its message is shown and the prompt
 // repeats. Aborts (Ctrl+D / EOF) surface as the abort sentinel.
-[[nodiscard]] std::expected<std::string, error::Error> text(
+[[nodiscard]] std::expected<std::string, utils::error::Error> text(
     std::string_view question, std::string_view def, const Validator& validate = {}) {
     while (true) {
         std::string line = format_text("{} {} ", color(bold(kCyan), "?"), question);
@@ -118,7 +118,8 @@ namespace detail {
 
 // confirm asks a yes/no question, returning def on an empty answer and repeating
 // on anything it does not recognise.
-[[nodiscard]] std::expected<bool, error::Error> confirm(std::string_view question, bool def) {
+[[nodiscard]] std::expected<bool, utils::error::Error> confirm(
+    std::string_view question, bool def) {
     const std::string_view hint = def ? "Y/n" : "y/N";
     while (true) {
         emit(format_text("{} {} [{}] ", color(bold(kCyan), "?"), question, hint));

@@ -63,9 +63,9 @@ module;
 #include <string>
 export module cup.scaffold;
 
-// Re-exported because cup::error::Error is the E of every result the partitions
+// Re-exported because utils::error::Error is the E of every result the partitions
 // return.
-export import cup.error;
+export import utils.error;
 
 export import :std;
 export import :naming;

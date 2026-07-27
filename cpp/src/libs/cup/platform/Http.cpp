@@ -82,12 +82,12 @@ private:
 
 }  // namespace
 
-std::expected<std::string, error::Error> curl_get(std::string_view url) {
+std::expected<std::string, utils::error::Error> curl_get(std::string_view url) {
     ensure_global_init();
 
     Handle handle;
     if (handle.get() == nullptr) {
-        return std::unexpected(error::Error("cannot initialise libcurl"));
+        return std::unexpected(utils::error::Error("cannot initialise libcurl"));
     }
 
     // curl needs a NUL-terminated URL, and it does not copy the string unless
@@ -112,7 +112,7 @@ std::expected<std::string, error::Error> curl_get(std::string_view url) {
 
     if (const CURLcode code = ::curl_easy_perform(handle.get()); code != CURLE_OK) {
         const std::string_view reason = ::curl_easy_strerror(code);
-        return std::unexpected(error::Error(std::format("GET {}: {}", url, reason)));
+        return std::unexpected(utils::error::Error(std::format("GET {}: {}", url, reason)));
     }
 
     long status = 0;
@@ -121,7 +121,7 @@ std::expected<std::string, error::Error> curl_get(std::string_view url) {
     // matters, since it is how the suite exercises this function without a
     // network. Every HTTP reply sets one, so this cannot mask a real failure.
     if (status != 0 && status != 200) {
-        return std::unexpected(error::Error(std::format("GET {}: {}", url, status)));
+        return std::unexpected(utils::error::Error(std::format("GET {}: {}", url, status)));
     }
     return body;
 }
@@ -132,7 +132,7 @@ namespace cup::platform {
 
 // Defined here rather than inline in Http.cppm — see the note on its declaration
 // for the GCC 14 bug that forces the split.
-std::expected<std::string, error::Error> http_get(std::string_view url) {
+std::expected<std::string, utils::error::Error> http_get(std::string_view url) {
     return detail::current_http_get()(url);
 }
 

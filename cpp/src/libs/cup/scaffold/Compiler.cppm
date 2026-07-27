@@ -8,8 +8,8 @@ module;
 #include <vector>
 export module cup.scaffold:compiler;
 
-// Re-exported: cup::error::Error is the E of replace_compiler_guard's result.
-export import cup.error;
+// Re-exported: utils::error::Error is the E of replace_compiler_guard's result.
+export import utils.error;
 
 export namespace cup::scaffold {
 
@@ -68,7 +68,7 @@ struct CompilerChoices {
 // path to enforce the given minimums, leaving the rest of the file untouched. It
 // fails if the file has no guard markers — a hand-written CMakeLists, or one cup
 // has never managed.
-[[nodiscard]] std::expected<void, error::Error> replace_compiler_guard(
+[[nodiscard]] std::expected<void, utils::error::Error> replace_compiler_guard(
     const std::filesystem::path& root, const std::filesystem::path& path, int gcc, int clang);
 
 }  // namespace cup::scaffold

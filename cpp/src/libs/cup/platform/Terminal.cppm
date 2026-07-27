@@ -10,10 +10,10 @@ module;
 #include <utility>
 export module cup.platform:terminal;
 
-// Re-exported, not merely imported: cup::error::Error appears in this partition's
+// Re-exported, not merely imported: utils::error::Error appears in this partition's
 // exported signatures (std::expected<RawMode, Error>), so it is part of the
 // interface consumers see through cup.platform.
-export import cup.error;
+export import utils.error;
 
 export namespace cup::platform {
 
@@ -88,11 +88,11 @@ private:
 //
 // Callers treat failure as "this is not an interactive terminal" and fall back to
 // the numbered prompt, exactly as the Go implementation does.
-[[nodiscard]] std::expected<RawMode, cup::error::Error> enter_raw_mode(int fd) noexcept {
+[[nodiscard]] std::expected<RawMode, utils::error::Error> enter_raw_mode(int fd) noexcept {
     termios saved{};
     if (::tcgetattr(fd, &saved) != 0) {
         return std::unexpected(
-            cup::error::Error(std::format("tcgetattr: {}", std::strerror(errno))));
+            utils::error::Error(std::format("tcgetattr: {}", std::strerror(errno))));
     }
 
     termios raw = saved;
@@ -110,7 +110,7 @@ private:
 
     if (::tcsetattr(fd, TCSAFLUSH, &raw) != 0) {
         return std::unexpected(
-            cup::error::Error(std::format("tcsetattr: {}", std::strerror(errno))));
+            utils::error::Error(std::format("tcsetattr: {}", std::strerror(errno))));
     }
     return RawMode::make_active(fd, saved);
 }

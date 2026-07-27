@@ -9,8 +9,8 @@ module;
 export module cup.scaffold:render;
 
 import :std;
-// Re-exported: cup::error::Error is the E of every result below.
-export import cup.error;
+// Re-exported: utils::error::Error is the E of every result below.
+export import utils.error;
 
 export namespace cup::scaffold {
 
@@ -21,23 +21,21 @@ export namespace cup::scaffold {
 // Substitution runs to a fixed point, so a variable whose value itself contains a
 // placeholder — the {{hello}} greeting embeds {{name}} — is fully resolved.
 // (Go: Render.)
-[[nodiscard]] std::expected<std::string, error::Error> render(const std::filesystem::path& root,
-                                                              std::string_view family,
-                                                              std::string_view kind,
-                                                              std::string_view name,
-                                                              const Vars& vars);
+[[nodiscard]] std::expected<std::string, utils::error::Error> render(
+    const std::filesystem::path& root, std::string_view family, std::string_view kind,
+    std::string_view name, const Vars& vars);
 
 // write_file writes content to path, prompting before overwriting an existing file.
 // It reports true if written, false if the user declined the overwrite — a
 // legitimate skip, not an error. (Go: WriteFile.)
-[[nodiscard]] std::expected<bool, error::Error> write_file(const std::filesystem::path& root,
-                                                           const std::filesystem::path& path,
-                                                           std::string_view content);
+[[nodiscard]] std::expected<bool, utils::error::Error> write_file(const std::filesystem::path& root,
+                                                                  const std::filesystem::path& path,
+                                                                  std::string_view content);
 
 // ensure_file creates path with content only if it does not already exist.
-[[nodiscard]] std::expected<void, error::Error> ensure_file(const std::filesystem::path& root,
-                                                            const std::filesystem::path& path,
-                                                            std::string_view content);
+[[nodiscard]] std::expected<void, utils::error::Error> ensure_file(
+    const std::filesystem::path& root, const std::filesystem::path& path,
+    std::string_view content);
 
 namespace detail {
 

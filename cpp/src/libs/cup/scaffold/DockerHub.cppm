@@ -7,8 +7,8 @@ module;
 #include <vector>
 export module cup.scaffold:dockerhub;
 
-// Re-exported: cup::error::Error is the E of every result below.
-export import cup.error;
+// Re-exported: utils::error::Error is the E of every result below.
+export import utils.error;
 
 export namespace cup::scaffold {
 
@@ -18,13 +18,13 @@ export namespace cup::scaffold {
 // is one of the shapes GCC 14 cannot carry through a module interface.
 // (Go: DockerHubTagsFunc.)
 using DockerHubTagsFunc =
-    std::expected<std::vector<std::string>, error::Error> (*)(std::string_view);
+    std::expected<std::vector<std::string>, utils::error::Error> (*)(std::string_view);
 
 // docker_hub_tags returns the tags of a Docker Hub repository, newest first, so
 // `cup new` and `cup docker new` can offer a version to pick. A bare repo like
 // "gcc" is resolved to the official "library/gcc"; a namespaced "org/repo" is used
 // as-is.
-[[nodiscard]] std::expected<std::vector<std::string>, error::Error> docker_hub_tags(
+[[nodiscard]] std::expected<std::vector<std::string>, utils::error::Error> docker_hub_tags(
     std::string_view repo);
 
 namespace detail {
@@ -44,7 +44,7 @@ inline constexpr std::string_view kDockerHubTagsUrl =
 [[nodiscard]] std::vector<std::string> parse_docker_hub_tags(std::string_view body);
 
 // fetch_docker_hub_tags is the real lookup: one request, then the parse above.
-[[nodiscard]] std::expected<std::vector<std::string>, error::Error> fetch_docker_hub_tags(
+[[nodiscard]] std::expected<std::vector<std::string>, utils::error::Error> fetch_docker_hub_tags(
     std::string_view repo);
 
 // current_docker_hub_tags holds the installed source — fetch_docker_hub_tags unless

@@ -13,7 +13,7 @@ target_sources(platform
 )
 target_compile_features(platform PUBLIC cxx_std_23)
 # cup scaffolds targets but does not wire dependencies between them, so module
-# imports are linked by hand. PUBLIC because cup.error types appear in
+# imports are linked by hand. PUBLIC because utils.error types appear in
 # cup.platform's exported interface (std::expected<RawMode, Error>). libcurl is
 # PRIVATE: it is included only in Http.cpp and named in no exported signature, so
 # consumers of cup.platform never see it — which is what keeps "ship without

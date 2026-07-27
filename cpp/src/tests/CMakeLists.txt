@@ -25,6 +25,14 @@ target_include_directories(platform_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(platform_test PRIVATE platform error Catch2::Catch2WithMain)
 add_test(NAME platform_test COMMAND platform_test)
 
+add_executable(utils_test utils_test.cpp)
+target_compile_features(utils_test PRIVATE cxx_std_23)
+# The pool cases run tasks on real threads and block on real futures, so the suite
+# needs the threading support library in its own right — not merely through utils.
+target_link_libraries(utils_test PRIVATE utils error Threads::Threads
+                                         Catch2::Catch2WithMain)
+add_test(NAME utils_test COMMAND utils_test)
+
 add_executable(tmpl_test tmpl_test.cpp)
 target_compile_features(tmpl_test PRIVATE cxx_std_23)
 # TempDir.hpp is a plain header shared by the suites that touch the filesystem.

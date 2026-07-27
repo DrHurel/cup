@@ -38,20 +38,21 @@ namespace {
 }
 
 // write_text replaces a file's contents.
-[[nodiscard]] std::expected<void, error::Error> write_text(const std::filesystem::path& path,
-                                                           std::string_view content) {
+[[nodiscard]] std::expected<void, utils::error::Error> write_text(const std::filesystem::path& path,
+                                                                  std::string_view content) {
     std::ofstream out(path, std::ios::binary | std::ios::trunc);
     out << content;
     if (!out) {
         const std::string where = path.string();
-        return std::unexpected(error::Error(std::format("writing {}", where)));
+        return std::unexpected(
+            utils::error::Error(std::format("writing {}", where)));
     }
     return {};
 }
 
 // write_lines writes lines each followed by a newline; no lines at all writes an
 // empty file rather than a lone newline. (Go: writeLines.)
-[[nodiscard]] std::expected<void, error::Error> write_lines(
+[[nodiscard]] std::expected<void, utils::error::Error> write_lines(
     const std::filesystem::path& path, const std::vector<std::string>& lines) {
     std::string content;
     for (const auto& line : lines) {
@@ -112,19 +113,20 @@ namespace {
 // add_to_file_set is the shared body of add_module_source and add_header_source:
 // find the FILES block, append filename at the indentation of its first entry, and
 // do nothing if it is already listed. Only the pattern and the message differ.
-[[nodiscard]] std::expected<void, error::Error> add_to_file_set(
+[[nodiscard]] std::expected<void, utils::error::Error> add_to_file_set(
     const std::filesystem::path& root, const std::filesystem::path& path, const std::regex& block,
     std::string_view what, std::string_view filename) {
     const std::string relative = detail::rel(root, path);
     auto content = read_text(path);
     if (!content.has_value()) {
-        return std::unexpected(error::Error(std::format("cannot update {}: not found", relative)));
+        return std::unexpected(
+            utils::error::Error(std::format("cannot update {}: not found", relative)));
     }
 
     std::smatch found;
     if (!std::regex_search(*content, found, block)) {
         return std::unexpected(
-            error::Error(std::format("cannot find {} block in {}", what, relative)));
+            utils::error::Error(std::format("cannot find {} block in {}", what, relative)));
     }
 
     // Submatch 2 is the run of already-listed files; submatch 1 is the FILES header
@@ -193,9 +195,9 @@ void remove_dir(const std::filesystem::path& path) {
     std::filesystem::remove_all(path, ec);  // a missing path is not a failure
 }
 
-std::expected<void, error::Error> ensure_line(const std::filesystem::path& root,
-                                              const std::filesystem::path& path,
-                                              std::string_view line) {
+std::expected<void, utils::error::Error> ensure_line(const std::filesystem::path& root,
+                                                     const std::filesystem::path& path,
+                                                     std::string_view line) {
     auto lines = read_file_lines(path).value_or(std::vector<std::string>{});
     if (contains_line(lines, line)) {
         return {};
@@ -206,10 +208,10 @@ std::expected<void, error::Error> ensure_line(const std::filesystem::path& root,
     });
 }
 
-std::expected<void, error::Error> ensure_line_before(const std::filesystem::path& root,
-                                                     const std::filesystem::path& path,
-                                                     std::string_view line,
-                                                     std::string_view anchor) {
+std::expected<void, utils::error::Error> ensure_line_before(const std::filesystem::path& root,
+                                                            const std::filesystem::path& path,
+                                                            std::string_view line,
+                                                            std::string_view anchor) {
     const auto lines = read_file_lines(path).value_or(std::vector<std::string>{});
     if (contains_line(lines, line)) {
         return {};
@@ -236,9 +238,9 @@ std::expected<void, error::Error> ensure_line_before(const std::filesystem::path
     });
 }
 
-std::expected<bool, error::Error> remove_line(const std::filesystem::path& root,
-                                              const std::filesystem::path& path,
-                                              std::string_view line) {
+std::expected<bool, utils::error::Error> remove_line(const std::filesystem::path& root,
+                                                     const std::filesystem::path& path,
+                                                     std::string_view line) {
     const auto lines = read_file_lines(path);
     if (!lines.has_value()) {
         return false;  // a file that is not there has nothing to remove
@@ -261,9 +263,9 @@ std::expected<bool, error::Error> remove_line(const std::filesystem::path& root,
     });
 }
 
-std::expected<bool, error::Error> remove_matching_line(const std::filesystem::path& root,
-                                                       const std::filesystem::path& path,
-                                                       const LineMatcher& matches) {
+std::expected<bool, utils::error::Error> remove_matching_line(const std::filesystem::path& root,
+                                                              const std::filesystem::path& path,
+                                                              const LineMatcher& matches) {
     const auto lines = read_file_lines(path);
     if (!lines.has_value()) {
         return false;
@@ -286,9 +288,9 @@ std::expected<bool, error::Error> remove_matching_line(const std::filesystem::pa
     });
 }
 
-std::expected<void, error::Error> append_block(const std::filesystem::path& root,
-                                               const std::filesystem::path& path,
-                                               std::string_view marker, std::string_view block) {
+std::expected<void, utils::error::Error> append_block(
+    const std::filesystem::path& root, const std::filesystem::path& path, std::string_view marker,
+    std::string_view block) {
     const std::string relative = detail::rel(root, path);
     const std::string existing = read_text(path).value_or(std::string{});
     if (existing.find(marker) != std::string::npos) {
@@ -312,9 +314,8 @@ std::expected<void, error::Error> append_block(const std::filesystem::path& root
     });
 }
 
-std::expected<bool, error::Error> remove_fetch_content_block(const std::filesystem::path& root,
-                                                             const std::filesystem::path& path,
-                                                             std::string_view name) {
+std::expected<bool, utils::error::Error> remove_fetch_content_block(
+    const std::filesystem::path& root, const std::filesystem::path& path, std::string_view name) {
     const auto content = read_text(path);
     if (!content.has_value()) {
         return false;
@@ -338,29 +339,30 @@ std::expected<bool, error::Error> remove_fetch_content_block(const std::filesyst
     });
 }
 
-std::expected<void, error::Error> add_module_source(const std::filesystem::path& root,
-                                                    const std::filesystem::path& path,
-                                                    std::string_view filename) {
+std::expected<void, utils::error::Error> add_module_source(const std::filesystem::path& root,
+                                                           const std::filesystem::path& path,
+                                                           std::string_view filename) {
     static const std::regex kBlock(R"((FILE_SET\s+CXX_MODULES\s+FILES\n)((?:[ \t]+[^\n]+\n)+))");
     return add_to_file_set(root, path, kBlock, "FILE_SET CXX_MODULES", filename);
 }
 
-std::expected<void, error::Error> add_header_source(const std::filesystem::path& root,
-                                                    const std::filesystem::path& path,
-                                                    std::string_view filename) {
+std::expected<void, utils::error::Error> add_header_source(const std::filesystem::path& root,
+                                                           const std::filesystem::path& path,
+                                                           std::string_view filename) {
     // Unlike the modules form, BASE_DIRS may sit between HEADERS and FILES, so the
     // pattern skips whatever is in between.
     static const std::regex kBlock(R"((FILE_SET\s+HEADERS[\s\S]*?FILES\n)((?:[ \t]+[^\n]+\n)+))");
     return add_to_file_set(root, path, kBlock, "FILE_SET HEADERS", filename);
 }
 
-std::expected<void, error::Error> ensure_header_lib_static(const std::filesystem::path& root,
-                                                           const std::filesystem::path& path,
-                                                           std::string_view name) {
+std::expected<void, utils::error::Error> ensure_header_lib_static(const std::filesystem::path& root,
+                                                                  const std::filesystem::path& path,
+                                                                  std::string_view name) {
     const std::string relative = detail::rel(root, path);
     auto content = read_text(path);
     if (!content.has_value()) {
-        return std::unexpected(error::Error(std::format("cannot update {}: not found", relative)));
+        return std::unexpected(
+            utils::error::Error(std::format("cannot update {}: not found", relative)));
     }
 
     const std::string interface_decl = std::format("add_library({} INTERFACE)", name);
@@ -380,13 +382,14 @@ std::expected<void, error::Error> ensure_header_lib_static(const std::filesystem
         [&relative] { ui::updated(std::format("{}  (INTERFACE -> STATIC)", relative)); });
 }
 
-std::expected<void, error::Error> add_partition_import(const std::filesystem::path& root,
-                                                       const std::filesystem::path& primary,
-                                                       std::string_view partition) {
+std::expected<void, utils::error::Error> add_partition_import(const std::filesystem::path& root,
+                                                              const std::filesystem::path& primary,
+                                                              std::string_view partition) {
     const std::string relative = detail::rel(root, primary);
     const auto lines = read_file_lines(primary);
     if (!lines.has_value()) {
-        return std::unexpected(error::Error(std::format("cannot update {}: not found", relative)));
+        return std::unexpected(
+            utils::error::Error(std::format("cannot update {}: not found", relative)));
     }
 
     const std::string directive = std::format("export import :{};", partition);
@@ -422,7 +425,7 @@ std::expected<void, error::Error> add_partition_import(const std::filesystem::pa
         }
         if (declaration == lines->size()) {
             return std::unexpected(
-                error::Error(std::format("cannot find module declaration in {}", relative)));
+                utils::error::Error(std::format("cannot find module declaration in {}", relative)));
         }
         out.assign(lines->begin(), lines->begin() + static_cast<std::ptrdiff_t>(declaration) + 1);
         out.emplace_back("");

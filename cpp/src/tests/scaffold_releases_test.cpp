@@ -55,7 +55,7 @@ HttpStub& stub() {
     return state;
 }
 
-[[nodiscard]] std::expected<std::string, cup::error::Error> stub_get(std::string_view url) {
+[[nodiscard]] std::expected<std::string, utils::error::Error> stub_get(std::string_view url) {
     {
         // fetch_newest_compilers asks for both lists at once, so two threads reach
         // this — the same reason the real fetcher initialises libcurl under a
@@ -65,7 +65,7 @@ HttpStub& stub() {
         stub().urls.emplace_back(url);
     }
     if (stub().fail) {
-        return std::unexpected(cup::error::Error("GET failed: 500 Internal Server Error"));
+        return std::unexpected(utils::error::Error("GET failed: 500 Internal Server Error"));
     }
     // The two fetchers are told apart by their endpoint, which is what lets one
     // stub serve both halves of a concurrent fetch.

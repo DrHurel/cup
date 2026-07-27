@@ -27,7 +27,7 @@
 #include <vector>
 
 import cup.ui;
-import cup.error;
+import utils.error;
 import cup.probe;
 // select_one branches on whether stdin is a terminal, and the fallback case below
 // asserts that condition rather than assuming it. cup.ui imports cup.platform
@@ -37,7 +37,7 @@ import cup.platform;
 
 namespace {
 
-using cup::error::Error;
+using utils::error::Error;
 
 // ScopedColor forces colouring on or off for one test and restores it after, so
 // the suite does not depend on whether stdout happens to be a terminal.
@@ -314,7 +314,7 @@ TEST_CASE("text aborts on EOF", "[ui][text]") {
 
     const auto got = cup::ui::text("name?", "");
     REQUIRE_FALSE(got.has_value());
-    REQUIRE(cup::error::is_abort(got.error()));
+    REQUIRE(utils::error::is_abort(got.error()));
 }
 
 // Go: TestConfirm
@@ -354,7 +354,7 @@ TEST_CASE("confirm aborts on EOF", "[ui][confirm]") {
 
     const auto got = cup::ui::confirm("ok?", false);
     REQUIRE_FALSE(got.has_value());
-    REQUIRE(cup::error::is_abort(got.error()));
+    REQUIRE(utils::error::is_abort(got.error()));
 }
 
 // Go: TestStatusLinesDoNotPanic
@@ -477,7 +477,7 @@ TEST_CASE("select_interactive aborts on Ctrl+C, Ctrl+D and a closed input",
         painted.stop();
 
         REQUIRE_FALSE(got.has_value());
-        REQUIRE(cup::error::is_abort(got.error()));
+        REQUIRE(utils::error::is_abort(got.error()));
     }
 }
 
@@ -568,7 +568,7 @@ TEST_CASE("select_numbered aborts on EOF", "[ui][select]") {
 
     const auto got = cup::ui::detail::select_numbered("pick?", options);
     REQUIRE_FALSE(got.has_value());
-    REQUIRE(cup::error::is_abort(got.error()));
+    REQUIRE(utils::error::is_abort(got.error()));
 }
 
 // Go: TestSelectNoOptions
@@ -631,21 +631,21 @@ TEST_CASE("select_one drives the arrow-key menu on a terminal", "[ui][select][ke
 // Error's kind plus its equality are the port of that comparison. Every prompt's
 // abort path rests on it.
 TEST_CASE("errors compare by kind and message", "[error]") {
-    REQUIRE(cup::error::abort_error() == cup::error::abort_error());
-    REQUIRE(cup::error::abort_error().kind() == Error::Kind::Abort);
-    REQUIRE(cup::error::abort_error().message() == "aborted");
+    REQUIRE(utils::error::abort_error() == utils::error::abort_error());
+    REQUIRE(utils::error::abort_error().kind() == Error::Kind::Abort);
+    REQUIRE(utils::error::abort_error().message() == "aborted");
 
     // The same message with the ordinary kind is not the sentinel — matching Go,
     // where errors.Is compares identity rather than text.
     REQUIRE(Error("aborted").kind() == Error::Kind::General);
-    REQUIRE_FALSE(Error("aborted") == cup::error::abort_error());
-    REQUIRE_FALSE(cup::error::is_abort(Error("aborted")));
+    REQUIRE_FALSE(Error("aborted") == utils::error::abort_error());
+    REQUIRE_FALSE(utils::error::is_abort(Error("aborted")));
 
     REQUIRE(Error("boom") == Error("boom"));
     REQUIRE_FALSE(Error("boom") == Error("bang"));
     // A default-constructed Error carries no message and is not an abort.
     REQUIRE(Error{}.message().empty());
-    REQUIRE_FALSE(cup::error::is_abort(Error{}));
+    REQUIRE_FALSE(utils::error::is_abort(Error{}));
 }
 
 // Regression guard for the scaffolding fix: a library scaffolded by `cup add lib`

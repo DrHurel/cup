@@ -288,10 +288,10 @@ std::optional<ReleaseCache> read_release_cache() {
                         .fetched_at = *fetched_at};
 }
 
-std::expected<void, error::Error> write_release_cache(const ReleaseCache& cache) {
+std::expected<void, utils::error::Error> write_release_cache(const ReleaseCache& cache) {
     const auto path = release_cache_path();
     if (!path.has_value()) {
-        return std::unexpected(error::Error("no user cache directory"));
+        return std::unexpected(utils::error::Error("no user cache directory"));
     }
 
     const std::filesystem::path file(*path);
@@ -300,7 +300,7 @@ std::expected<void, error::Error> write_release_cache(const ReleaseCache& cache)
     if (ec) {
         const std::string where = file.parent_path().string();
         const std::string why = ec.message();
-        return std::unexpected(error::Error(std::format("creating {}: {}", where, why)));
+        return std::unexpected(utils::error::Error(std::format("creating {}: {}", where, why)));
     }
 
     // ordered_json, not json: the plain type sorts its keys, and this file is shared
@@ -314,7 +314,7 @@ std::expected<void, error::Error> write_release_cache(const ReleaseCache& cache)
     out << document.dump();
     if (!out) {
         const std::string where = file.string();
-        return std::unexpected(error::Error(std::format("writing {}", where)));
+        return std::unexpected(utils::error::Error(std::format("writing {}", where)));
     }
     return {};
 }

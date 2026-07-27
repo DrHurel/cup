@@ -9,8 +9,8 @@ module;
 export module cup.scaffold:releases;
 
 import :compiler;
-// Re-exported: cup::error::Error is the E of write_release_cache's result.
-export import cup.error;
+// Re-exported: utils::error::Error is the E of write_release_cache's result.
+export import utils.error;
 
 export namespace cup::scaffold {
 
@@ -95,7 +95,8 @@ struct ReleaseCache {
 [[nodiscard]] std::optional<ReleaseCache> read_release_cache();
 
 // write_release_cache stores the cache, creating its directory.
-[[nodiscard]] std::expected<void, error::Error> write_release_cache(const ReleaseCache& cache);
+[[nodiscard]] std::expected<void, utils::error::Error> write_release_cache(
+    const ReleaseCache& cache);
 
 // now_unix is the current time in Unix seconds — the clock the TTL is measured on,
 // exported so a test can seed a cache with a controlled age.

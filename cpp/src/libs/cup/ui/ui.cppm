@@ -35,8 +35,8 @@ module;
 #include <string_view>
 export module cup.ui;
 
-// Re-exported because cup::error::Error appears in every prompt's return type.
-export import cup.error;
+// Re-exported because utils::error::Error appears in every prompt's return type.
+export import utils.error;
 
 export import :io;
 export import :color;

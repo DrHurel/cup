@@ -149,7 +149,7 @@ TEST_CASE("write_file asks before overwriting", "[scaffold][render][overwrite]")
 
         const auto wrote = cup::scaffold::write_file(root, path, "replacement");
         REQUIRE_FALSE(wrote.has_value());
-        REQUIRE(cup::error::is_abort(wrote.error()));
+        REQUIRE(utils::error::is_abort(wrote.error()));
         REQUIRE(slurp(path) == "original");
     }
 }

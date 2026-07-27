@@ -30,7 +30,7 @@ target_compile_features(scaffold PUBLIC cxx_std_23)
 # links them separately.
 find_package(Threads REQUIRED)
 # cup scaffolds targets but does not wire dependencies between them, so module
-# imports are linked by hand. PUBLIC for cup.error, whose Error is the E of every
+# imports are linked by hand. PUBLIC for utils.error, whose Error is the E of every
 # result in the exported interface; PRIVATE for everything only the implementation
 # units reach — cup.tmpl and cup.ui behind render(), cup.platform behind the release
 # and tag fetches, and nlohmann/json behind the two replies that are JSON.

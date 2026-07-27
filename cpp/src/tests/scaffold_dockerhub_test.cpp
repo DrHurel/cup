@@ -34,10 +34,10 @@ TagsStub& stub() {
     return state;
 }
 
-[[nodiscard]] std::expected<std::string, cup::error::Error> stub_get(std::string_view url) {
+[[nodiscard]] std::expected<std::string, utils::error::Error> stub_get(std::string_view url) {
     stub().url = url;
     if (stub().fail) {
-        return std::unexpected(cup::error::Error("GET failed: 404 Not Found"));
+        return std::unexpected(utils::error::Error("GET failed: 404 Not Found"));
     }
     return stub().body;
 }
@@ -73,7 +73,7 @@ TEST_CASE("parse_docker_hub_tags keeps the API's order", "[scaffold][dockerhub]"
 // Go: TestDockerHubTagsUsesFunc
 TEST_CASE("docker_hub_tags reads the installed source", "[scaffold][dockerhub]") {
     const cup::scaffold::ScopedDockerHubTags scoped(
-        [](std::string_view repo) -> std::expected<std::vector<std::string>, cup::error::Error> {
+        [](std::string_view repo) -> std::expected<std::vector<std::string>, utils::error::Error> {
             return std::vector<std::string>{"stub:" + std::string(repo)};
         });
 

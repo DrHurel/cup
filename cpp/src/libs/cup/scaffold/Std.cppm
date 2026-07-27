@@ -9,8 +9,8 @@ module;
 #include <string_view>
 export module cup.scaffold:std;
 
-// Re-exported: cup::error::Error is the E of parse_std's result.
-export import cup.error;
+// Re-exported: utils::error::Error is the E of parse_std's result.
+export import utils.error;
 
 export namespace cup::scaffold {
 
@@ -32,7 +32,7 @@ inline constexpr std::array<int, 5> kStandards{23, 20, 17, 14, 11};
 
 // parse_std reads a standard from a picker label ("c++23") or a bare number
 // ("23"), rejecting anything cup does not scaffold.
-[[nodiscard]] std::expected<int, error::Error> parse_std(std::string_view text);
+[[nodiscard]] std::expected<int, utils::error::Error> parse_std(std::string_view text);
 
 // uses_modules reports whether standard supports C++ modules (C++20+). Below that,
 // cup scaffolds classic headers instead.
