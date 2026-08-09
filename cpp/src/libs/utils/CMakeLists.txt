@@ -14,6 +14,7 @@ target_sources(utils
         # and what makes the locator's std::unordered_map instantiate in an ordinary
         # translation unit, which on GCC 14 is the difference between compiling and
         # not (Service.cpp — see the note on store() in Service.cppm).
+        Singleton.cpp
         Service.cpp
         Pool.cpp
     PUBLIC

@@ -97,4 +97,18 @@ std::size_t ServiceLocator::size() const {
     return state_->services.size();
 }
 
+// Explicit instantiation, here rather than left implicit: GCC 14 does not
+// correctly export a constant-initialised inline static data member
+// (Singleton<Type>::is_created_) of a module-attached class template when its
+// first implicit instantiation happens in a *consumer* translation unit —
+// ServiceLocator::instance() is called from ScopedService and from every test
+// that touches the locator, so without this it links with "undefined reference
+// to utils::Singleton<utils::ServiceLocator>::is_created_". (instance_ itself
+// is unaffected: it needs dynamic initialisation, which routes through
+// guard-variable codegen instead and that path exports correctly.) Forcing the
+// instantiation here means it happens once, in this ordinary — non-exported —
+// translation unit, the same move rule 6 in docs/migration-cpp23.md makes for
+// std::unordered_map in store()/lookup()/bound()/drop() above.
+template class Singleton<ServiceLocator>;
+
 }  // namespace utils

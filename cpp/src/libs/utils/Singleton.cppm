@@ -1,11 +1,27 @@
 module;
 #include <atomic>
 #include <cassert>
+#include <cstddef>
+#include <iosfwd>
 #include <memory>
+#include <string_view>
+#include <typeinfo>
 #include <utility>
 export module utils:singleton;
 
 export namespace utils {
+
+// Debug-only bookkeeping of live singletons, process-wide rather than
+// per-Singleton<Type> so one call dumps everything create() has ever bound. A
+// release build (NDEBUG) pays nothing for it — not even the map — the same way
+// assert() above already costs nothing there; see Singleton.cpp for why the map
+// itself lives in an implementation unit rather than here.
+namespace singleton_registry {
+void register_instance(std::type_info const& info);
+void unregister_instance(std::type_info const& info);
+std::size_t number_of_instances();
+void dump_registry(std::ostream& stream, std::string_view separator);
+}  // namespace singleton_registry
 
 // Singleton gives a type exactly one instance and takes away every way of making
 // a second. It is the CRTP form — the derived type names itself as the parameter:
@@ -32,13 +48,6 @@ export namespace utils {
 // that opt in. Being a singleton is a property of the type, so the type declares
 // it.
 //
-// Thread safety is the language's, not ours. `static Derived only;` is a
-// block-scope static with dynamic initialisation, and since C++11 the first thread
-// to reach it runs the constructor while every other thread blocks (GCC emits
-// __cxa_guard_acquire around it). So instance() is safe to call from a ThreadPool
-// worker with no lock here, and — unlike the double-checked-locking version this
-// replaces in most codebases — it is safe for the right reason.
-//
 // Two caveats worth knowing before reaching for this, because neither is
 // diagnosed:
 //
@@ -52,46 +61,67 @@ export namespace utils {
 //      ScopedService in Service.cppm, which is the same restore-on-scope-exit
 //      guard cup.platform and cup.ui already use for their installed seams.
 template <typename Type>
-    class Singleton
-    {
-    private:
-        inline static std::unique_ptr<Type> instance_;
-        inline static std::atomic<bool> is_created_{false};
+class Singleton {
+public:
+    Singleton(Singleton const&) noexcept = delete;
+    Singleton(Singleton&&) noexcept = delete;
+    Singleton& operator=(Singleton const&) noexcept = delete;
+    Singleton& operator=(Singleton&&) noexcept = delete;
 
-    protected:
-        Singleton() noexcept = default;
-        ~Singleton() noexcept = default;
-
-    public:
-        Singleton(Singleton const &) noexcept = delete;
-        Singleton(Singleton &&) noexcept = delete;
-        Singleton &operator=(Singleton const &) noexcept = delete;
-        Singleton &operator=(Singleton &&) noexcept = delete;
-        template <typename... Args>
-        static void create(Args &&...args)
-        {
-            bool expected = false;
-            if (is_created_.compare_exchange_strong(expected, true))
-            {
-                instance_.reset(new Type(std::forward<Args>(args)...));
-            }
+    template <typename... Args>
+    static void create(Args&&... args) {
+        bool expected = false;
+        if (is_created_.compare_exchange_strong(expected, true)) {
+            instance_.reset(new Type(std::forward<Args>(args)...));
+            singleton_registry::register_instance(typeid(*instance_));
         }
+    }
 
-        static void destroy()
-        {
-            bool expected = true;
-            if (is_created_.compare_exchange_strong(expected, false))
-            {
-                instance_.reset();
-            }
+    static void destroy() {
+        bool expected = true;
+        if (is_created_.compare_exchange_strong(expected, false)) {
+            singleton_registry::unregister_instance(typeid(*instance_));
+            instance_.reset();
         }
+    }
 
-        static Type &instance() noexcept
-        {
-            assert(instance_ != nullptr);
-            return *instance_.get();
+    // Lazily default-constructs on first call if nothing has called create() yet
+    // — every current call site (ServiceLocator, and the Registry example above)
+    // reaches instance() directly with no create() of its own. Explicit
+    // create(args...) still works when Type takes constructor arguments: call it
+    // before the first instance(), and this check finds is_created_ already true
+    // and does nothing.
+    static Type& instance() noexcept {
+        if (!is_created_.load(std::memory_order_acquire)) {
+            create();
         }
+        assert(instance_ != nullptr);
+        return *instance_;
+    }
 
-        static bool has_been_created() { return is_created_.load(); }
+    static bool has_been_created() { return is_created_.load(); }
+
+protected:
+    Singleton() noexcept = default;
+    ~Singleton() noexcept = default;
+
+private:
+    // Not std::unique_ptr<Type, std::default_delete<Type>>: the deleter is a
+    // *different* class from Singleton<Type>, so `friend class Singleton<Type>;`
+    // on Type does not extend to it — std::default_delete<Type> is never itself a
+    // friend, and its operator() is instantiated wherever this inline static
+    // member is first ODR-used, which can be a consumer translation unit that
+    // never friended anything. There it finds Type's destructor private
+    // (confirmed independently of modules: the same fails outside cup with a
+    // plain header). Deleter is nested in Singleton<Type> instead: a nested class
+    // is granted its enclosing class's friendships, so the one
+    // `friend class Singleton<Type>;` derived types already declare is enough,
+    // with no second friend declaration needed at every use site.
+    struct Deleter {
+        void operator()(Type* ptr) const noexcept { delete ptr; }
     };
+    inline static std::unique_ptr<Type, Deleter> instance_;
+    inline static std::atomic<bool> is_created_{false};
+};
+
 }  // namespace utils
