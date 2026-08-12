@@ -8,3 +8,4 @@ export import :naming;
 export import :std;
 export import :render;
 export import :cmake;
+export import :compiler;

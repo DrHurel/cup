@@ -7,6 +7,7 @@ target_sources(scaffold
         # there. See render.cppm / cmake.cppm.
         Render.cpp
         Cmake.cpp
+        Compiler.cpp
     PUBLIC
         FILE_SET CXX_MODULES FILES
             scaffold.cppm
@@ -14,6 +15,7 @@ target_sources(scaffold
             std.cppm
             render.cppm
             cmake.cppm
+            compiler.cppm
 )
 target_compile_features(scaffold PUBLIC cxx_std_23)
 # :render is the one partition that imports cup.tmpl (template lookup) and
