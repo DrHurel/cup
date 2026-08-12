@@ -171,7 +171,8 @@ jobs:
           apk add --no-cache \
             build-base cmake ninja-build ninja-is-really-ninja git pkgconf \
             curl-dev curl-static \
-            openssl-libs-static zlib-static nghttp2-static brotli-static
+            openssl-libs-static zlib-static nghttp2-static brotli-static \
+            zstd-static libpsl-static libunistring-static libidn2-static
 
       - name: Show toolchain versions
         run: |
