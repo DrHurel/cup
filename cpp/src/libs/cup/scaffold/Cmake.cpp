@@ -165,11 +165,11 @@ std::optional<std::vector<std::string>> insert_partition_import(std::vector<std:
         }
     }
     if (last_import >= 0) {
-        lines.insert(lines.begin() + last_import + 1, std::string(directive));
+        lines.emplace(lines.begin() + last_import + 1, directive);
         return lines;
     }
     if (const auto module_decl = std::ranges::find_if(
-            lines, [](const std::string& l) { return l.starts_with("export module "); });
+            lines, [](std::string_view l) { return l.starts_with("export module "); });
         module_decl != lines.end()) {
         lines.insert(module_decl + 1, {std::string(), std::string(directive)});
         return lines;

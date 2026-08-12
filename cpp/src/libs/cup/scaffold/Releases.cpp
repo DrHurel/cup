@@ -127,8 +127,8 @@ std::pair<int, int> fetch_newest_compilers() {
 
     int gcc = 0;
     int clang = 0;
-    std::thread gcc_thread([&gcc] { gcc = fetch_gcc_newest(); });
-    std::thread clang_thread([&clang] { clang = fetch_clang_newest(); });
+    std::jthread gcc_thread([&gcc] { gcc = fetch_gcc_newest(); });
+    std::jthread clang_thread([&clang] { clang = fetch_clang_newest(); });
     gcc_thread.join();
     clang_thread.join();
 
