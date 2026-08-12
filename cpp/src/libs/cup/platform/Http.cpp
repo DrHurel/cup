@@ -1,6 +1,7 @@
 module;
 #include <curl/curl.h>
 
+#include <array>
 #include <cstddef>
 #include <expected>
 #include <format>
@@ -27,6 +28,10 @@ std::size_t write_callback(char* ptr, std::size_t size, std::size_t nmemb, void*
 struct SList {
     curl_slist* list = nullptr;
     ~SList() { curl_slist_free_all(list); }
+    // A copy would free the same list twice; only one owner is ever needed.
+    SList() = default;
+    SList(const SList&) = delete;
+    SList& operator=(const SList&) = delete;
 };
 
 }
@@ -38,7 +43,7 @@ std::expected<std::string, error::Error> http_get(std::string_view url) {
     }
 
     std::string body;
-    char error_buf[CURL_ERROR_SIZE] = {};
+    std::array<char, CURL_ERROR_SIZE> error_buf{};
     const std::string url_str(url);
 
     SList headers;
@@ -50,7 +55,7 @@ std::expected<std::string, error::Error> http_get(std::string_view url) {
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, static_cast<void*>(&body));
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, 4L);
-    curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, error_buf);
+    curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, error_buf.data());
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
     curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
     // Every caller passes a fixed https:// constant (GNU/GitHub/Docker Hub) or,
@@ -60,6 +65,10 @@ std::expected<std::string, error::Error> http_get(std::string_view url) {
     // CURLOPT_REDIR_PROTOCOLS by default) closes the classic curl SSRF vector:
     // a malicious redirect hop to file://, scp://, gopher:// etc.
     curl_easy_setopt(curl, CURLOPT_PROTOCOLS_STR, "http,https");
+    // Floors the handshake at TLS 1.2 rather than trusting curl's build-time
+    // default, which can be as low as TLS 1.0 depending on how the platform's
+    // libcurl/OpenSSL were configured.
+    curl_easy_setopt(curl, CURLOPT_SSLVERSION, CURL_SSLVERSION_TLSv1_2);
 
     const CURLcode res = curl_easy_perform(curl);
     long status = 0;
@@ -67,7 +76,7 @@ std::expected<std::string, error::Error> http_get(std::string_view url) {
     curl_easy_cleanup(curl);
 
     if (res != CURLE_OK) {
-        return std::unexpected(error::Error(std::format("GET {}: {}", url, error_buf)));
+        return std::unexpected(error::Error(std::format("GET {}: {}", url, error_buf.data())));
     }
     if (status != 200) {
         return std::unexpected(error::Error(std::format("GET {}: HTTP {}", url, status)));

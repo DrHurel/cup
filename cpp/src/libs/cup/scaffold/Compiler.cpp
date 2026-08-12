@@ -25,7 +25,7 @@ std::expected<void, error::Error> replace_compiler_guard(const std::string& root
     const auto end = content.find(kGuardEnd);
     if (start == std::string::npos || end == std::string::npos || end < start) {
         return std::unexpected(error::Error(std::format(
-            "no cup compiler-guard block in {} (markers \"{}\"..\"{}\" missing)", rel(root, path),
+            R"(no cup compiler-guard block in {} (markers "{}".."{}" missing))", rel(root, path),
             kGuardStart, kGuardEnd)));
     }
     const auto guard_end = end + kGuardEnd.size();

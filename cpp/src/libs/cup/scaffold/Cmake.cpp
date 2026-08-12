@@ -101,7 +101,7 @@ std::string quote_meta(std::string_view s) {
     std::string out;
     out.reserve(s.size());
     for (const char c : s) {
-        if (kSpecial.find(c) != std::string_view::npos) {
+        if (kSpecial.contains(c)) {
             out += '\\';
         }
         out += c;
@@ -168,11 +168,11 @@ std::optional<std::vector<std::string>> insert_partition_import(std::vector<std:
         lines.insert(lines.begin() + last_import + 1, directive);
         return lines;
     }
-    for (std::size_t i = 0; i < lines.size(); ++i) {
-        if (lines[i].starts_with("export module ")) {
-            lines.insert(lines.begin() + static_cast<std::ptrdiff_t>(i) + 1, {std::string(), directive});
-            return lines;
-        }
+    if (const auto module_decl = std::ranges::find_if(
+            lines, [](const std::string& l) { return l.starts_with("export module "); });
+        module_decl != lines.end()) {
+        lines.insert(module_decl + 1, {std::string(), directive});
+        return lines;
     }
     return std::nullopt;
 }
@@ -294,7 +294,7 @@ std::expected<bool, error::Error> remove_matching_line(const std::string& root, 
 std::expected<void, error::Error> append_block(const std::string& root, const std::string& path,
                                                std::string_view marker, std::string_view block) {
     const std::string existing = slurp(path).value_or(std::string());
-    if (existing.find(marker) != std::string::npos) {
+    if (existing.contains(marker)) {
         ui::skipped(std::format("{} already declares {}", rel(root, path), marker));
         return {};
     }
@@ -406,7 +406,7 @@ std::vector<std::string> list_subdirs(const std::string& path) {
             dirs.push_back(entry.path().filename().string());
         }
     }
-    std::sort(dirs.begin(), dirs.end());
+    std::ranges::sort(dirs);
     return dirs;
 }
 

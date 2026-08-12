@@ -1,5 +1,6 @@
 module;
 #include <expected>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -29,10 +30,28 @@ namespace detail {
     while (repo.ends_with('/')) {
         repo.remove_suffix(1);
     }
-    if (repo.find('/') == std::string_view::npos) {
+    if (!repo.contains('/')) {
         return "library/" + std::string(repo);
     }
     return std::string(repo);
+}
+
+// next_tag_name finds the next "name":"..." field at or after pos, advancing
+// pos past it. nullopt once the response is exhausted.
+[[nodiscard]] std::optional<std::string_view> next_tag_name(std::string_view body,
+                                                             std::size_t& pos) {
+    constexpr std::string_view kNameKey = R"("name":")";
+    const auto key = body.find(kNameKey, pos);
+    if (key == std::string_view::npos) {
+        return std::nullopt;
+    }
+    const auto value_start = key + kNameKey.size();
+    const auto value_end = body.find('"', value_start);
+    if (value_end == std::string_view::npos) {
+        return std::nullopt;
+    }
+    pos = value_end + 1;
+    return body.substr(value_start, value_end - value_start);
 }
 
 // parse_docker_hub_tags pulls the tag names out of a Docker Hub tags response
@@ -40,24 +59,12 @@ namespace detail {
 // dropping blanks. A hand-rolled scan of the one field cup reads, not a
 // general JSON parser — same reasoning as releases.cppm's parse_clang_newest.
 [[nodiscard]] std::vector<std::string> parse_docker_hub_tags(std::string_view body) {
-    constexpr std::string_view kNameKey = "\"name\":\"";
     std::vector<std::string> tags;
     std::size_t pos = 0;
-    while (true) {
-        const auto key = body.find(kNameKey, pos);
-        if (key == std::string_view::npos) {
-            break;
+    while (const auto name = next_tag_name(body, pos)) {
+        if (!name->empty()) {
+            tags.emplace_back(*name);
         }
-        const auto value_start = key + kNameKey.size();
-        const auto value_end = body.find('"', value_start);
-        if (value_end == std::string_view::npos) {
-            break;
-        }
-        const std::string_view name = body.substr(value_start, value_end - value_start);
-        if (!name.empty()) {
-            tags.emplace_back(name);
-        }
-        pos = value_end + 1;
     }
     return tags;
 }

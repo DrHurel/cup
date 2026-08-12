@@ -59,68 +59,79 @@ namespace detail {
     return newest;
 }
 
+// next_json_object finds the next top-level {...} span at or after pos,
+// advancing pos past it. nullopt once the array is exhausted.
+[[nodiscard]] std::optional<std::string_view> next_json_object(std::string_view body,
+                                                                std::size_t& pos) {
+    const auto obj_start = body.find('{', pos);
+    if (obj_start == std::string_view::npos) {
+        return std::nullopt;
+    }
+    const auto obj_end = body.find('}', obj_start);
+    if (obj_end == std::string_view::npos) {
+        return std::nullopt;
+    }
+    pos = obj_end + 1;
+    return body.substr(obj_start, obj_end - obj_start + 1);
+}
+
+// major_from_tag reads one release object's "tag_name" (a "llvmorg-X.Y.Z"
+// string) and returns its major version, or nullopt if the object is a
+// prerelease or its tag_name is missing, malformed, or not llvmorg-prefixed.
+[[nodiscard]] std::optional<int> major_from_tag(std::string_view object) {
+    constexpr std::string_view kTagKey = "\"tag_name\"";
+    constexpr std::string_view kPrereleaseTrue = R"("prerelease":true)";
+    constexpr std::string_view kTagPrefix = "llvmorg-";
+
+    if (object.contains(kPrereleaseTrue)) {
+        return std::nullopt;
+    }
+    const auto tag_key = object.find(kTagKey);
+    if (tag_key == std::string_view::npos) {
+        return std::nullopt;
+    }
+    const auto value_start = object.find('"', object.find(':', tag_key) + 1);
+    if (value_start == std::string_view::npos) {
+        return std::nullopt;
+    }
+    const auto value_end = object.find('"', value_start + 1);
+    if (value_end == std::string_view::npos) {
+        return std::nullopt;
+    }
+    const std::string_view tag = object.substr(value_start + 1, value_end - value_start - 1);
+    if (!tag.starts_with(kTagPrefix)) {
+        return std::nullopt;
+    }
+    std::string_view rest = tag.substr(kTagPrefix.size());
+    const auto dot = rest.find('.');
+    if (dot == std::string_view::npos) {
+        return std::nullopt;
+    }
+    rest = rest.substr(0, dot);
+    if (rest.empty()) {
+        return std::nullopt;
+    }
+    int major = 0;
+    for (const char c : rest) {
+        if (c < '0' || c > '9') {
+            return std::nullopt;
+        }
+        major = major * 10 + (c - '0');
+    }
+    return major;
+}
+
 // parse_clang_newest returns the largest major among non-prerelease LLVM
 // releases, whose tags look like "llvmorg-20.1.8", in a GitHub releases JSON
 // array ([{"tag_name":"...","prerelease":bool}, ...]). A hand-rolled scan of
 // just these two fields rather than a general JSON parser — cup only ever
 // reads its own narrow shape of this response.
 [[nodiscard]] int parse_clang_newest(std::string_view body) {
-    constexpr std::string_view kTagKey = "\"tag_name\"";
-    constexpr std::string_view kPrereleaseTrue = "\"prerelease\":true";
-    constexpr std::string_view kTagPrefix = "llvmorg-";
     int newest = 0;
     std::size_t pos = 0;
-    while (true) {
-        const auto obj_start = body.find('{', pos);
-        if (obj_start == std::string_view::npos) {
-            break;
-        }
-        const auto obj_end = body.find('}', obj_start);
-        if (obj_end == std::string_view::npos) {
-            break;
-        }
-        const std::string_view object = body.substr(obj_start, obj_end - obj_start + 1);
-        pos = obj_end + 1;
-
-        if (object.find(kPrereleaseTrue) != std::string_view::npos) {
-            continue;
-        }
-        const auto tag_key = object.find(kTagKey);
-        if (tag_key == std::string_view::npos) {
-            continue;
-        }
-        const auto value_start = object.find('"', object.find(':', tag_key) + 1);
-        if (value_start == std::string_view::npos) {
-            continue;
-        }
-        const auto value_end = object.find('"', value_start + 1);
-        if (value_end == std::string_view::npos) {
-            continue;
-        }
-        const std::string_view tag = object.substr(value_start + 1, value_end - value_start - 1);
-        if (!tag.starts_with(kTagPrefix)) {
-            continue;
-        }
-        std::string_view rest = tag.substr(kTagPrefix.size());
-        const auto dot = rest.find('.');
-        if (dot == std::string_view::npos) {
-            continue;
-        }
-        rest = rest.substr(0, dot);
-        if (rest.empty()) {
-            continue;
-        }
-        int major = 0;
-        bool all_digits = true;
-        for (const char c : rest) {
-            if (c < '0' || c > '9') {
-                all_digits = false;
-                break;
-            }
-            major = major * 10 + (c - '0');
-        }
-        if (all_digits && major > newest) {
-            newest = major;
+    while (const auto object = next_json_object(body, pos)) {
+        if (const auto major = major_from_tag(*object); major.has_value() && *major > newest) {
+            newest = *major;
         }
     }
     return newest;
