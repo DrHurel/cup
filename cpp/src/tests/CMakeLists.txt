@@ -36,3 +36,8 @@ target_include_directories(project_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_compile_definitions(project_test PRIVATE CUP_PROJECT_ROOT="${CMAKE_SOURCE_DIR}")
 target_link_libraries(project_test PRIVATE project error Catch2::Catch2WithMain)
 add_test(NAME project_test COMMAND project_test)
+
+add_executable(naming_test naming_test.cpp)
+target_compile_features(naming_test PRIVATE cxx_std_23)
+target_link_libraries(naming_test PRIVATE scaffold error Catch2::Catch2WithMain)
+add_test(NAME naming_test COMMAND naming_test)
