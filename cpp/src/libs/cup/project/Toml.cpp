@@ -1,10 +1,3 @@
-// Implementation unit for cup.project — the TOML codec and the project walk.
-//
-// This is a module implementation unit (`module cup.project;`, no `export`), not
-// an interface unit, and that is deliberate: a module implementation unit's global
-// module fragment never becomes part of any BMI, so toml++ is compiled here once
-// and seen by nothing else. Putting it in :io's fragment instead makes GCC 14 ICE
-// while merging the partition — see the note at the top of io.cppm.
 module;
 #include <toml++/toml.hpp>
 
@@ -25,9 +18,6 @@ module cup.project;
 namespace cup::project {
 namespace {
 
-// quote renders s as a TOML basic string, escaping exactly what Go's
-// BurntSushi/toml encoder escapes so a rewritten cup.toml is byte-identical to one
-// the Go cup would have written.
 [[nodiscard]] std::string quote(std::string_view s) {
     std::string out;
     out.reserve(s.size() + 2);
@@ -44,8 +34,6 @@ namespace {
             default: {
                 const auto uc = static_cast<unsigned char>(c);
                 if (uc < 0x20 || uc == 0x7f) {
-                    // {:02x} is the whole rule: two lowercase hex digits, which is
-                    // what the Go encoder writes and what a \u00XX escape needs.
                     std::format_to(std::back_inserter(out), R"(\u00{:02x})", uc);
                 } else {
                     out.push_back(c);
@@ -57,26 +45,19 @@ namespace {
     return out;
 }
 
-// key_string emits `<indent><key> = "<value>"`.
 void key_string(std::string& out, std::string_view indent, std::string_view key,
                 std::string_view value) {
     out += std::format("{}{} = {}\n", indent, key, quote(value));
 }
 
-// key_int emits `<indent><key> = <value>`.
 void key_int(std::string& out, std::string_view indent, std::string_view key, int value) {
     out += std::format("{}{} = {}\n", indent, key, value);
 }
 
-// key_bool emits `<indent><key> = true|false`. std::format's default rendering of a
-// bool is already TOML's spelling, so no ternary is needed to get it.
 void key_bool(std::string& out, std::string_view indent, std::string_view key, bool value) {
     out += std::format("{}{} = {}\n", indent, key, value);
 }
 
-// field reads an optional key of type T, distinguishing "absent" from "present but
-// the wrong type" — Go's decoder errors on the latter, so this reports it rather
-// than silently falling back to the default.
 template <typename T>
 [[nodiscard]] std::expected<std::optional<T>, error::Error> field(const toml::table& tbl,
                                                                   std::string_view key) {
@@ -88,17 +69,6 @@ template <typename T>
         .transform([](T value) { return std::optional<T>(std::move(value)); });
 }
 
-// bind reads key into dst, leaving dst untouched when the key is absent.
-//
-// It is the piece that lets a whole table decode as one and_then chain: every field
-// read has the same expected<void> shape, so the error path is written once at the
-// end of the chain rather than repeated after each of the fourteen reads below.
-//
-// Leaving dst alone on an absent key is what the old `value_or(default)` amounted
-// to — every default in Config is already the member's default initialiser — and it
-// is also what keeps one helper enough for the optional fields: assigning the
-// unwrapped value to an std::optional<T> dst engages it, and absence leaves the
-// nullopt that std_module's tri-state depends on.
 template <typename T, typename Field>
 [[nodiscard]] std::expected<void, error::Error> bind(const toml::table& tbl, std::string_view key,
                                                      Field& dst) {
@@ -109,8 +79,6 @@ template <typename T, typename Field>
     });
 }
 
-// parse_table turns toml++'s exception into the error channel, so parsing is a step
-// in a chain like every other.
 [[nodiscard]] std::expected<toml::table, error::Error> parse_table(std::string_view text) {
     try {
         return toml::parse(text);
@@ -119,8 +87,6 @@ template <typename T, typename Field>
     }
 }
 
-// read_compiler decodes the [compiler] table. A missing table is not an error: it
-// leaves the defaults in place, which is what projects predating the table rely on.
 [[nodiscard]] std::expected<void, error::Error> read_compiler(const toml::table& tbl,
                                                               CompilerConfig& out) {
     const auto* compiler = tbl["compiler"].as_table();
@@ -134,7 +100,6 @@ template <typename T, typename Field>
         });
 }
 
-// read_image decodes one [[docker.image]] entry.
 [[nodiscard]] std::expected<DockerImage, error::Error> read_image(const toml::node& node) {
     const auto* entry = node.as_table();
     if (entry == nullptr) {
@@ -145,12 +110,10 @@ template <typename T, typename Field>
         .and_then([entry, &image] { return bind<std::string>(*entry, "base", image.base); })
         .and_then([entry, &image] { return bind<int>(*entry, "version", image.version); })
         .and_then([entry, &image] { return bind<std::string>(*entry, "hash", image.hash); })
-        // The TOML key stays "default"; the field cannot, since that is a keyword.
         .and_then([entry, &image] { return bind<bool>(*entry, "default", image.is_default); })
         .transform([&image] { return std::move(image); });
 }
 
-// read_docker decodes the [docker] table and the [[docker.image]] array under it.
 [[nodiscard]] std::expected<void, error::Error> read_docker(const toml::table& tbl,
                                                             DockerConfig& out) {
     const auto* docker = tbl["docker"].as_table();
@@ -169,7 +132,6 @@ template <typename T, typename Field>
     });
 }
 
-// read_file slurps a file whole, reporting nullopt if it cannot be opened.
 [[nodiscard]] std::optional<std::string> read_file(const std::filesystem::path& path) {
     std::ifstream in(path, std::ios::binary);
     if (!in) {
@@ -178,13 +140,6 @@ template <typename T, typename Field>
     return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
 }
 
-// load_project reads and decodes the cup.toml sitting in dir, as one chain: require
-// lifts an unreadable file into the error channel, transform_error names the file
-// on whatever the decoder reports, and transform seats the result in a Project.
-//
-// The two errors stay worded differently on purpose — a file cup cannot read says
-// only "reading <path>", while one it can read but not decode appends the decoder's
-// complaint — so transform_error wraps the parse alone rather than the whole chain.
 [[nodiscard]] std::expected<Project, error::Error> load_project(const std::filesystem::path& dir) {
     const std::filesystem::path marker = dir / kMarker;
     return error::require(read_file(marker), std::format("reading {}", marker.string()))
@@ -197,7 +152,6 @@ template <typename T, typename Field>
         .transform([&dir](Config cfg) { return Project{.root = dir, .config = std::move(cfg)}; });
 }
 
-// current_directory is getcwd in the error channel, so find() below is one chain.
 [[nodiscard]] std::expected<std::filesystem::path, error::Error> current_directory() {
     std::error_code ec;
     std::filesystem::path cwd = std::filesystem::current_path(ec);
@@ -208,22 +162,17 @@ template <typename T, typename Field>
     return cwd;
 }
 
-}  // namespace
+}
 
 std::string to_toml(const Config& cfg) {
     std::string out;
 
-    // name and cpp_standard carry no omitempty in the Go struct, so they are
-    // written unconditionally — including `name = ""` for a zero Config.
     key_string(out, "", "name", cfg.name);
     if (!cfg.cup_version.empty()) {
         key_string(out, "", "cup_version", cfg.cup_version);
     }
     key_int(out, "", "cpp_standard", cfg.cpp_standard);
     if (cfg.std_module.has_value()) {
-        // The tri-state field. Writing it only when set is what lets an explicit
-        // `std_module = false` survive a rewrite instead of collapsing to "unset"
-        // and flipping the project onto `import std;`.
         key_bool(out, "", "std_module", *cfg.std_module);
     }
     if (!cfg.build_tool.empty()) {
@@ -272,8 +221,6 @@ std::expected<Config, error::Error> parse_config(std::string_view text) {
             .and_then(
                 [&tbl, &cfg] { return bind<std::string>(tbl, "cup_version", cfg.cup_version); })
             .and_then([&tbl, &cfg] { return bind<int>(tbl, "cpp_standard", cfg.cpp_standard); })
-            // Left as nullopt when the key is absent — the whole point of the
-            // tri-state; see bind on why one helper covers that too.
             .and_then([&tbl, &cfg] { return bind<bool>(tbl, "std_module", cfg.std_module); })
             .and_then(
                 [&tbl, &cfg] { return bind<std::string>(tbl, "build_tool", cfg.build_tool); })
@@ -299,8 +246,6 @@ std::expected<Project, error::Error> find_from(const std::filesystem::path& star
         if (std::error_code ec; std::filesystem::exists(dir / kMarker, ec)) {
             return load_project(dir);
         }
-        // parent_path() of a root ("/") is itself, and of a bare relative name is
-        // empty; either means the walk has run out of ancestors.
         const std::filesystem::path parent = dir.parent_path();
         if (parent == dir || parent.empty()) {
             return std::unexpected(error::Error(std::format(
@@ -313,4 +258,4 @@ std::expected<Project, error::Error> find_from(const std::filesystem::path& star
 
 std::expected<Project, error::Error> find() { return current_directory().and_then(find_from); }
 
-}  // namespace cup::project
+}
