@@ -17,8 +17,7 @@ namespace detail {
 // repo untouched.
 [[nodiscard]] std::string normalize_repo(std::string_view repo) {
     constexpr std::string_view kSpace = " \t\n\r\f\v";
-    auto first = repo.find_first_not_of(kSpace);
-    if (first == std::string_view::npos) {
+    if (const auto first = repo.find_first_not_of(kSpace); first == std::string_view::npos) {
         repo = {};
     } else {
         const auto last = repo.find_last_not_of(kSpace);

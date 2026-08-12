@@ -4,13 +4,13 @@ module;
 #include <expected>
 #include <filesystem>
 #include <fstream>
-#include <future>
 #include <ios>
 #include <iterator>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <thread>
 #include <utility>
 module cup.scaffold;
 
@@ -125,10 +125,12 @@ std::pair<int, int> fetch_newest_compilers() {
     }
     ui::running("checking latest gcc/clang releases");
 
-    auto gcc_future = std::async(std::launch::async, fetch_gcc_newest);
-    auto clang_future = std::async(std::launch::async, fetch_clang_newest);
-    int gcc = gcc_future.get();
-    int clang = clang_future.get();
+    int gcc = 0;
+    int clang = 0;
+    std::thread gcc_thread([&gcc] { gcc = fetch_gcc_newest(); });
+    std::thread clang_thread([&clang] { clang = fetch_clang_newest(); });
+    gcc_thread.join();
+    clang_thread.join();
 
     const auto cached = read_release_cache();
     if (gcc == 0) {

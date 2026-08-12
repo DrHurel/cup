@@ -13,8 +13,7 @@ namespace {
 std::string build_tags_url(std::string_view repo) {
     const std::string normalized = detail::normalize_repo(repo);
     std::string url = docker_hub_tags_url_template();
-    const auto placeholder = url.find("%s");
-    if (placeholder != std::string::npos) {
+    if (const auto placeholder = url.find("%s"); placeholder != std::string::npos) {
         url.replace(placeholder, 2, normalized);
     }
     return url;

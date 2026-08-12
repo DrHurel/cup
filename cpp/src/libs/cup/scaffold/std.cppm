@@ -1,6 +1,7 @@
 module;
 #include <array>
 #include <expected>
+#include <format>
 #include <functional>
 #include <map>
 #include <optional>
@@ -17,10 +18,7 @@ export namespace cup::scaffold {
 inline constexpr std::array<int, 5> kStandards{23, 20, 17, 14, 11};
 
 // std_label renders a standard as it appears in the picker, e.g. 23 -> "c++23".
-// Concatenation, not std::format: <format> is cup.scaffold's one heavy-header
-// partition already (see render.cppm's note), and this partition stays off
-// that list entirely.
-[[nodiscard]] std::string std_label(int std) { return "c++" + std::to_string(std); }
+[[nodiscard]] std::string std_label(int std) { return std::format("c++{}", std); }
 
 namespace detail {
 

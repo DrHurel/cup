@@ -123,7 +123,7 @@ std::pair<std::string, int> replace_count(const std::regex& re, const std::strin
 // pattern (the FILE_SET header, then the indented block of file entries),
 // insert filename into the second group at the first entry's indentation, and
 // leave everything else untouched.
-std::expected<void, error::Error> add_file_set_entry(const std::string& root, const std::string& path,
+std::expected<void, error::Error> add_file_set_entry(const std::filesystem::path& root, const std::filesystem::path& path,
                                                       std::string_view filename,
                                                       const std::regex& pattern,
                                                       std::string_view block_label) {
@@ -157,7 +157,7 @@ std::expected<void, error::Error> add_file_set_entry(const std::string& root, co
 }
 
 std::optional<std::vector<std::string>> insert_partition_import(std::vector<std::string> lines,
-                                                                 const std::string& directive) {
+                                                                 std::string_view directive) {
     int last_import = -1;
     for (std::size_t i = 0; i < lines.size(); ++i) {
         if (lines[i].starts_with("export import :")) {
@@ -165,13 +165,13 @@ std::optional<std::vector<std::string>> insert_partition_import(std::vector<std:
         }
     }
     if (last_import >= 0) {
-        lines.insert(lines.begin() + last_import + 1, directive);
+        lines.insert(lines.begin() + last_import + 1, std::string(directive));
         return lines;
     }
     if (const auto module_decl = std::ranges::find_if(
             lines, [](const std::string& l) { return l.starts_with("export module "); });
         module_decl != lines.end()) {
-        lines.insert(module_decl + 1, {std::string(), directive});
+        lines.insert(module_decl + 1, {std::string(), std::string(directive)});
         return lines;
     }
     return std::nullopt;
@@ -191,16 +191,16 @@ std::string join_lines(const std::vector<std::string>& lines) {
 
 }
 
-std::optional<std::vector<std::string>> read_file_lines(const std::string& path) {
+std::optional<std::vector<std::string>> read_file_lines(const std::filesystem::path& path) {
     return read_lines(path);
 }
 
-void remove_dir(const std::string& path) {
+void remove_dir(const std::filesystem::path& path) {
     std::error_code ec;
     std::filesystem::remove_all(path, ec);
 }
 
-std::expected<void, error::Error> ensure_line(const std::string& root, const std::string& path,
+std::expected<void, error::Error> ensure_line(const std::filesystem::path& root, const std::filesystem::path& path,
                                               std::string_view line) {
     auto lines = read_lines(path).value_or(std::vector<std::string>{});
     for (const auto& l : lines) {
@@ -216,7 +216,7 @@ std::expected<void, error::Error> ensure_line(const std::string& root, const std
     return {};
 }
 
-std::expected<void, error::Error> ensure_line_before(const std::string& root, const std::string& path,
+std::expected<void, error::Error> ensure_line_before(const std::filesystem::path& root, const std::filesystem::path& path,
                                                       std::string_view line, std::string_view anchor) {
     auto lines = read_lines(path).value_or(std::vector<std::string>{});
     for (const auto& l : lines) {
@@ -244,7 +244,7 @@ std::expected<void, error::Error> ensure_line_before(const std::string& root, co
     return {};
 }
 
-std::expected<bool, error::Error> remove_line(const std::string& root, const std::string& path,
+std::expected<bool, error::Error> remove_line(const std::filesystem::path& root, const std::filesystem::path& path,
                                               std::string_view line) {
     auto maybe_lines = read_lines(path);
     if (!maybe_lines.has_value()) {
@@ -267,7 +267,7 @@ std::expected<bool, error::Error> remove_line(const std::string& root, const std
     return true;
 }
 
-std::expected<bool, error::Error> remove_matching_line(const std::string& root, const std::string& path,
+std::expected<bool, error::Error> remove_matching_line(const std::filesystem::path& root, const std::filesystem::path& path,
                                                         std::string_view pattern) {
     auto maybe_lines = read_lines(path);
     if (!maybe_lines.has_value()) {
@@ -291,7 +291,7 @@ std::expected<bool, error::Error> remove_matching_line(const std::string& root, 
     return true;
 }
 
-std::expected<void, error::Error> append_block(const std::string& root, const std::string& path,
+std::expected<void, error::Error> append_block(const std::filesystem::path& root, const std::filesystem::path& path,
                                                std::string_view marker, std::string_view block) {
     const std::string existing = slurp(path).value_or(std::string());
     if (existing.contains(marker)) {
@@ -312,8 +312,8 @@ std::expected<void, error::Error> append_block(const std::string& root, const st
     return {};
 }
 
-std::expected<bool, error::Error> remove_fetch_content_block(const std::string& root,
-                                                              const std::string& path,
+std::expected<bool, error::Error> remove_fetch_content_block(const std::filesystem::path& root,
+                                                              const std::filesystem::path& path,
                                                               std::string_view name) {
     auto content = slurp(path);
     if (!content.has_value()) {
@@ -334,19 +334,19 @@ std::expected<bool, error::Error> remove_fetch_content_block(const std::string& 
     return true;
 }
 
-std::expected<void, error::Error> add_module_source(const std::string& root, const std::string& path,
+std::expected<void, error::Error> add_module_source(const std::filesystem::path& root, const std::filesystem::path& path,
                                                      std::string_view filename) {
     static const std::regex pattern(R"((FILE_SET\s+CXX_MODULES\s+FILES\n)((?:[ \t]+[^\n]+\n)+))");
     return add_file_set_entry(root, path, filename, pattern, "FILE_SET CXX_MODULES");
 }
 
-std::expected<void, error::Error> add_header_source(const std::string& root, const std::string& path,
+std::expected<void, error::Error> add_header_source(const std::filesystem::path& root, const std::filesystem::path& path,
                                                      std::string_view filename) {
     static const std::regex pattern(R"((FILE_SET\s+HEADERS[\s\S]*?FILES\n)((?:[ \t]+[^\n]+\n)+))");
     return add_file_set_entry(root, path, filename, pattern, "FILE_SET HEADERS");
 }
 
-std::expected<void, error::Error> ensure_header_lib_static(const std::string& root, const std::string& path,
+std::expected<void, error::Error> ensure_header_lib_static(const std::filesystem::path& root, const std::filesystem::path& path,
                                                             std::string_view name) {
     auto content = slurp(path);
     if (!content.has_value()) {
@@ -367,7 +367,7 @@ std::expected<void, error::Error> ensure_header_lib_static(const std::string& ro
     return {};
 }
 
-std::expected<void, error::Error> add_partition_import(const std::string& root, const std::string& primary,
+std::expected<void, error::Error> add_partition_import(const std::filesystem::path& root, const std::filesystem::path& primary,
                                                         std::string_view partition) {
     auto text = slurp(primary);
     if (!text.has_value()) {
@@ -395,7 +395,7 @@ std::expected<void, error::Error> add_partition_import(const std::string& root, 
     return {};
 }
 
-std::vector<std::string> list_subdirs(const std::string& path) {
+std::vector<std::string> list_subdirs(const std::filesystem::path& path) {
     std::error_code ec;
     if (!std::filesystem::is_directory(path, ec)) {
         return {};

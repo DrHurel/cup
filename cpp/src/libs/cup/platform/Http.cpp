@@ -15,6 +15,10 @@ namespace {
 // 8 MiB, matching Go's io.LimitReader(resp.Body, 8<<20) cap.
 constexpr std::size_t kMaxBody = 8 << 20;
 
+// Signature fixed by libcurl's own curl_write_callback typedef (char* buffer,
+// not const char*; void* userdata, not a typed pointer) — CURLOPT_WRITEFUNCTION
+// calls back through that exact C function pointer type, so a "more
+// meaningful" signature here would be undefined behaviour, not a style choice.
 std::size_t write_callback(char* ptr, std::size_t size, std::size_t nmemb, void* userdata) {
     auto* body = static_cast<std::string*>(userdata);
     const std::size_t added = size * nmemb;

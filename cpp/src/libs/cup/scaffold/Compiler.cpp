@@ -12,9 +12,9 @@ import cup.ui;
 
 namespace cup::scaffold {
 
-std::expected<void, error::Error> replace_compiler_guard(const std::string& root,
-                                                          const std::string& path, int gcc,
-                                                          int clang) {
+std::expected<void, error::Error> replace_compiler_guard(const std::filesystem::path& root,
+                                                          const std::filesystem::path& path,
+                                                          int gcc, int clang) {
     std::ifstream in(path, std::ios::binary);
     if (!in) {
         return std::unexpected(
@@ -35,7 +35,7 @@ std::expected<void, error::Error> replace_compiler_guard(const std::string& root
     std::ofstream out(path, std::ios::binary | std::ios::trunc);
     out << updated;
     if (!out) {
-        return std::unexpected(error::Error(std::format("writing {}", path)));
+        return std::unexpected(error::Error(std::format("writing {}", path.string())));
     }
     ui::updated(std::format("{}  (compiler floor)", rel(root, path)));
     return {};

@@ -1,6 +1,7 @@
 module;
 #include <cstddef>
 #include <expected>
+#include <filesystem>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -127,8 +128,7 @@ namespace detail {
 // imports cup.ui for the status line, and this interface partition otherwise
 // stays off the heavy-header list (see cmake.cppm's note on why that budget is
 // already spent).
-[[nodiscard]] std::expected<void, error::Error> replace_compiler_guard(const std::string& root,
-                                                                       const std::string& path,
-                                                                       int gcc, int clang);
+[[nodiscard]] std::expected<void, error::Error> replace_compiler_guard(
+    const std::filesystem::path& root, const std::filesystem::path& path, int gcc, int clang);
 
 }
