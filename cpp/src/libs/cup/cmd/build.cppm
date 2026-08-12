@@ -1,4 +1,5 @@
 module;
+#include <array>
 #include <expected>
 #include <filesystem>
 #include <span>
@@ -15,6 +16,11 @@ export import cup.project;
 // cup.scaffold and cup.platform and use <filesystem> throughout, none of
 // which this interface partition needs to expose.
 export namespace cup::cmd {
+
+// kBuildModes are the build modes commands taking a leading MODE argument
+// accept. Exported so cup.cmd:completion's shell completions stay in sync
+// with parse_mode, the way Go's completion.go reuses build.go's buildModes.
+inline constexpr std::array<std::string_view, 3> kBuildModes = {"Debug", "Release", "Coverage"};
 
 // parse_mode peels an optional leading build-mode argument off args
 // (Debug/Release/Coverage), defaulting to Debug. The remaining args are

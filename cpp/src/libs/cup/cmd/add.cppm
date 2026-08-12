@@ -1,4 +1,5 @@
 module;
+#include <array>
 #include <expected>
 #include <filesystem>
 #include <map>
@@ -19,6 +20,11 @@ export import cup.ui;
 // counterpart) — in Go these live in separate files but call into each other
 // freely within the same package, so here they share one partition too.
 export namespace cup::cmd {
+
+// kCategories are the things `cup add` can scaffold. Exported so
+// cup.cmd:completion's shell completions stay in sync, the way Go's
+// completion.go reuses add.go's categories var directly.
+inline constexpr std::array<std::string_view, 4> kCategories{"app", "lib", "test", "third-party"};
 
 // run_add is the `cup add` entrypoint. With a category argument it scaffolds
 // that one target; without one it prompts, then offers to add another.

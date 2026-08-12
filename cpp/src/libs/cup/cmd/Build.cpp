@@ -1,5 +1,4 @@
 module;
-#include <array>
 #include <cstddef>
 #include <expected>
 #include <filesystem>
@@ -17,8 +16,6 @@ import cup.platform;
 
 namespace cup::cmd {
 namespace {
-
-inline constexpr std::array<std::string_view, 3> kBuildModes = {"Debug", "Release", "Coverage"};
 
 std::string join(std::span<const std::string> args) {
     std::string out;

@@ -24,7 +24,6 @@ namespace {
 constexpr std::string_view kCMakeLists = "CMakeLists.txt";
 constexpr std::string_view kNewSentinel = "[new…]";
 constexpr std::string_view kNoneSentinel = "[none]";
-constexpr std::array<std::string_view, 4> kCategories{"app", "lib", "test", "third-party"};
 
 std::string lower(std::string_view s) {
     std::string out(s);

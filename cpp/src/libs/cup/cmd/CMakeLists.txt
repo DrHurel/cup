@@ -9,6 +9,8 @@ target_sources(cmd
         Docker.cpp
         New.cpp
         Add.cpp
+        Template.cpp
+        Completion.cpp
     PUBLIC
         FILE_SET CXX_MODULES FILES
             cmd.cppm
@@ -16,6 +18,8 @@ target_sources(cmd
             docker.cppm
             new.cppm  # partition token is :new_project, see new.cppm
             add.cppm
+            template.cppm  # partition token is :template_cmd, see template.cppm
+            completion.cppm
             dispatch.cppm
 )
 target_compile_features(cmd PUBLIC cxx_std_23)

@@ -93,3 +93,10 @@ target_include_directories(new_add_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(new_add_test PRIVATE cmd project scaffold tmpl ui platform error
                                            Catch2::Catch2WithMain)
 add_test(NAME new_add_test COMMAND new_add_test)
+
+add_executable(template_completion_test template_completion_test.cpp)
+target_compile_features(template_completion_test PRIVATE cxx_std_23)
+target_include_directories(template_completion_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(template_completion_test PRIVATE cmd project tmpl ui error
+                                                       Catch2::Catch2WithMain)
+add_test(NAME template_completion_test COMMAND template_completion_test)

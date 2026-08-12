@@ -289,8 +289,9 @@ TEST_CASE("run_run resolves the app, builds, then runs the binary", "[cmd][run]"
 
 TEST_CASE("commands lists the ported commands in cup's order", "[cmd][dispatch]") {
     const auto cmds = cup::cmd::commands();
-    const std::vector<std::string> names{"new",  "add",     "configure", "build", "rebuild",
-                                         "run",  "test",    "retest",    "clean"};
+    const std::vector<std::string> names{"new",     "add",    "configure", "build",      "rebuild",
+                                         "run",     "test",   "retest",    "clean",
+                                         "template", "completion"};
     REQUIRE(cmds.size() == names.size());
     for (std::size_t i = 0; i < names.size(); ++i) {
         REQUIRE(cmds[i].name == names[i]);
