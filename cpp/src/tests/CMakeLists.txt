@@ -41,3 +41,8 @@ add_executable(naming_test naming_test.cpp)
 target_compile_features(naming_test PRIVATE cxx_std_23)
 target_link_libraries(naming_test PRIVATE scaffold error Catch2::Catch2WithMain)
 add_test(NAME naming_test COMMAND naming_test)
+
+add_executable(std_test std_test.cpp)
+target_compile_features(std_test PRIVATE cxx_std_23)
+target_link_libraries(std_test PRIVATE scaffold error Catch2::Catch2WithMain)
+add_test(NAME std_test COMMAND std_test)
