@@ -55,4 +55,12 @@ resolve_app(const project::Project& proj, std::span<const std::string> rest);
 [[nodiscard]] std::expected<void, error::Error> run_rebuild(std::span<const std::string> args);
 [[nodiscard]] std::expected<void, error::Error> run_retest(std::span<const std::string> args);
 
+// run_shell shells out via cup.platform::run_command, logging a "run ..."
+// status line first. The one call site the rest of cup.cmd (new/add/docker's
+// git init and future docker build/push) goes through, mirroring Go's
+// runCommand var doing both in one step.
+[[nodiscard]] std::expected<void, error::Error> run_shell(const std::filesystem::path& dir,
+                                                          std::string_view name,
+                                                          std::span<const std::string> args);
+
 }

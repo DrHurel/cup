@@ -8,7 +8,9 @@ module cup.cmd;
 namespace cup::cmd {
 
 std::span<const Command> commands() {
-    static const std::array<Command, 7> table{{
+    static const std::array<Command, 9> table{{
+        {"new", "create a new C++ project", &run_new},
+        {"add", "scaffold an app, lib, or test (interactive)", &run_add},
         {"configure", "generate the CMake build system [MODE]", &run_configure},
         {"build", "configure + compile [MODE]", &run_build},
         {"rebuild", "wipe build/ then compile [MODE]", &run_rebuild},

@@ -31,17 +31,6 @@ std::string join(std::span<const std::string> args) {
     return out;
 }
 
-// run_shell is the one call site in cup.cmd that reaches
-// cup.platform::run_command, pairing it with the "run ..." status line the
-// way Go's runCommand did in one step. cup.platform cannot log through
-// cup.ui itself: cup.ui already imports cup.platform (is_tty / raw mode), so
-// the reverse import would cycle.
-std::expected<void, error::Error> run_shell(const std::filesystem::path& dir, std::string_view name,
-                                            std::span<const std::string> args) {
-    ui::running(std::string(name) + " " + join(args));
-    return platform::run_command(dir, name, args);
-}
-
 std::expected<void, error::Error> make_build(const project::Project& proj, std::string_view mode) {
     const std::vector<std::string> args{std::format("MODE={}", mode)};
     return run_shell(proj.root, "make", args);
@@ -53,6 +42,18 @@ std::expected<void, error::Error> make_test(const project::Project& proj, std::s
 }
 
 }  // namespace
+
+// run_shell is cup.cmd's one call site reaching cup.platform::run_command,
+// pairing it with the "run ..." status line the way Go's runCommand did in
+// one step. cup.platform cannot log through cup.ui itself: cup.ui already
+// imports cup.platform (is_tty / raw mode), so the reverse import would
+// cycle. Exported (not file-local) so New.cpp/Add.cpp/Docker.cpp reuse the
+// same logging wrapper instead of calling platform::run_command bare.
+std::expected<void, error::Error> run_shell(const std::filesystem::path& dir, std::string_view name,
+                                            std::span<const std::string> args) {
+    ui::running(std::string(name) + " " + join(args));
+    return platform::run_command(dir, name, args);
+}
 
 std::pair<std::string, std::span<const std::string>> parse_mode(std::span<const std::string> args) {
     if (!args.empty()) {

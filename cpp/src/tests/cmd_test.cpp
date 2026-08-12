@@ -287,10 +287,10 @@ TEST_CASE("run_run resolves the app, builds, then runs the binary", "[cmd][run]"
             (dir.path() / "build" / "Debug" / "bin" / "greeter").string() + " -v");
 }
 
-TEST_CASE("commands lists the group-1 build/run commands in cup's order", "[cmd][dispatch]") {
+TEST_CASE("commands lists the ported commands in cup's order", "[cmd][dispatch]") {
     const auto cmds = cup::cmd::commands();
-    const std::vector<std::string> names{"configure", "build",  "rebuild", "run",
-                                         "test",      "retest", "clean"};
+    const std::vector<std::string> names{"new",  "add",     "configure", "build", "rebuild",
+                                         "run",  "test",    "retest",    "clean"};
     REQUIRE(cmds.size() == names.size());
     for (std::size_t i = 0; i < names.size(); ++i) {
         REQUIRE(cmds[i].name == names[i]);

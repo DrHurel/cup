@@ -6,17 +6,23 @@ target_sources(cmd
         # dispatch.cppm.
         Build.cpp
         Dispatch.cpp
+        Docker.cpp
+        New.cpp
+        Add.cpp
     PUBLIC
         FILE_SET CXX_MODULES FILES
             cmd.cppm
             build.cppm
+            docker.cppm
+            new.cppm  # partition token is :new_project, see new.cppm
+            add.cppm
             dispatch.cppm
 )
 target_compile_features(cmd PUBLIC cxx_std_23)
-# Build.cpp calls cup.project (locate/inspect the project), cup.scaffold
-# (list_subdirs, for `run`'s app picker) and cup.ui (status lines, the
-# interactive app picker) and cup.platform (run_command). None of those types
-# appear in cup.cmd's own exported interface (Command's Run is a
-# std::function<..., cup::error::Error>), so all four are PRIVATE; only
-# cup.error is PUBLIC.
-target_link_libraries(cmd PUBLIC error PRIVATE project scaffold ui platform)
+# Build.cpp/Docker.cpp/New.cpp/Add.cpp call cup.project (locate/inspect the
+# project), cup.scaffold (rendering, CMakeLists editing, naming), cup.tmpl
+# (template-kind lookup), cup.ui (status lines, prompts) and cup.platform
+# (run_command, git init). None of those types appear in cup.cmd's own
+# exported interface (Command's Run is a std::function<..., cup::error::Error>),
+# so all are PRIVATE; only cup.error is PUBLIC.
+target_link_libraries(cmd PUBLIC error PRIVATE project scaffold tmpl ui platform)
