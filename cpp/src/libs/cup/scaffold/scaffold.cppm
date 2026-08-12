@@ -6,3 +6,4 @@ export import cup.error;
 
 export import :naming;
 export import :std;
+export import :render;
