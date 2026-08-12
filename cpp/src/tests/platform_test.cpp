@@ -10,6 +10,8 @@
 #include <string>
 #include <utility>
 
+#include "TestHttpServer.hpp"
+
 import cup.platform;
 
 namespace {
@@ -203,4 +205,28 @@ TEST_CASE("enter_raw_mode reports failure off a terminal", "[platform][raw]") {
     REQUIRE(raw.error().message().starts_with("tcgetattr: "));
     REQUIRE(raw.error().kind() == Error::Kind::General);
     REQUIRE_FALSE(cup::error::is_abort(raw.error()));
+}
+
+TEST_CASE("http_get returns a 200 response's body", "[platform][http]") {
+    using cup::test::TestHttpServer;
+    const TestHttpServer server(
+        [](const std::string&) { return TestHttpServer::Response{200, "hello"}; });
+
+    const auto body = cup::platform::http_get(server.url() + "/ok");
+    REQUIRE(body.has_value());
+    REQUIRE(*body == "hello");
+}
+
+TEST_CASE("http_get reports a non-200 response as an error", "[platform][http]") {
+    using cup::test::TestHttpServer;
+    const TestHttpServer server(
+        [](const std::string&) { return TestHttpServer::Response{404, "not found"}; });
+
+    const auto body = cup::platform::http_get(server.url() + "/missing");
+    REQUIRE_FALSE(body.has_value());
+}
+
+TEST_CASE("http_get reports a malformed url as an error", "[platform][http]") {
+    const auto body = cup::platform::http_get("://not-a-url");
+    REQUIRE_FALSE(body.has_value());
 }

@@ -165,12 +165,14 @@ jobs:
         # modules ("Ninja 1.11 or higher is required"). ninja-is-really-ninja
         # points the `ninja` command at ninja-build (and excludes samurai).
         # The *-static packages carry the archives a fully static link of libcurl
-        # needs.
+        # needs; pkgconf resolves them via libcurl.pc's Libs.private (see
+        # third_party/CMakeLists.txt's CURL_USE_STATIC_LIBS branch).
         run: |
           apk add --no-cache \
-            build-base cmake ninja-build ninja-is-really-ninja git \
+            build-base cmake ninja-build ninja-is-really-ninja git pkgconf \
             curl-dev curl-static \
-            openssl-libs-static zlib-static nghttp2-static brotli-static
+            openssl-libs-static zlib-static nghttp2-static brotli-static \
+            zstd-static libpsl-static libunistring-static libidn2-static
 
       - name: Show toolchain versions
         run: |
@@ -182,10 +184,15 @@ jobs:
       - name: Configure (Release, static)
         working-directory: cpp
         run: |
+          # CURL_USE_STATIC_LIBS switches third_party/CMakeLists.txt onto
+          # pkg-config's STATIC mode for libcurl (see the comment there) — plain
+          # find_package(CURL) resolves the shared libcurl.so even with this
+          # variable set, which fails "-static" linking.
           cmake -B build/Release \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_EXE_LINKER_FLAGS="-static" \
-            -DBUILD_SHARED_LIBS=OFF
+            -DBUILD_SHARED_LIBS=OFF \
+            -DCURL_USE_STATIC_LIBS=ON
 
       - name: Build
         working-directory: cpp

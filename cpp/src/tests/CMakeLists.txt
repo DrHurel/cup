@@ -19,7 +19,10 @@ add_executable(platform_test platform_test.cpp)
 target_compile_features(platform_test PRIVATE cxx_std_23)
 # The suite opens a pseudo-terminal to reach raw mode at all. posix_openpt, grantpt,
 # unlockpt and ptsname are in libc on glibc and musl alike, so nothing extra links.
-target_link_libraries(platform_test PRIVATE platform error Catch2::Catch2WithMain)
+# TestHttpServer.hpp (http_get coverage) runs its accept loop on a second thread.
+target_include_directories(platform_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(platform_test PRIVATE platform error Threads::Threads
+                                            Catch2::Catch2WithMain)
 add_test(NAME platform_test COMMAND platform_test)
 
 add_executable(tmpl_test tmpl_test.cpp)
@@ -36,3 +39,43 @@ target_include_directories(project_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_compile_definitions(project_test PRIVATE CUP_PROJECT_ROOT="${CMAKE_SOURCE_DIR}")
 target_link_libraries(project_test PRIVATE project error Catch2::Catch2WithMain)
 add_test(NAME project_test COMMAND project_test)
+
+add_executable(naming_test naming_test.cpp)
+target_compile_features(naming_test PRIVATE cxx_std_23)
+target_link_libraries(naming_test PRIVATE scaffold error Catch2::Catch2WithMain)
+add_test(NAME naming_test COMMAND naming_test)
+
+add_executable(std_test std_test.cpp)
+target_compile_features(std_test PRIVATE cxx_std_23)
+target_link_libraries(std_test PRIVATE scaffold error Catch2::Catch2WithMain)
+add_test(NAME std_test COMMAND std_test)
+
+add_executable(render_test render_test.cpp)
+target_compile_features(render_test PRIVATE cxx_std_23)
+target_include_directories(render_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(render_test PRIVATE scaffold tmpl error Catch2::Catch2WithMain)
+add_test(NAME render_test COMMAND render_test)
+
+add_executable(cmake_test cmake_test.cpp)
+target_compile_features(cmake_test PRIVATE cxx_std_23)
+target_include_directories(cmake_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(cmake_test PRIVATE scaffold error Catch2::Catch2WithMain)
+add_test(NAME cmake_test COMMAND cmake_test)
+
+add_executable(compiler_test compiler_test.cpp)
+target_compile_features(compiler_test PRIVATE cxx_std_23)
+target_include_directories(compiler_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(compiler_test PRIVATE scaffold error Catch2::Catch2WithMain)
+add_test(NAME compiler_test COMMAND compiler_test)
+
+add_executable(releases_test releases_test.cpp)
+target_compile_features(releases_test PRIVATE cxx_std_23)
+target_include_directories(releases_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(releases_test PRIVATE scaffold error Threads::Threads Catch2::Catch2WithMain)
+add_test(NAME releases_test COMMAND releases_test)
+
+add_executable(dockerhub_test dockerhub_test.cpp)
+target_compile_features(dockerhub_test PRIVATE cxx_std_23)
+target_include_directories(dockerhub_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(dockerhub_test PRIVATE scaffold error Threads::Threads Catch2::Catch2WithMain)
+add_test(NAME dockerhub_test COMMAND dockerhub_test)

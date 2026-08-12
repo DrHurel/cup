@@ -17,4 +17,35 @@ FetchContent_Declare(
   GIT_TAG v3.9.1
 )
 FetchContent_MakeAvailable(Catch2)
-find_package(CURL REQUIRED) # cup-apt: libcurl4-openssl-dev
+# GLOBAL: find_package's/pkg_check_modules' imported targets are scoped to this
+# directory (and its children) by default, but cup.platform needing
+# CURL::libcurl lives under src/libs, a sibling of third_party — without GLOBAL
+# the target is invisible there.
+if(CURL_USE_STATIC_LIBS)
+  # The musl-static release build (release-musl-static CI job) needs libcurl.a
+  # plus its own static transitive deps (openssl, zlib, nghttp2, brotli — apk
+  # installs the matching *-static packages). find_package(CURL)'s own
+  # static-preference handling isn't reliable across CMake/distro versions (it
+  # resolved Alpine's libcurl.so even with CURL_USE_STATIC_LIBS set), and
+  # pkg_check_modules(... IMPORTED_TARGET ...) always builds its target from
+  # the dynamic (non "--static") result variables regardless — there is no
+  # keyword that switches it. So build the imported target by hand from the
+  # PC_CURL_STATIC_* variables pkg-config always computes (libcurl.pc's
+  # Libs.private, i.e. the whole static dependency chain). CMake only resolves
+  # bare names to absolute paths for the primary (dynamic) library list —
+  # PC_CURL_STATIC_LINK_LIBRARIES is empty — so link the bare
+  # PC_CURL_STATIC_LIBRARIES names instead and let the linker's own -L search
+  # (from PC_CURL_STATIC_LIBRARY_DIRS) resolve them, same as a plain
+  # `pkg-config --static --libs libcurl` invocation would.
+  find_package(PkgConfig REQUIRED)
+  pkg_check_modules(PC_CURL REQUIRED QUIET libcurl)
+  add_library(CURL::libcurl INTERFACE IMPORTED GLOBAL)
+  set_target_properties(CURL::libcurl PROPERTIES
+    INTERFACE_INCLUDE_DIRECTORIES "${PC_CURL_STATIC_INCLUDE_DIRS}"
+    INTERFACE_LINK_DIRECTORIES "${PC_CURL_STATIC_LIBRARY_DIRS}"
+    INTERFACE_LINK_LIBRARIES "${PC_CURL_STATIC_LIBRARIES}"
+    INTERFACE_LINK_OPTIONS "${PC_CURL_STATIC_LDFLAGS_OTHER}"
+    INTERFACE_COMPILE_OPTIONS "${PC_CURL_STATIC_CFLAGS_OTHER}")
+else()
+  find_package(CURL REQUIRED GLOBAL) # cup-apt: libcurl4-openssl-dev
+endif()
