@@ -20,8 +20,6 @@ export namespace cup::ui {
 
 namespace detail {
 
-// index_of returns the position of want in options, or 0 when it is absent — so a
-// default that no longer matches an option simply highlights the first one.
 [[nodiscard]] std::size_t index_of(std::span<const std::string> options,
                                    std::string_view want) {
     for (std::size_t i = 0; i < options.size(); ++i) {
@@ -32,9 +30,6 @@ namespace detail {
     return 0;
 }
 
-// is_up_key / is_down_key decode a "move" press: the vim keys, or the three-byte
-// ESC [ A / ESC [ B arrow sequences. n is how many bytes were actually read, which
-// is what distinguishes a real arrow sequence from a lone ESC.
 [[nodiscard]] bool is_up_key(std::span<const unsigned char> buf, int n) {
     if (buf.empty()) {
         return false;
@@ -49,15 +44,12 @@ namespace detail {
     return buf[0] == 'j' || (n == 3 && buf[0] == 27 && buf[2] == 'B');
 }
 
-// move_up walks the cursor back over n printed lines, clearing each, so the menu
-// can be redrawn in place.
 void move_up(std::size_t n) {
     for (std::size_t i = 0; i < n; ++i) {
         emit("\x{1b}[1A\x{1b}[2K");
     }
 }
 
-// render draws the option list with the cursor line highlighted.
 void render(std::span<const std::string> options, std::size_t cursor) {
     for (std::size_t i = 0; i < options.size(); ++i) {
         if (i == cursor) {
@@ -68,8 +60,6 @@ void render(std::span<const std::string> options, std::size_t cursor) {
     }
 }
 
-// redraw_final reprints the list once the choice is made, marking the pick, so the
-// terminal keeps a stable record after raw mode is restored.
 void redraw_final(std::span<const std::string> options, std::size_t cursor) {
     for (std::size_t i = 0; i < options.size(); ++i) {
         if (i == cursor) {
@@ -81,7 +71,6 @@ void redraw_final(std::span<const std::string> options, std::size_t cursor) {
     }
 }
 
-// select_interactive drives the raw-mode arrow-key menu, starting at cursor.
 [[nodiscard]] std::expected<std::string, error::Error> select_interactive(
     std::string_view question, std::span<const std::string> options, std::size_t cursor) {
     emit(format_text("{} {} {}\r\n", color(bold(kCyan), "?"), question,
@@ -96,7 +85,7 @@ void redraw_final(std::span<const std::string> options, std::size_t cursor) {
         }
         const std::span<const unsigned char> keys(buf.data(), static_cast<std::size_t>(n));
 
-        if (buf[0] == 3 || buf[0] == 4) {  // Ctrl+C / Ctrl+D
+        if (buf[0] == 3 || buf[0] == 4) {
             return std::unexpected(error::abort_error());
         }
         if (buf[0] == '\r' || buf[0] == '\n') {
@@ -116,9 +105,6 @@ void redraw_final(std::span<const std::string> options, std::size_t cursor) {
     }
 }
 
-// parse_choice reads a menu answer as a 1-based index into a list of count
-// options. Anything that is not a whole number in range is nullopt — not an error,
-// but the signal to put the question again.
 [[nodiscard]] std::optional<std::size_t> parse_choice(std::string_view answer,
                                                       std::size_t count) {
     std::size_t index = 0;
@@ -129,8 +115,6 @@ void redraw_final(std::span<const std::string> options, std::size_t cursor) {
     return index;
 }
 
-// select_numbered is the fallback for a non-terminal stdin: a numbered list read
-// from one line, so cup still works over a pipe.
 [[nodiscard]] std::expected<std::string, error::Error> select_numbered(
     std::string_view question, std::span<const std::string> options) {
     emit_line(question);
@@ -138,8 +122,6 @@ void redraw_final(std::span<const std::string> options, std::size_t cursor) {
         emit_numbered_line(i + 1, options[i]);
     }
     while (true) {
-        // An abort propagates; an unusable answer just loops. text() has already
-        // applied the default, so a bare Enter arrives here as "1".
         auto choice = text("choice number?", "1").transform([options](const std::string& answer) {
             return parse_choice(answer, options.size());
         });
@@ -152,13 +134,8 @@ void redraw_final(std::span<const std::string> options, std::size_t cursor) {
     }
 }
 
-}  // namespace detail
+}
 
-// select_one shows an arrow-key menu and returns the chosen option. def, when it
-// matches an option, starts highlighted. Off a terminal — or when raw mode cannot
-// be entered — it falls back to the numbered list.
-//
-// Named select_one rather than select because POSIX already claims ::select.
 [[nodiscard]] std::expected<std::string, error::Error> select_one(
     std::string_view question, std::span<const std::string> options, std::string_view def) {
     if (options.empty()) {
@@ -167,14 +144,10 @@ void redraw_final(std::span<const std::string> options, std::size_t cursor) {
     if (!platform::is_tty(platform::kStdinFd)) {
         return detail::select_numbered(question, options);
     }
-    // raw is the guard that restores the terminal when it goes out of scope, on
-    // every path. Declaring it in the init-statement is deliberate and safe: the
-    // if's scope encloses the call below, and a local is destroyed only after the
-    // return value has been initialised.
     if (auto raw = platform::enter_raw_mode(platform::kStdinFd); raw.has_value()) {
         return detail::select_interactive(question, options, detail::index_of(options, def));
     }
     return detail::select_numbered(question, options);
 }
 
-}  // namespace cup::ui
+}

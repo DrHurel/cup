@@ -9,4 +9,4 @@ public:
     Probe() = default;
 };
 
-}  // namespace cup::probe
+}
