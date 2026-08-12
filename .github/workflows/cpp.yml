@@ -182,10 +182,18 @@ jobs:
       - name: Configure (Release, static)
         working-directory: cpp
         run: |
+          # curl-static installs libcurl.a alongside curl-dev's libcurl.so, and
+          # FindCURL.cmake's find_library() still resolves to the .so first
+          # unless the search suffixes are restricted — CURL_USE_STATIC_LIBS
+          # alone only sets the CURL_STATICLIB compile definition, it does not
+          # change which file gets found. Without this the linker fails with
+          # "attempted static link of dynamic object libcurl.so".
           cmake -B build/Release \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_EXE_LINKER_FLAGS="-static" \
-            -DBUILD_SHARED_LIBS=OFF
+            -DBUILD_SHARED_LIBS=OFF \
+            -DCURL_USE_STATIC_LIBS=ON \
+            -DCMAKE_FIND_LIBRARY_SUFFIXES=".a"
 
       - name: Build
         working-directory: cpp

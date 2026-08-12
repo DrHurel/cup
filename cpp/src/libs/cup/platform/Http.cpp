@@ -53,6 +53,13 @@ std::expected<std::string, error::Error> http_get(std::string_view url) {
     curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, error_buf);
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
     curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
+    // Every caller passes a fixed https:// constant (GNU/GitHub/Docker Hub) or,
+    // in tests, a local http:// server — but http_get's own signature accepts
+    // any url, so nothing here proves that statically. Restricting both the
+    // initial request and any redirect to http/https (mirrored to
+    // CURLOPT_REDIR_PROTOCOLS by default) closes the classic curl SSRF vector:
+    // a malicious redirect hop to file://, scp://, gopher:// etc.
+    curl_easy_setopt(curl, CURLOPT_PROTOCOLS_STR, "http,https");
 
     const CURLcode res = curl_easy_perform(curl);
     long status = 0;

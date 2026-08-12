@@ -3,6 +3,7 @@ module;
 #include <filesystem>
 #include <format>
 #include <fstream>
+#include <functional>
 #include <ios>
 #include <map>
 #include <regex>
@@ -48,10 +49,11 @@ const std::regex& placeholder_regex() {
 // Deduplicated, sorted (std::set orders by std::string's operator<, matching
 // Go's sort.Strings) so the error message lists each unresolved placeholder
 // once, in a stable order.
-std::vector<std::string> unresolved_placeholders(const std::string& content) {
-    std::set<std::string> unique;
-    for (auto it = std::sregex_iterator(content.begin(), content.end(), placeholder_regex());
-         it != std::sregex_iterator(); ++it) {
+std::vector<std::string> unresolved_placeholders(std::string_view content) {
+    std::set<std::string, std::less<>> unique;
+    for (auto it = std::cregex_iterator(content.data(), content.data() + content.size(),
+                                        placeholder_regex());
+         it != std::cregex_iterator(); ++it) {
         unique.insert(it->str());
     }
     return {unique.begin(), unique.end()};
@@ -96,7 +98,7 @@ std::expected<void, error::Error> write_bytes(const std::filesystem::path& path,
 std::expected<std::string, error::Error> render(const std::filesystem::path& root,
                                                  std::string_view family, std::string_view kind,
                                                  std::string_view name,
-                                                 const std::map<std::string, std::string>& vars) {
+                                                 const std::map<std::string, std::string, std::less<>>& vars) {
     auto raw = tmpl::read(root, family, kind, name);
     if (!raw.has_value()) {
         return std::unexpected(error::Error(std::format("template {}/{} not found", kind, name)));
@@ -129,8 +131,7 @@ std::string rel(const std::filesystem::path& root, const std::filesystem::path& 
 std::expected<bool, error::Error> write_file(const std::filesystem::path& root,
                                              const std::filesystem::path& path,
                                              std::string_view content) {
-    std::error_code ec;
-    if (std::filesystem::exists(path, ec)) {
+    if (std::error_code ec; std::filesystem::exists(path, ec)) {
         auto confirmed = ui::confirm(std::format("{} exists. overwrite?", rel(root, path)), false);
         if (!confirmed.has_value()) {
             return std::unexpected(std::move(confirmed).error());
@@ -153,8 +154,7 @@ std::expected<bool, error::Error> write_file(const std::filesystem::path& root,
 std::expected<void, error::Error> ensure_file(const std::filesystem::path& root,
                                               const std::filesystem::path& path,
                                               std::string_view content) {
-    std::error_code ec;
-    if (std::filesystem::exists(path, ec)) {
+    if (std::error_code ec; std::filesystem::exists(path, ec)) {
         return {};
     }
     if (auto created = create_dir(path.parent_path()); !created.has_value()) {

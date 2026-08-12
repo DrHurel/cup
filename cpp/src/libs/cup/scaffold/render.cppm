@@ -1,6 +1,7 @@
 module;
 #include <expected>
 #include <filesystem>
+#include <functional>
 #include <map>
 #include <string>
 #include <string_view>
@@ -24,7 +25,7 @@ export namespace cup::scaffold {
 // {{hello}} greeting embedding {{name}}) is fully resolved.
 [[nodiscard]] std::expected<std::string, error::Error> render(
     const std::filesystem::path& root, std::string_view family, std::string_view kind,
-    std::string_view name, const std::map<std::string, std::string>& vars);
+    std::string_view name, const std::map<std::string, std::string, std::less<>>& vars);
 
 // rel renders path relative to root for tidy log output.
 [[nodiscard]] std::string rel(const std::filesystem::path& root,

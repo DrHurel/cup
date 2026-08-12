@@ -1,5 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include <functional>
 #include <map>
 #include <string>
 #include <string_view>
@@ -64,7 +65,7 @@ namespace {
 
 // Checks the .cppm-only pair: present with the given values for the modules
 // family, absent entirely below C++20.
-void check_module_keys(const std::map<std::string, std::string>& v, bool modules,
+void check_module_keys(const std::map<std::string, std::string, std::less<>>& v, bool modules,
                         std::string_view prelude, std::string_view import_std) {
     const bool has_prelude = v.contains("std_prelude");
     const bool has_import = v.contains("std_import");

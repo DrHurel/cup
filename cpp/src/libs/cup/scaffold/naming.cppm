@@ -82,8 +82,8 @@ namespace detail {
 
 // validate_non_empty returns an error if s is blank.
 [[nodiscard]] std::expected<void, error::Error> validate_non_empty(std::string_view s) {
-    constexpr std::string_view kSpace = " \t\n\r\f\v";
-    if (s.find_first_not_of(kSpace) == std::string_view::npos) {
+    if (constexpr std::string_view kSpace = " \t\n\r\f\v";
+        s.find_first_not_of(kSpace) == std::string_view::npos) {
         return std::unexpected(error::Error("must not be empty"));
     }
     return {};

@@ -1,6 +1,7 @@
 module;
 #include <array>
 #include <expected>
+#include <functional>
 #include <map>
 #include <optional>
 #include <string>
@@ -16,6 +17,9 @@ export namespace cup::scaffold {
 inline constexpr std::array<int, 5> kStandards{23, 20, 17, 14, 11};
 
 // std_label renders a standard as it appears in the picker, e.g. 23 -> "c++23".
+// Concatenation, not std::format: <format> is cup.scaffold's one heavy-header
+// partition already (see render.cppm's note), and this partition stays off
+// that list entirely.
 [[nodiscard]] std::string std_label(int std) { return "c++" + std::to_string(std); }
 
 namespace detail {
@@ -51,7 +55,7 @@ namespace detail {
 // parse_std reads a standard from a picker label ("c++23") or a bare number
 // ("23"), rejecting anything cup does not scaffold.
 [[nodiscard]] std::expected<int, error::Error> parse_std(std::string_view s) {
-    if (s.size() > 3 && s.substr(0, 3) == "c++") {
+    if (s.size() > 3 && s.starts_with("c++")) {
         s = s.substr(3);
     }
     if (const auto n = detail::parse_int(s); n.has_value()) {
@@ -91,8 +95,8 @@ namespace detail {
 // function of std because C++23 can be built either way: `import std;` needs
 // GCC 15 and CMake 3.30, so a C++23 project on a GCC 14 floor keeps the global
 // module fragment while still getting C++23's std::println.
-[[nodiscard]] std::map<std::string, std::string> std_vars(int std, bool std_module) {
-    std::map<std::string, std::string> vars{
+[[nodiscard]] std::map<std::string, std::string, std::less<>> std_vars(int std, bool std_module) {
+    std::map<std::string, std::string, std::less<>> vars{
         {"std_number", std::to_string(std)},
     };
     if (std >= 23 && std_module) {
@@ -101,22 +105,22 @@ namespace detail {
         // Surrounding blank lines so the .cppm greeting matches C++23's original
         // spacing; empty std_prelude leaves nothing before the module decl.
         vars["std_import"] = "\nimport std;\n";
-        vars["hello"] = "std::println(\"Hello from {{name}}!\");";
+        vars["hello"] = R"(std::println("Hello from {{name}}!");)";
     } else if (std >= 23) {
         // C++23 without the std module: std::println comes from <print>, which is
         // the standard header — only the *module* form of the library is missing.
         vars["std_lib"] = "#include <print>";
         vars["std_prelude"] = "module;\n#include <print>\n";
         vars["std_import"] = "";
-        vars["hello"] = "std::println(\"Hello from {{name}}!\");";
+        vars["hello"] = R"(std::println("Hello from {{name}}!");)";
     } else if (std >= 20) {
         vars["std_lib"] = "#include <iostream>";
         vars["std_prelude"] = "module;\n#include <iostream>\n";
         vars["std_import"] = "";
-        vars["hello"] = "std::cout << \"Hello from {{name}}!\\n\";";
+        vars["hello"] = R"(std::cout << "Hello from {{name}}!\n";)";
     } else {
         vars["std_lib"] = "#include <iostream>";
-        vars["hello"] = "std::cout << \"Hello from {{name}}!\\n\";";
+        vars["hello"] = R"(std::cout << "Hello from {{name}}!\n";)";
     }
     return vars;
 }
