@@ -8,6 +8,8 @@ target_sources(scaffold
         Render.cpp
         Cmake.cpp
         Compiler.cpp
+        Releases.cpp
+        Dockerhub.cpp
     PUBLIC
         FILE_SET CXX_MODULES FILES
             scaffold.cppm
@@ -16,9 +18,12 @@ target_sources(scaffold
             render.cppm
             cmake.cppm
             compiler.cppm
+            releases.cppm
+            dockerhub.cppm
 )
 target_compile_features(scaffold PUBLIC cxx_std_23)
 # :render is the one partition that imports cup.tmpl (template lookup) and
-# cup.ui (overwrite prompt, status lines); cup.error supplies the E of every
-# std::expected result.
-target_link_libraries(scaffold PUBLIC error tmpl ui)
+# cup.ui (overwrite prompt, status lines); :releases and :dockerhub import
+# cup.platform (http_get). cup.error supplies the E of every std::expected
+# result.
+target_link_libraries(scaffold PUBLIC error tmpl ui platform)

@@ -17,4 +17,8 @@ FetchContent_Declare(
   GIT_TAG v3.9.1
 )
 FetchContent_MakeAvailable(Catch2)
-find_package(CURL REQUIRED) # cup-apt: libcurl4-openssl-dev
+# GLOBAL: find_package's imported targets are scoped to this directory (and its
+# children) by default, but cup.platform needing CURL::libcurl lives under
+# src/libs, a sibling of third_party — without GLOBAL the target is invisible
+# there.
+find_package(CURL REQUIRED GLOBAL) # cup-apt: libcurl4-openssl-dev
