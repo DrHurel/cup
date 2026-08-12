@@ -194,12 +194,26 @@ jobs:
       # Together they take coverage on new code from 78% to 98% without a single
       # test changing, so keep them: dropping them does not make the gate
       # stricter, it makes it measure the compiler's exception tables.
+      #
+      # --gcov-ignore-errors all, not just no_working_dir_found: any TU that
+      # imports a named module gets a gcno note pointing at the module's BMI
+      # name (e.g. "cup.error") instead of a real path — gcc/gcov has no
+      # source file to open for that, so gcov reports it as source_not_found.
+      # gcovr 7.0 (what apt installs on noble, and what this job pins via
+      # g++-14/ninja-build/cmake/gcovr) treats an unignored gcov error as
+      # fatal *for that whole translation unit* and drops the file from the
+      # report outright, rather than degrading gracefully like 8.x does. That
+      # silently deleted cpp/src/libs/cup/scaffold/{Cmake,Releases,Render}.cpp
+      # from cpp/coverage.xml — Sonar then has zero coverage data for them, so
+      # every new line in those files reads as uncovered. Measured on this
+      # branch: new_coverage went from 59.3% (gate: fail, needs 80%) to 93.1%
+      # once source_not_found was ignored too, with no test changes at all.
       - name: Generate the C++ coverage report
         run: |
           gcovr --root . \
                 --gcov-executable gcov-14 \
                 --gcov-exclude '.*/_deps/.*' \
-                --gcov-ignore-errors no_working_dir_found \
+                --gcov-ignore-errors all \
                 --exclude '.*/_deps/.*' \
                 --exclude '.*/generated/.*' \
                 --exclude 'cpp/src/tests/.*' \
