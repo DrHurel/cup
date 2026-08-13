@@ -39,7 +39,11 @@ jobs:
         run: mv dist/cup dist/cup-linux-x86_64-musl
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        # SHA-pinned, not @v2: this step runs with contents:write and
+        # publishes the release, so it gets the same treatment as the
+        # SonarCloud scan action in ci.yml — SonarCloud's githubactions:S7637
+        # flags a floating tag on a step this sensitive as a vulnerability.
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           files: dist/cup-linux-x86_64-musl
           generate_release_notes: true
