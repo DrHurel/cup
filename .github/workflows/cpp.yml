@@ -28,11 +28,17 @@ env:
   CMAKE_GENERATOR: Ninja
 
 jobs:
-  # The compiler floor. cup pins GCC >= 14 / Clang >= 18, and GCC's module
-  # implementation has its sharpest edges at 14 — so the floor is where the build
-  # must be proven, not just the newest toolchain.
-  build-gcc14:
-    name: gcc-14 (floor) — build + test + coverage
+  # The compiler floor. cup pins GCC >= 15 / Clang >= 18 (raised from GCC 14 in
+  # Phase 4 — see docs/migration-cpp23.md's Phase 4 note: cup.cmd is the first
+  # module needing cup.project + cup.scaffold + cup.tmpl + cup.ui + cup.platform
+  # all reachable at once, and GCC 14's modules implementation hits a hard,
+  # unfixable-in-source limit at that breadth — write_location ICEs and
+  # "incomplete type" corruption merging cup.ui's and cup.scaffold's BMIs, not
+  # a bug restructuring can route around). Ubuntu 24.04 has no official g++-15
+  # package, so this needs the same ubuntu-toolchain-r PPA the canary job below
+  # already trusts.
+  build-gcc15:
+    name: gcc-15 (floor) — build + test + coverage
     runs-on: ubuntu-24.04
 
     permissions:
@@ -43,32 +49,42 @@ jobs:
 
       - name: Install toolchain
         run: |
+          sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            g++-14 ninja-build cmake libcurl4-openssl-dev lcov
+            g++-15 ninja-build cmake libcurl4-openssl-dev lcov bats
 
       - name: Show toolchain versions
         run: |
-          g++-14 --version | head -1
+          g++-15 --version | head -1
           cmake --version | head -1
           ninja --version
 
       # FetchContent clones toml++ and Catch2 on every configure; cache the
       # populated _deps tree so PRs do not re-clone them each run.
+      #
+      # Keyed on the compiler too, not just third_party/CMakeLists.txt: _deps
+      # holds compiled .gcno/.gcda coverage artifacts, and restoring a cache
+      # built by a different GCC (e.g. across the GCC 14 -> 15 floor bump)
+      # mixes gcov note/data format versions — geninfo then fails with
+      # "stamp mismatch with notes file" / "version 'B42*', prefer 'B52*'"
+      # instead of silently reusing a compatible cache. The restore-keys
+      # prefix carries the same suffix, or a floor bump would still fall back
+      # to the stale entry as a "partial match".
       - name: Cache FetchContent dependencies
         uses: actions/cache@v4
         with:
           path: cpp/build/Coverage/_deps
-          key: ${{ runner.os }}-deps-${{ hashFiles('cpp/third_party/CMakeLists.txt') }}
-          restore-keys: ${{ runner.os }}-deps-
+          key: ${{ runner.os }}-deps-gcc15-${{ hashFiles('cpp/third_party/CMakeLists.txt') }}
+          restore-keys: ${{ runner.os }}-deps-gcc15-
 
       # Coverage is a first-class build mode in a cup project, so the gcov run is
       # the same build the tests run against — no second configure.
       - name: Configure (Coverage)
         working-directory: cpp
         env:
-          CC: gcc-14
-          CXX: g++-14
+          CC: gcc-15
+          CXX: g++-15
         run: cmake -B build/Coverage -DCMAKE_BUILD_TYPE=Coverage
 
       - name: Build
@@ -89,14 +105,22 @@ jobs:
           # catch_reporter_sonarqube.hpp), and geninfo treats an unopenable source as a
           # hard error. Excluding _deps at capture also skips ~100 Catch2 objects that
           # the --remove below would drop anyway.
+          #
+          # `negative` and `inconsistent` cover the same class of GCC 15 +
+          # named-modules gcov note-file quirk as gcovr's --gcov-ignore-errors
+          # all in the sonarcloud job (see ci.yml): heavily-instantiated STL
+          # headers (<charconv>, <unicode.h>, ...), pulled in from dozens of
+          # translation units, occasionally produce a negative merged count or
+          # a hit/not-hit mismatch that lcov 2.x's stricter consistency checks
+          # now treat as fatal by default where lcov 1.x only warned.
           lcov --capture --directory build/Coverage --output-file coverage.info \
-               --gcov-tool gcov-14 --exclude '*/_deps/*' \
-               --ignore-errors empty,mismatch,source
+               --gcov-tool gcov-15 --exclude '*/_deps/*' \
+               --ignore-errors empty,mismatch,source,negative,inconsistent
           # Third-party and generated sources are not ours to cover.
           lcov --remove coverage.info \
                '/usr/*' '*/build/*/_deps/*' '*/build/*/generated/*' \
-               --output-file coverage.info --ignore-errors empty,unused
-          lcov --list coverage.info
+               --output-file coverage.info --ignore-errors empty,unused,inconsistent
+          lcov --list coverage.info --ignore-errors inconsistent
 
       - name: Upload coverage
         uses: actions/upload-artifact@v4
@@ -125,7 +149,7 @@ jobs:
           sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            g++-16 ninja-build cmake libcurl4-openssl-dev
+            g++-16 ninja-build cmake libcurl4-openssl-dev bats
 
       - name: Configure
         working-directory: cpp
@@ -148,10 +172,13 @@ jobs:
   # discover compiler releases. glibc's getaddrinfo dlopen's NSS modules at
   # runtime, so a -static glibc binary fails DNS on any host whose glibc differs
   # from the build host's. musl's resolver is static-clean.
+  #
+  # alpine:3.23, not 3.22: 3.22 only carries GCC 14.2, and the floor is GCC 15
+  # (see build-gcc15's comment above). 3.23 carries GCC 15.2.
   release-musl-static:
     name: alpine musl-static
     runs-on: ubuntu-24.04
-    container: alpine:3.22
+    container: alpine:3.23
 
     permissions:
       contents: read
@@ -169,7 +196,7 @@ jobs:
         # third_party/CMakeLists.txt's CURL_USE_STATIC_LIBS branch).
         run: |
           apk add --no-cache \
-            build-base cmake ninja-build ninja-is-really-ninja git pkgconf \
+            build-base cmake ninja-build ninja-is-really-ninja git pkgconf file \
             curl-dev curl-static \
             openssl-libs-static zlib-static nghttp2-static brotli-static \
             zstd-static libpsl-static libunistring-static libidn2-static
@@ -200,6 +227,15 @@ jobs:
 
       # Proves the "static" in musl-static. Until Phase 4 lands an executable
       # there is nothing to check, so an empty bin/ is not yet a failure.
+      #
+      # Checked via `file`, not `ldd`: musl/Alpine's toolchain defaults to
+      # static-*pie* (position-independent) executables, and a PIE binary
+      # carries an ELF interpreter entry (pointing at itself) regardless of
+      # whether it's statically or dynamically linked — musl's ldd reports that
+      # interpreter path either way, so "not a dynamic executable" never
+      # matches a real static-pie cup binary even though it has zero NEEDED
+      # entries (verified with `readelf -d`). `file`'s "static-pie linked" vs
+      # "dynamically linked" distinction is the one that actually tracks it.
       - name: Verify the binary is static
         working-directory: cpp
         run: |
@@ -208,9 +244,8 @@ jobs:
             exit 0
           fi
           file build/Release/bin/cup
-          if ldd build/Release/bin/cup 2>&1 | grep -qv 'not a dynamic executable'; then
+          if file build/Release/bin/cup | grep -q 'dynamically linked'; then
             echo "ERROR: binary is dynamically linked"
-            ldd build/Release/bin/cup
             exit 1
           fi
           ./build/Release/bin/cup --help || true

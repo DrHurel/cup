@@ -14,9 +14,9 @@ possible demo.
 |---|---|
 | Language | C++23 (`-std=c++23`, no GNU extensions) |
 | Structure | Named modules (`.cppm`), **no `import std;` yet** — `cpp_standard = 23` + `std_module = false` |
-| Compiler floor | GCC 14 / Clang 18 (with libstdc++ 14) |
+| Compiler floor | GCC 15 / Clang 18 (with libstdc++ 15) — raised from GCC 14 in Phase 4, see its note |
 | Build | CMake 3.28+, **Ninja only** |
-| Release binary | musl-static, built in `alpine:3.22` |
+| Release binary | musl-static, built in `alpine:3.23` |
 | Tests | Catch2 v3 |
 | Deps | toml++, Catch2, libcurl |
 
@@ -29,9 +29,13 @@ sites.
 
 **Named modules, but not `import std;` yet.** The two are independent. Named
 modules need GCC 14; `import std;` needs GCC 15 + CMake 3.30 behind an
-experimental UUID gate that changes between CMake releases. GCC 14 keeps
-`alpine:3.22` (GCC 14.2) viable as the static build container. Use a global
-module fragment for now:
+experimental UUID gate that changes between CMake releases. GCC 14 was
+originally the floor for exactly that reason, keeping `alpine:3.22` (GCC 14.2)
+viable as the static build container — Phase 4 raised the floor to GCC 15 for
+an unrelated reason (see its note), which makes this distinction moot for
+cup's own build but not for what it recommends: a scaffolded project still has
+no reason to require the std module, and `std_module = false` remains the way
+to say so. Use a global module fragment for now:
 
 ```cpp
 module;
@@ -111,8 +115,10 @@ std_module = false     # named modules, global module fragment, GCC 14 floor
 opt-in). Unset, it follows the standard, so nothing else changes: C++23 still
 means `import std;` and C++20 still means a global module fragment. `cup new` has
 no picker for it yet — `cpp/cup.toml` sets it by hand — and `scaffold.MinCompilers`
-still maps 23 → GCC 15, which is only a *default*: cpp/ pins GCC 14 / Clang 18 in
-`[compiler]`, and pinned floors win.
+still maps 23 → GCC 15, which is only a *default*: cpp/ pins GCC 15 / Clang 18 in
+`[compiler]` (GCC 15 for an unrelated reason — see Phase 4's note — not because
+`std_module = false` requires it; that part only ever needed GCC 14), and
+pinned floors win.
 
 Still open: a `cup embed <dir>` command. The CMake codegen that replaces
 `//go:embed` is hand-written in Phase 1.3 and is a feature other C++ CLI projects
@@ -333,8 +339,8 @@ Two notes:
   than deriving it from the standard, and has *three* module-family cases — C++23
   with `import std;`, C++23 without it (a `module;` + `#include <print>` prelude,
   still `std::println`), and C++20 (`<iostream>` prelude, `std::cout`). The middle
-  one is what builds cup itself; if it regresses, `cup add` starts writing sources
-  cup's own GCC 14 floor cannot compile.
+  one is what builds cup itself; if it regresses, `cup add` starts writing
+  `import std;` sources that violate cup's own `std_module = false` setting.
 
 **Milestone:** the C++ `cup.scaffold` reproduces every golden tree from Phase
 0.2 byte for byte.
@@ -365,6 +371,61 @@ export std::expected<void, Error> run_command(
 ```
 
 Keep the test seam — Catch2 tests replace it exactly as the Go tests do.
+
+### The floor moved to GCC 15
+
+Groups 1–3 (build/run, new/add, template/completion) landed clean, but group 3
+made `cup.cmd` the first module needing `cup.project` + `cup.scaffold` +
+`cup.tmpl` + `cup.ui` + `cup.platform` all reachable at once — every prior
+module kept its `.cppm` interfaces down to `cup.error` alone, pushing anything
+heavier into implementation units (see Phase 2's two constraints). `cup.cmd`
+can't do that: its whole job is exposing functions that take a `Project` and
+orchestrate `ui` + `scaffold` + `platform` together, so the type has to be in
+the exported interface, not hidden in a `.cpp`.
+
+That combination is a hard GCC 14 limitation, not a single fixable bug. Once
+`cup.cmd` reached 7 partitions, `cmd.cppm`'s own primary-interface write hit
+
+```
+internal compiler error: in write_location, at cp/module.cc:16271
+```
+
+preceded by `note: unable to represent further imported source locations` —
+GCC 14's 32-bit `location_t` running out of room to encode which module a
+declaration was imported through. Splitting the 7 partitions into standalone
+modules (so no single file's BMI write had to merge all of them into one
+cluster) fixed *that* ICE, but the same root cause resurfaced one layer down:
+any file calling `ui::text(question, def, scaffold::validate_ident)` — the
+exact shape `cup add`/`cup new`/`cup template` all need for validated prompts
+— hit `incomplete type ... used in nested name specifier` merging `cup.ui`'s
+and `cup.scaffold`'s BMIs, confirmed to reproduce in a completely plain,
+non-module `.cpp` file that does nothing but `import` both and call `ui::text`
+once. Not a partition problem, not a "too many exports" problem — GCC 14 loses
+track of which module owns a `std::function` instantiation once a free
+function crosses from one module into another module's `std::function`
+parameter, and there is no way to avoid that shape for what these commands do.
+
+The real fix (`--enable-large-source-locations`) is a GCC *build-time*
+configure flag, not something `apt install g++-14` gives you, and no later
+14.x point release fixes it. GCC 15 and 16 don't have the limitation
+(confirmed locally and via CI's own GCC 16 canary, which was green throughout).
+Given the release artifact is a static musl binary — most users never touch a
+compiler at all — the floor moved to GCC 15 rather than fighting a GCC 14 bug
+with no source-level fix:
+
+- **`alpine:3.22` → `alpine:3.23`** (GCC 15.2) for the release container. A
+  same-distro version bump, not a platform change.
+- **CI's floor job** (`ubuntu-24.04`) needs `g++-15` from the
+  `ubuntu-toolchain-r/test` PPA — noble's own archive tops out at `g++-13`,
+  and unlike `g++-14` there is no official `g++-15` package for it yet
+  (earliest is Ubuntu 25.10). The canary job already trusted this PPA for
+  `g++-16`, so the floor job now shares that same trust rather than adding a
+  second one.
+- **Contributors building from source** need the same PPA (or a newer
+  Ubuntu/Fedora 42+/any rolling release, all of which already ship GCC 15
+  natively) — a real cost, but one that lands on a much smaller audience than
+  "everyone who runs `cup`," since the primary distribution path is the
+  precompiled static binary.
 
 ---
 
@@ -404,12 +465,17 @@ from-source path; everyone else gets the static release binary.
 ## Phase 6 — Retire Go
 
 1. Move Go sources to a `go-legacy` branch; delete from `main`.
-2. Rewrite `README.md`: new build instructions, the GCC 14 / CMake 3.28 / Ninja
-   floor, the `apt install g++-14` line for Ubuntu 24.04, and the honest note
-   that cup's Make backend cannot build cup.
+2. Rewrite `README.md`: new build instructions, the GCC 15 / CMake 3.28 / Ninja
+   floor, and the honest notes that Ubuntu 24.04 needs the
+   `ubuntu-toolchain-r/test` PPA for `g++-15` (no official package yet — see
+   Phase 4's note) and that cup's Make backend cannot build cup. Lead with the
+   precompiled static binary as the primary path — most users never need a
+   compiler at all — and put "building from source" second.
 3. Rewrite `sonar-project.properties` for C++ (`sonar.cfamily.*`, gcov reports).
-4. Add `CONTRIBUTING.md` — the point of the whole exercise. Lead with: *clone,
-   `apt install g++-14 ninja-build cmake`, build.*
+4. Add `CONTRIBUTING.md` for the from-source path. Lead with: *clone, add the
+   `ubuntu-toolchain-r/test` PPA (or use an OS that already ships GCC 15+ —
+   Fedora 42+, any rolling release), `apt install g++-15 ninja-build cmake`,
+   build.*
 5. Delete `go.mod`, `go.sum`, `coverage.out`.
 
 ---
@@ -431,13 +497,17 @@ Expect the C++ to land at roughly 1.5× the Go line count, plus build files.
 
 ## Risks
 
-**GCC 14 module bugs.** The real one — and now largely *characterised* rather
-than merely feared. Phase 2 hit both failure modes (BMI merge failure, and an ICE
-on a large header in an interface unit's global module fragment), and both have
-mechanical fixes that are documented above and cost nothing to apply up front:
-keep the heavy headers in one partition, and keep third-party libraries in
-implementation units. The fallback to headers with the C++23 decision intact
-remains available but no longer looks necessary.
+**GCC 14 module bugs.** The real one, and it materialized beyond what Phase 2
+characterised. Phase 2's two failure modes (BMI merge failure, and an ICE on a
+large header in an interface unit's global module fragment) both have
+mechanical, source-level fixes — keep the heavy headers in one partition, keep
+third-party libraries in implementation units — and those fixes held for
+Phases 2 and 3. Phase 4 found a third: GCC 14's import-location table has a
+hard capacity limit with no source-level workaround, and `cup.cmd` is the
+first module wide enough to hit it (see its note). That one forced raising the
+floor to GCC 15 rather than being mechanically fixable in place. The fallback
+to headers with the C++23 decision intact remains available but still doesn't
+look necessary — the floor move resolved it without giving up modules.
 
 **`cup.cmd` is 60% of the port.** Mitigation: strictly command-by-command, with
 the Go binary shippable at every commit.

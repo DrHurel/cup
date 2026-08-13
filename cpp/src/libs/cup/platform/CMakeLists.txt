@@ -1,15 +1,17 @@
 add_library(platform)
 target_sources(platform
     PRIVATE
-        # A module implementation unit, so a plain source rather than a member of
-        # the CXX_MODULES file set: it produces no BMI of its own, which is exactly
-        # why libcurl lives there. See net.cppm.
+        # Module implementation units, so plain sources rather than members of
+        # the CXX_MODULES file set: neither produces a BMI of its own, which is
+        # exactly why libcurl lives in one of them. See net.cppm / process.cppm.
         Http.cpp
+        Process.cpp
     PUBLIC
         FILE_SET CXX_MODULES FILES
             platform.cppm
             Terminal.cppm
             net.cppm
+            process.cppm
 )
 target_compile_features(platform PUBLIC cxx_std_23)
 # cup scaffolds targets but does not wire dependencies between them, so module

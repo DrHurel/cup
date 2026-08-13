@@ -7,9 +7,14 @@
 #include <unistd.h>
 
 #include <expected>
+#include <filesystem>
+#include <span>
 #include <string>
+#include <string_view>
 #include <utility>
+#include <vector>
 
+#include "TempDir.hpp"
 #include "TestHttpServer.hpp"
 
 import cup.platform;
@@ -18,6 +23,22 @@ namespace {
 
 using cup::error::Error;
 using cup::platform::RawMode;
+using cup::test::TempDir;
+
+// Restores a mutable global (an overridable hook) to its prior value when the
+// test ends, mirroring releases_test.cpp's ScopedOverride.
+template <typename T>
+class ScopedOverride {
+public:
+    ScopedOverride(T& slot, T value) : slot_(slot), previous_(slot) { slot_ = std::move(value); }
+    ~ScopedOverride() { slot_ = std::move(previous_); }
+    ScopedOverride(const ScopedOverride&) = delete;
+    ScopedOverride& operator=(const ScopedOverride&) = delete;
+
+private:
+    T& slot_;
+    T previous_;
+};
 
 class Pty {
 public:
@@ -229,4 +250,64 @@ TEST_CASE("http_get reports a non-200 response as an error", "[platform][http]")
 TEST_CASE("http_get reports a malformed url as an error", "[platform][http]") {
     const auto body = cup::platform::http_get("://not-a-url");
     REQUIRE_FALSE(body.has_value());
+}
+
+TEST_CASE("run_command succeeds for a zero-exit program", "[platform][process]") {
+    const TempDir dir;
+    const auto result = cup::platform::run_command(dir.path(), "true", {});
+    REQUIRE(result.has_value());
+}
+
+TEST_CASE("run_command reports a non-zero exit as an error", "[platform][process]") {
+    const TempDir dir;
+    const auto result = cup::platform::run_command(dir.path(), "false", {});
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message() == "command failed: false : exit status 1");
+    REQUIRE(result.error().kind() == Error::Kind::General);
+}
+
+TEST_CASE("run_command reports a missing binary as an error", "[platform][process]") {
+    const TempDir dir;
+    const auto result = cup::platform::run_command(dir.path(), "cup-test-does-not-exist", {});
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message().starts_with("command failed: cup-test-does-not-exist"));
+}
+
+TEST_CASE("run_command runs the program with dir as its working directory",
+          "[platform][process]") {
+    const TempDir dir;
+    const std::vector<std::string> args{"-c", "touch marker"};
+    const auto result = cup::platform::run_command(dir.path(), "sh", args);
+    REQUIRE(result.has_value());
+    REQUIRE(std::filesystem::exists(dir.path() / "marker"));
+}
+
+TEST_CASE("run_command passes args through to the child", "[platform][process]") {
+    const TempDir dir;
+    const std::vector<std::string> args{"-c", "exit $1", "_", "7"};
+    const auto result = cup::platform::run_command(dir.path(), "sh", args);
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message().ends_with("exit status 7"));
+}
+
+TEST_CASE("run_command reports a signal-terminated child as an error", "[platform][process]") {
+    const TempDir dir;
+    const std::vector<std::string> args{"-c", "kill -TERM $$"};
+    const auto result = cup::platform::run_command(dir.path(), "sh", args);
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message().ends_with("signal 15"));
+}
+
+TEST_CASE("run_command_func is the override point for run_command", "[platform][process]") {
+    ScopedOverride override_func(
+        cup::platform::run_command_func(),
+        cup::platform::RunCommandFunc{[](const std::filesystem::path&, std::string_view,
+                                         std::span<const std::string>)
+                                          -> std::expected<void, Error> {
+            return std::unexpected(Error("stubbed"));
+        }});
+    const TempDir dir;
+    const auto result = cup::platform::run_command(dir.path(), "true", {});
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message() == "stubbed");
 }

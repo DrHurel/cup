@@ -7,8 +7,8 @@ project(cup VERSION 0.1.0 LANGUAGES C CXX)
 # Minimum compiler versions, managed by `cup compiler`. Building with an older
 # toolchain stops here instead of failing deep in a compile. Change a floor with
 # `cup compiler set gcc|clang <version>` (docker-verified before it is committed).
-if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 14)
-  message(FATAL_ERROR "cup: this project requires GCC >= 14 (have ${CMAKE_CXX_COMPILER_VERSION}). Lower the floor with `cup compiler set gcc <version>`.")
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 15)
+  message(FATAL_ERROR "cup: this project requires GCC >= 15 (have ${CMAKE_CXX_COMPILER_VERSION}). Lower the floor with `cup compiler set gcc <version>`.")
 elseif(CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 18)
   message(FATAL_ERROR "cup: this project requires Clang >= 18 (have ${CMAKE_CXX_COMPILER_VERSION}). Lower the floor with `cup compiler set clang <version>`.")
 endif()
@@ -17,12 +17,14 @@ endif()
 # C++23 with named modules but WITHOUT `import std;` — what cup.toml records as
 # `cpp_standard = 23` + `std_module = false`.
 #
-# The two are separate capabilities: named modules need GCC 14, while `import std;`
-# needs GCC 15 and CMake 3.30 behind an experimental gate. Declining the std module
-# keeps the GCC 14 floor (and so alpine:3.22 as the static build container) while
-# std::expected and std::print — standard-library *features*, not std-module ones —
-# are available. cup honours std_module, so `cup add` keeps scaffolding
-# global-module-fragment sources at this standard.
+# The two are separate capabilities: named modules need GCC 14 (cup's floor is
+# GCC 15 — see docs/migration-cpp23.md's Phase 4 note on why it moved up from
+# 14 — but that was forced by a different GCC 14 modules bug, not by this
+# decision), while `import std;` needs GCC 15 and CMake 3.30 behind an
+# experimental gate. Declining the std module keeps std::expected and
+# std::print — standard-library *features*, not std-module ones — available
+# without opting into that experimental gate. cup honours std_module, so
+# `cup add` keeps scaffolding global-module-fragment sources at this standard.
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)   # -std=c++23, not -std=gnu++23
