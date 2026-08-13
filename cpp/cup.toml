@@ -5,13 +5,13 @@ std_module = false
 build_tool = "cmake"
 
 [compiler]
-  gcc = 14
+  gcc = 15
   clang = 18
 
 [docker]
 
   [[docker.image]]
     name = "cup"
-    base = "gcc:14"
+    base = "gcc:15"
     version = 0
     default = true

@@ -173,8 +173,10 @@ in `cup.toml` keeps the **CMake 3.28 / GCC 14** requirements of C++20 modules wh
 fragment instead of `import std;`, with `std::println` and `std::expected`
 available as ordinary standard-library features. Leave `std_module` out and the
 standard decides (C++23 uses the std module, C++20 cannot). `cup new` has no
-prompt for it yet, so set it by hand; cup's own C++ port under `cpp/` is built
-this way.
+prompt for it yet, so set it by hand; cup's own C++ port under `cpp/` sets
+`std_module = false` this way, though it separately pins a GCC 15 floor of its
+own — an unrelated GCC 14 modules limitation, not a `std_module` requirement;
+see `docs/migration-cpp23.md`'s Phase 4 note.
 
 On an older toolchain `cup build` stops at CMake's version check — scaffolding
 still works everywhere.
