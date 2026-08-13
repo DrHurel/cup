@@ -62,12 +62,21 @@ jobs:
 
       # FetchContent clones toml++ and Catch2 on every configure; cache the
       # populated _deps tree so PRs do not re-clone them each run.
+      #
+      # Keyed on the compiler too, not just third_party/CMakeLists.txt: _deps
+      # holds compiled .gcno/.gcda coverage artifacts, and restoring a cache
+      # built by a different GCC (e.g. across the GCC 14 -> 15 floor bump)
+      # mixes gcov note/data format versions — geninfo then fails with
+      # "stamp mismatch with notes file" / "version 'B42*', prefer 'B52*'"
+      # instead of silently reusing a compatible cache. The restore-keys
+      # prefix carries the same suffix, or a floor bump would still fall back
+      # to the stale entry as a "partial match".
       - name: Cache FetchContent dependencies
         uses: actions/cache@v4
         with:
           path: cpp/build/Coverage/_deps
-          key: ${{ runner.os }}-deps-${{ hashFiles('cpp/third_party/CMakeLists.txt') }}
-          restore-keys: ${{ runner.os }}-deps-
+          key: ${{ runner.os }}-deps-gcc15-${{ hashFiles('cpp/third_party/CMakeLists.txt') }}
+          restore-keys: ${{ runner.os }}-deps-gcc15-
 
       # Coverage is a first-class build mode in a cup project, so the gcov run is
       # the same build the tests run against — no second configure.

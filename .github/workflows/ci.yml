@@ -141,12 +141,15 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             g++-15 ninja-build cmake libcurl4-openssl-dev gcovr
 
+      # Keyed on the compiler too — see cpp.yml's floor job cache for why a
+      # bare third_party/CMakeLists.txt hash isn't enough (mixed-GCC gcov
+      # format mismatches on a floor bump).
       - name: Cache FetchContent dependencies
         uses: actions/cache@v4
         with:
           path: cpp/build/Coverage/_deps
-          key: ${{ runner.os }}-sonar-deps-${{ hashFiles('cpp/third_party/CMakeLists.txt') }}
-          restore-keys: ${{ runner.os }}-sonar-deps-
+          key: ${{ runner.os }}-sonar-deps-gcc15-${{ hashFiles('cpp/third_party/CMakeLists.txt') }}
+          restore-keys: ${{ runner.os }}-sonar-deps-gcc15-
 
       # Must land on the path sonar.cfamily.compile-commands names.
       - name: Configure the C++ port
