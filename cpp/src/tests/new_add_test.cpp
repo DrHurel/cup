@@ -481,3 +481,199 @@ TEST_CASE("run_new (c++23, std_module = false) never writes import std;", "[cmd]
     REQUIRE(file_contains(proj.src() / "libs" / "utils" / "utils.cppm", "module;\n#include <string>\n"));
     REQUIRE(file_contains(proj.src() / "libs" / "utils" / "Utils.cppm", "#include <print>"));
 }
+
+TEST_CASE("run_add dispatches an explicit category without prompting",
+          "[cmd][add][end-to-end]") {
+    const TempDir dir;
+    const Project proj = scaffold_project(dir, "1", 23, "1");
+    const ScopedCwd cwd(proj.root);
+
+    const ScopedStdin not_a_terminal("");
+    std::istringstream in("hello\n\n");
+    const cup::ui::ScopedInput scoped(in);
+
+    auto result = cup::cmd::run_add(std::vector<std::string>{"app"});
+    REQUIRE(result.has_value());
+    REQUIRE(std::filesystem::exists(proj.src() / "apps" / "hello" / "hello.cpp"));
+}
+
+TEST_CASE("run_add rejects third-party (not ported yet) and an unknown category",
+          "[cmd][add]") {
+    const TempDir dir;
+    const Project proj = scaffold_project(dir, "1", 23, "1");
+    const ScopedCwd cwd(proj.root);
+
+    auto third_party = cup::cmd::run_add(std::vector<std::string>{"third-party"});
+    REQUIRE_FALSE(third_party.has_value());
+
+    auto unknown = cup::cmd::run_add(std::vector<std::string>{"bogus"});
+    REQUIRE_FALSE(unknown.has_value());
+}
+
+TEST_CASE("run_add prompts for a category, then offers to add another",
+          "[cmd][add][end-to-end]") {
+    const TempDir dir;
+    const Project proj = scaffold_project(dir, "1", 23, "1");
+    const ScopedCwd cwd(proj.root);
+
+    const ScopedStdin not_a_terminal("");
+    // category=app(1), app name, source filename (blank -> default), then
+    // "add another?" answered no.
+    std::istringstream in("1\nhello\n\nn\n");
+    const cup::ui::ScopedInput scoped(in);
+
+    auto result = cup::cmd::run_add({});
+    REQUIRE(result.has_value());
+    REQUIRE(std::filesystem::exists(proj.src() / "apps" / "hello" / "hello.cpp"));
+}
+
+TEST_CASE("add_file_to_lib adds a second component to an existing modules lib",
+          "[cmd][add][end-to-end]") {
+    const TempDir dir;
+    const Project proj = scaffold_project(dir, "1", 23, "1");
+    const std::size_t class_index = index_of_kind(proj.root, "modules", "class");
+
+    {
+        const ScopedStdin not_a_terminal("");
+        std::istringstream in("utils\n" + std::to_string(class_index) + "\n\n");
+        const cup::ui::ScopedInput scoped(in);
+        REQUIRE(cup::cmd::add_lib(proj).has_value());
+    }
+
+    const auto lib_dir = proj.src() / "libs" / "utils";
+    {
+        const ScopedStdin not_a_terminal("");
+        std::istringstream in("json\n" + std::to_string(class_index) + "\n\n");
+        const cup::ui::ScopedInput scoped(in);
+        REQUIRE(cup::cmd::add_file_to_lib(proj, lib_dir).has_value());
+    }
+
+    REQUIRE(std::filesystem::exists(lib_dir / "json.cppm"));
+    REQUIRE(file_contains(lib_dir / "utils.cppm", "export import :json;"));
+    REQUIRE(file_contains(lib_dir / "CMakeLists.txt", "json.cppm"));
+}
+
+TEST_CASE("extend_lib: file adds a component, subfolder recurses into a nested lib",
+          "[cmd][add][end-to-end]") {
+    const TempDir dir;
+    const Project proj = scaffold_project(dir, "1", 23, "1");
+    const std::size_t class_index = index_of_kind(proj.root, "modules", "class");
+
+    {
+        const ScopedStdin not_a_terminal("");
+        std::istringstream in("utils\n" + std::to_string(class_index) + "\n\n");
+        const cup::ui::ScopedInput scoped(in);
+        REQUIRE(cup::cmd::add_lib(proj).has_value());
+    }
+    const auto lib_dir = proj.src() / "libs" / "utils";
+
+    SECTION("file") {
+        const ScopedStdin not_a_terminal("");
+        std::istringstream in("1\njson\n" + std::to_string(class_index) + "\n\n");
+        const cup::ui::ScopedInput scoped(in);
+        REQUIRE(cup::cmd::extend_lib(proj, lib_dir).has_value());
+        REQUIRE(std::filesystem::exists(lib_dir / "json.cppm"));
+    }
+
+    SECTION("subfolder") {
+        const ScopedStdin not_a_terminal("");
+        // extend-as=subfolder(2); no existing subfolders, so pick_or_new goes
+        // straight to a text prompt for the name; then createLibAt's own kind
+        // + symbol (blank -> default) prompts for the nested lib.
+        std::istringstream in("2\nnested\n" + std::to_string(class_index) + "\n\n");
+        const cup::ui::ScopedInput scoped(in);
+        REQUIRE(cup::cmd::extend_lib(proj, lib_dir).has_value());
+        REQUIRE(std::filesystem::exists(lib_dir / "nested" / "nested.cppm"));
+        REQUIRE(file_contains(lib_dir / "CMakeLists.txt", "add_subdirectory(nested)"));
+    }
+}
+
+TEST_CASE("add_lib on a headers-family project delegates through create_lib_at",
+          "[cmd][add][end-to-end][headers]") {
+    const TempDir dir;
+    // std_choice "3", not "1": cmake's standard list is [23,20,17,14,11], and
+    // this test genuinely needs !proj.uses_modules() to exercise
+    // create_lib_at's own header-family dispatch branch (unlike the other
+    // headers-family tests here, which call create_header_lib_at directly
+    // and so don't depend on the fixture project's actual standard).
+    const Project proj = scaffold_project(dir, "1", 17, "3");
+    const std::size_t class_index = index_of_kind(proj.root, "headers", "class");
+
+    const ScopedStdin not_a_terminal("");
+    std::istringstream in("utils\n" + std::to_string(class_index) + "\n\n");
+    const cup::ui::ScopedInput scoped(in);
+
+    auto result = cup::cmd::add_lib(proj);
+    REQUIRE(result.has_value());
+    REQUIRE(std::filesystem::exists(proj.src() / "libs" / "utils" / "utils.hpp"));
+}
+
+TEST_CASE("add_file_to_header_lib adds a second component to an existing header lib",
+          "[cmd][add][end-to-end][headers]") {
+    const TempDir dir;
+    const Project proj = scaffold_project(dir, "1", 17, "1");
+    const std::size_t class_index = index_of_kind(proj.root, "headers", "class");
+
+    const auto lib_dir = proj.src() / "libs" / "utils";
+    {
+        const ScopedStdin not_a_terminal("");
+        std::istringstream in(std::to_string(class_index) + "\nUtils\n");
+        const cup::ui::ScopedInput scoped(in);
+        REQUIRE(cup::cmd::create_header_lib_at(proj, "utils", lib_dir,
+                                               proj.src() / "libs" / "CMakeLists.txt")
+                    .has_value());
+    }
+    {
+        const ScopedStdin not_a_terminal("");
+        std::istringstream in("json\n" + std::to_string(class_index) + "\n\n");
+        const cup::ui::ScopedInput scoped(in);
+        REQUIRE(cup::cmd::add_file_to_header_lib(proj, lib_dir).has_value());
+    }
+
+    REQUIRE(std::filesystem::exists(lib_dir / "json.h"));
+    REQUIRE(std::filesystem::exists(lib_dir / "json.cpp"));
+    REQUIRE(file_contains(lib_dir / "utils.hpp", "#include \"json.h\""));
+    REQUIRE(file_contains(lib_dir / "CMakeLists.txt", "json.h"));
+}
+
+TEST_CASE("create_header_lib_at under Make writes no CMakeLists and no parent registration",
+          "[cmd][add][end-to-end][make]") {
+    const TempDir dir;
+    const Project proj = scaffold_project(dir, "2", 17, "1");
+    const std::size_t class_index = index_of_kind(proj.root, "headers", "class");
+
+    const ScopedStdin not_a_terminal("");
+    std::istringstream in(std::to_string(class_index) + "\n\n");
+    const cup::ui::ScopedInput scoped(in);
+
+    const auto lib_dir = proj.src() / "libs" / "utils";
+    auto result = cup::cmd::create_header_lib_at(proj, "utils", lib_dir,
+                                                  proj.src() / "libs" / "CMakeLists.txt");
+    REQUIRE(result.has_value());
+    REQUIRE(std::filesystem::exists(lib_dir / "utils.hpp"));
+    REQUIRE_FALSE(std::filesystem::exists(lib_dir / "CMakeLists.txt"));
+}
+
+TEST_CASE("choose_test_module prompts and returns the chosen lib, or \"\" for [none]",
+          "[cmd][add]") {
+    const TempDir dir;
+    const Project proj = scaffold_project(dir, "1", 23, "1");
+    std::filesystem::create_directories(proj.src() / "libs" / "utils");
+
+    SECTION("choosing the lib") {
+        const ScopedStdin not_a_terminal("");
+        std::istringstream in("2\n");
+        const cup::ui::ScopedInput scoped(in);
+        auto module = cup::cmd::choose_test_module(proj);
+        REQUIRE(module.has_value());
+        REQUIRE(*module == "utils");
+    }
+    SECTION("choosing [none]") {
+        const ScopedStdin not_a_terminal("");
+        std::istringstream in("1\n");
+        const cup::ui::ScopedInput scoped(in);
+        auto module = cup::cmd::choose_test_module(proj);
+        REQUIRE(module.has_value());
+        REQUIRE(module->empty());
+    }
+}

@@ -17,11 +17,18 @@ struct Command {
     std::function<std::expected<void, error::Error>(std::span<const std::string>)> run;
 };
 
-// commands is the canonical list of cup subcommands, shared by main
-// (dispatch + usage). Declared here, built in Dispatch.cpp: only the 7
-// commands ported so far (Phase 4 group 1) are listed; new/add, template/
-// completion, compiler and docker/register are added as later groups of the
-// migration land.
+// commands is the canonical list of cup subcommands, shared by run_main
+// (dispatch + usage). Declared here, built in Dispatch.cpp: only the
+// commands ported so far are listed; compiler and docker/register are added
+// as later groups of the migration land.
 [[nodiscard]] std::span<const Command> commands();
+
+// run_main is cup's whole CLI entry point: help/no-args prints usage, an
+// unknown command prints usage after an error, and a dispatched command's
+// error is reported as "aborted." (ui.ErrAbort's equivalent) or "error: ...".
+// Returns the process exit code. Kept here (not in main.cpp) so it is
+// reachable from Catch2 like everything else in the port — main.cpp is a
+// three-line shim over this.
+[[nodiscard]] int run_main(std::span<const std::string> args);
 
 }

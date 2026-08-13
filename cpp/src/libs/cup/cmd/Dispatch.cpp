@@ -1,9 +1,14 @@
 module;
 #include <array>
+#include <cstdio>
+#include <expected>
 #include <functional>
 #include <span>
+#include <string>
 #include <typeinfo>
 module cup.cmd;
+
+import cup.ui;
 
 namespace cup::cmd {
 
@@ -22,6 +27,54 @@ std::span<const Command> commands() {
         {"completion", "install or print shell completion <install|bash|zsh|fish>", &run_completion},
     }};
     return table;
+}
+
+namespace {
+
+void usage() {
+    std::puts("cup — scaffold and manage C++23-modules projects");
+    std::puts("");
+    std::puts("usage: cup <command> [args]");
+    std::puts("");
+    std::puts("commands:");
+    for (const auto& c : commands()) {
+        std::printf("  %-11s %s\n", c.name.c_str(), c.summary.c_str());
+    }
+    std::puts("");
+    std::puts(
+        "MODE is one of Debug (default), Release, or Coverage; each gets its own "
+        "build/<MODE> tree.");
+}
+
+}  // namespace
+
+int run_main(std::span<const std::string> args) {
+    if (args.empty() || args[0] == "-h" || args[0] == "--help" || args[0] == "help") {
+        usage();
+        return 0;
+    }
+
+    const std::string& name = args[0];
+    const std::span<const std::string> rest(args.begin() + 1, args.end());
+
+    for (const auto& c : commands()) {
+        if (c.name == name) {
+            if (auto result = c.run(rest); !result.has_value()) {
+                const auto& err = result.error();
+                if (error::is_abort(err)) {
+                    ui::err("aborted.");
+                } else {
+                    ui::err("error: " + err.message());
+                }
+                return 1;
+            }
+            return 0;
+        }
+    }
+
+    ui::err("unknown command \"" + name + "\"");
+    usage();
+    return 1;
 }
 
 }

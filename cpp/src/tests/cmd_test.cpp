@@ -259,6 +259,59 @@ TEST_CASE("run_build configures then builds a cmake project", "[cmd][build][cmak
     REQUIRE(stub.calls()[1] == "cmake --build " + (dir.path() / "build" / "Debug").string());
 }
 
+TEST_CASE("run_configure generates the CMake build system directly, without building",
+          "[cmd][configure][cmake]") {
+    const TempDir dir;
+    make_project(dir);
+    const ScopedCwd cwd(dir.path());
+    StubRunCommand stub;
+
+    const auto result = cup::cmd::run_configure(std::vector<std::string>{"Release"});
+    REQUIRE(result.has_value());
+    REQUIRE(stub.calls().size() == 1);
+    REQUIRE(stub.calls()[0].starts_with("cmake -G Ninja -DCMAKE_BUILD_TYPE=Release"));
+}
+
+TEST_CASE("run_configure is a no-op for a make project", "[cmd][configure][make]") {
+    const TempDir dir;
+    make_project(dir, "make");
+    const ScopedCwd cwd(dir.path());
+    StubRunCommand stub;
+
+    const auto result = cup::cmd::run_configure({});
+    REQUIRE(result.has_value());
+    REQUIRE(stub.calls().empty());
+}
+
+TEST_CASE("run_test configures, builds, then runs ctest for a cmake project",
+          "[cmd][test][cmake]") {
+    const TempDir dir;
+    make_project(dir);
+    const ScopedCwd cwd(dir.path());
+    StubRunCommand stub;
+
+    const auto result = cup::cmd::run_test({});
+    REQUIRE(result.has_value());
+    REQUIRE(stub.calls().size() == 3);
+    REQUIRE(stub.calls()[0].starts_with("cmake -G Ninja -DCMAKE_BUILD_TYPE=Debug"));
+    REQUIRE(stub.calls()[1] == "cmake --build " + (dir.path() / "build" / "Debug").string());
+    REQUIRE(stub.calls()[2] == "ctest --test-dir " + (dir.path() / "build" / "Debug").string() +
+                                   " --output-on-failure");
+}
+
+TEST_CASE("run_retest cleans then tests", "[cmd][retest]") {
+    const TempDir dir;
+    make_project(dir, "make");
+    std::filesystem::create_directories(dir.path() / "build" / "Debug");
+    const ScopedCwd cwd(dir.path());
+    StubRunCommand stub;
+
+    const auto result = cup::cmd::run_retest({});
+    REQUIRE(result.has_value());
+    REQUIRE_FALSE(std::filesystem::exists(dir.path() / "build" / "Debug"));
+    REQUIRE(stub.calls() == std::vector<std::string>{"make MODE=Debug test"});
+}
+
 TEST_CASE("run_rebuild cleans then builds", "[cmd][rebuild]") {
     const TempDir dir;
     make_project(dir, "make");
