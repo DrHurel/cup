@@ -29,7 +29,7 @@ std::string join(std::span<const std::string> args) {
 }
 
 std::expected<void, error::Error> make_build(const project::Project& proj, std::string_view mode) {
-    const std::vector<std::string> args{std::format("MODE={}", mode)};
+    const std::vector args{std::format("MODE={}", mode)};
     return run_shell(proj.root, "make", args);
 }
 

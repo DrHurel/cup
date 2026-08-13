@@ -76,7 +76,7 @@ std::expected<void, error::Error> ensure_zsh_fpath(std::string_view home,
     const std::filesystem::path zshrc = std::filesystem::path(home) / ".zshrc";
     constexpr std::string_view kMarker = "# cup completion";
     if (const auto existing = read_whole_file(zshrc);
-        existing.has_value() && existing->find(kMarker) != std::string::npos) {
+        existing.has_value() && existing->contains(kMarker)) {
         return {};
     }
     const std::string block =
@@ -109,20 +109,21 @@ std::expected<void, error::Error> install_completion(std::span<const std::string
     if (home_env == nullptr) {
         return std::unexpected(error::Error("$HOME is not set"));
     }
-    const std::string home = home_env;
+    const std::filesystem::path home = home_env;
 
     // dest is a file each shell auto-loads on startup: the per-user
     // completion directory for bash and fish, and an fpath directory we
     // register for zsh.
     std::filesystem::path dest;
     if (shell == "bash") {
-        dest = std::filesystem::path(data_home(home)) / "bash-completion" / "completions" / "cup";
+        dest = std::filesystem::path(data_home(home.string())) / "bash-completion" / "completions" /
+               "cup";
     } else if (shell == "fish") {
-        dest = std::filesystem::path(home) / ".config" / "fish" / "completions" / "cup.fish";
+        dest = home / ".config" / "fish" / "completions" / "cup.fish";
     } else if (shell == "zsh") {
-        const std::filesystem::path dir = std::filesystem::path(home) / ".zsh" / "completions";
+        const std::filesystem::path dir = home / ".zsh" / "completions";
         dest = dir / "_cup";
-        if (auto ensured = ensure_zsh_fpath(home, dir); !ensured.has_value()) {
+        if (auto ensured = ensure_zsh_fpath(home.string(), dir); !ensured.has_value()) {
             return std::unexpected(std::move(ensured).error());
         }
     }

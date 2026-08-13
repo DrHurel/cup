@@ -100,7 +100,7 @@ std::vector<std::string> apt_packages(const project::Project& proj) {
         }
         for (const auto field : split_fields(std::string_view(raw).substr(idx + kAptMarker.size()))) {
             const std::string pkg(field);
-            if (std::find(seen.begin(), seen.end(), pkg) == seen.end()) {
+            if (std::ranges::find(seen, pkg) == seen.end()) {
                 seen.push_back(pkg);
                 pkgs.push_back(pkg);
             }

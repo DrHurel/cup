@@ -27,12 +27,13 @@ constexpr std::string_view kNoneSentinel = "[none]";
 
 std::string lower(std::string_view s) {
     std::string out(s);
-    std::transform(out.begin(), out.end(), out.begin(),
-                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    std::ranges::transform(out, out.begin(),
+                           [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     return out;
 }
 
-// --- headers-family (C++11/14/17) private helpers, mirroring add_headers.go ---
+// headers-family private helpers for C++11, C++14 and C++17, mirroring the
+// Go original's add_headers source file.
 
 std::string_view header_ext(bool compiled) { return compiled ? ".h" : ".hpp"; }
 std::string_view source_tmpl(bool compiled) { return compiled ? "source.h.tmpl" : "source.hpp.tmpl"; }
@@ -58,7 +59,7 @@ struct HeaderComponent {
 // written — a declined overwrite reports false with a nil error.
 std::expected<bool, error::Error> write_component_header(const project::Project& proj,
                                                           const HeaderComponent& c) {
-    auto src = scaffold::render(proj.root, "headers", c.kind, std::string(source_tmpl(c.compiled)),
+    auto src = scaffold::render(proj.root, "headers", c.kind, source_tmpl(c.compiled),
                                 std_vars(proj, {{"symbol", c.symbol}, {"namespace", c.namespace_}}));
     if (!src.has_value()) {
         return std::unexpected(std::move(src).error());
@@ -77,8 +78,8 @@ std::expected<void, error::Error> write_compiled_source(const project::Project& 
     if (!cpp.has_value()) {
         return std::unexpected(std::move(cpp).error());
     }
-    auto wrote = scaffold::write_file(proj.root, c.lib_dir / (c.filename + ".cpp"), *cpp);
-    if (!wrote.has_value()) {
+    if (auto wrote = scaffold::write_file(proj.root, c.lib_dir / (c.filename + ".cpp"), *cpp);
+        !wrote.has_value()) {
         return std::unexpected(std::move(wrote).error());
     }
     return {};
@@ -89,8 +90,7 @@ std::expected<void, error::Error> write_compiled_source(const project::Project& 
 // <symbol>.hpp.
 std::expected<void, error::Error> render_component(const project::Project& proj,
                                                     const HeaderComponent& c) {
-    auto wrote = write_component_header(proj, c);
-    if (!wrote.has_value()) {
+    if (auto wrote = write_component_header(proj, c); !wrote.has_value()) {
         return std::unexpected(std::move(wrote).error());
     }
     if (!c.compiled) {
@@ -150,16 +150,17 @@ std::expected<void, error::Error> wire_header_component(const project::Project& 
     return scaffold::add_header_source(proj.root, c.lib_dir / kCMakeLists, c.header());
 }
 
-// --- modules-family private helpers, mirroring add.go ---
+// modules-family private helpers, mirroring the Go original's add source file.
 
 // writePrimaryAggregator creates a lib's primary interface unit as a thin
 // aggregator over one partition. A declined overwrite leaves the existing
 // primary untouched.
 std::expected<void, error::Error> write_primary_aggregator(const project::Project& proj,
                                                             const std::filesystem::path& primary,
-                                                            std::string_view module,
+                                                            std::string_view mod,
                                                             std::string_view partition) {
-    const std::string content = primary_preamble(proj.config) + std::format("export module {};\n", module);
+    const std::string content =
+        std::format("{}export module {};\n", primary_preamble(proj.config), mod);
     auto wrote = scaffold::write_file(proj.root, primary, content);
     if (!wrote.has_value()) {
         return std::unexpected(std::move(wrote).error());
@@ -243,8 +244,7 @@ std::expected<void, error::Error> run_add(std::span<const std::string> args) {
             return std::unexpected(std::move(done).error());
         }
         ui::success("done.");
-        auto again = ui::confirm("add another?", true);
-        if (!again.has_value() || !*again) {
+        if (auto again = ui::confirm("add another?", true); !again.has_value() || !*again) {
             return {};
         }
         ui::emit_line("");
@@ -318,7 +318,7 @@ std::expected<void, error::Error> create_lib_at(const project::Project& proj, st
         return std::unexpected(std::move(kind).error());
     }
 
-    const std::string module = scaffold::path_to_module(proj.src().string(), target_dir.string());
+    const std::string mod = scaffold::path_to_module(proj.src().string(), target_dir.string());
     auto symbol = ui::text("primary symbol name?", scaffold::capitalize(name), scaffold::validate_ident);
     if (!symbol.has_value()) {
         return std::unexpected(std::move(symbol).error());
@@ -329,7 +329,7 @@ std::expected<void, error::Error> create_lib_at(const project::Project& proj, st
     const std::filesystem::path cmake = target_dir / kCMakeLists;
 
     auto src = scaffold::render(proj.root, "modules", *kind, "source.cppm.tmpl",
-                                std_vars(proj, {{"module", module + ":" + partition},
+                                std_vars(proj, {{"module", mod + ":" + partition},
                                                {"symbol", *symbol},
                                                {"namespace", namespace_}}));
     if (!src.has_value()) {
@@ -340,7 +340,7 @@ std::expected<void, error::Error> create_lib_at(const project::Project& proj, st
         return std::unexpected(std::move(wrote).error());
     }
 
-    if (auto agg = write_primary_aggregator(proj, primary, module, partition); !agg.has_value()) {
+    if (auto agg = write_primary_aggregator(proj, primary, mod, partition); !agg.has_value()) {
         return std::unexpected(std::move(agg).error());
     }
 
@@ -379,7 +379,7 @@ std::expected<void, error::Error> add_file_to_lib(const project::Project& proj,
         return std::unexpected(std::move(kind).error());
     }
 
-    const std::string module =
+    const std::string mod =
         scaffold::path_to_module(proj.src().string(), lib_dir.string()) + ":" + *filename;
     auto symbol = ui::text("primary symbol name?", scaffold::capitalize(*filename), scaffold::validate_ident);
     if (!symbol.has_value()) {
@@ -390,7 +390,7 @@ std::expected<void, error::Error> add_file_to_lib(const project::Project& proj,
 
     auto src = scaffold::render(
         proj.root, "modules", *kind, "source.cppm.tmpl",
-        std_vars(proj, {{"module", module}, {"symbol", *symbol}, {"namespace", namespace_}}));
+        std_vars(proj, {{"module", mod}, {"symbol", *symbol}, {"namespace", namespace_}}));
     if (!src.has_value()) {
         return std::unexpected(std::move(src).error());
     }
@@ -443,7 +443,7 @@ std::expected<std::string, error::Error> choose_test_module(const project::Proje
     if (libs.empty()) {
         return std::string{};
     }
-    std::vector<std::string> options{std::string(kNoneSentinel)};
+    std::vector options{std::string(kNoneSentinel)};
     options.insert(options.end(), libs.begin(), libs.end());
     auto picked = ui::select_one("module under test?", options, kNoneSentinel);
     if (!picked.has_value()) {
@@ -455,14 +455,14 @@ std::expected<std::string, error::Error> choose_test_module(const project::Proje
     return *std::move(picked);
 }
 
-std::string test_module_import(const project::Project& proj, std::string_view module) {
-    if (module.empty()) {
+std::string test_module_import(const project::Project& proj, std::string_view mod) {
+    if (mod.empty()) {
         return "";
     }
     if (proj.uses_modules()) {
-        return std::format("import {};\n", module);
+        return std::format("import {};\n", mod);
     }
-    return std::format("#include \"{}.hpp\"\n", module);
+    return std::format("#include \"{}.hpp\"\n", mod);
 }
 
 std::expected<void, error::Error> add_test(const project::Project& proj) {
@@ -470,11 +470,11 @@ std::expected<void, error::Error> add_test(const project::Project& proj) {
     if (!name.has_value()) {
         return std::unexpected(std::move(name).error());
     }
-    auto module = choose_test_module(proj);
-    if (!module.has_value()) {
-        return std::unexpected(std::move(module).error());
+    auto mod = choose_test_module(proj);
+    if (!mod.has_value()) {
+        return std::unexpected(std::move(mod).error());
     }
-    const std::string module_import = test_module_import(proj, *module);
+    const std::string module_import = test_module_import(proj, *mod);
 
     const std::filesystem::path tests_dir = proj.src() / "tests";
     std::string namespace_ = scaffold::path_to_namespace(proj.src().string(), tests_dir.string());
@@ -493,20 +493,20 @@ std::expected<void, error::Error> add_test(const project::Project& proj) {
         return std::unexpected(std::move(wrote).error());
     }
 
-    // Under Make the root Makefile discovers src/tests/*.cpp and links every
-    // lib archive (so the module under test is available) — nothing else to
+    // Under Make the root Makefile discovers every .cpp under src/tests and
+    // links every lib archive (so the module under test is available) — nothing else to
     // wire.
     if (proj.uses_make()) {
         return {};
     }
 
     const std::filesystem::path tests_cmake = tests_dir / kCMakeLists;
-    std::vector<std::string> steps{
+    std::vector steps{
         std::format("add_executable({} {}.cpp)", *name, *name),
         std::format("target_compile_features({} PRIVATE cxx_std_{})", *name, proj.config.standard()),
     };
-    if (!module->empty()) {
-        steps.push_back(std::format("target_link_libraries({} PRIVATE {})", *name, *module));
+    if (!mod->empty()) {
+        steps.push_back(std::format("target_link_libraries({} PRIVATE {})", *name, *mod));
     }
     steps.push_back(std::format("add_test(NAME {} COMMAND {})", *name, *name));
     for (const auto& line : steps) {

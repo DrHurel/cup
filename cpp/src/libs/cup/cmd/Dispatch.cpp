@@ -1,8 +1,9 @@
 module;
+#include <algorithm>
 #include <array>
-#include <cstdio>
 #include <expected>
 #include <functional>
+#include <print>
 #include <span>
 #include <string>
 #include <typeinfo>
@@ -32,16 +33,16 @@ std::span<const Command> commands() {
 namespace {
 
 void usage() {
-    std::puts("cup — scaffold and manage C++23-modules projects");
-    std::puts("");
-    std::puts("usage: cup <command> [args]");
-    std::puts("");
-    std::puts("commands:");
+    std::println("cup — scaffold and manage C++23-modules projects");
+    std::println();
+    std::println("usage: cup <command> [args]");
+    std::println();
+    std::println("commands:");
     for (const auto& c : commands()) {
-        std::printf("  %-11s %s\n", c.name.c_str(), c.summary.c_str());
+        std::println("  {:<11} {}", c.name, c.summary);
     }
-    std::puts("");
-    std::puts(
+    std::println();
+    std::println(
         "MODE is one of Debug (default), Release, or Coverage; each gets its own "
         "build/<MODE> tree.");
 }
@@ -57,24 +58,23 @@ int run_main(std::span<const std::string> args) {
     const std::string& name = args[0];
     const std::span<const std::string> rest(args.begin() + 1, args.end());
 
-    for (const auto& c : commands()) {
-        if (c.name == name) {
-            if (auto result = c.run(rest); !result.has_value()) {
-                const auto& err = result.error();
-                if (error::is_abort(err)) {
-                    ui::err("aborted.");
-                } else {
-                    ui::err("error: " + err.message());
-                }
-                return 1;
-            }
-            return 0;
-        }
+    const auto cmds = commands();
+    const auto it = std::ranges::find(cmds, name, &Command::name);
+    if (it == cmds.end()) {
+        ui::err("unknown command \"" + name + "\"");
+        usage();
+        return 1;
     }
 
-    ui::err("unknown command \"" + name + "\"");
-    usage();
-    return 1;
+    if (auto result = it->run(rest); !result.has_value()) {
+        if (const auto& err = result.error(); error::is_abort(err)) {
+            ui::err("aborted.");
+        } else {
+            ui::err("error: " + err.message());
+        }
+        return 1;
+    }
+    return 0;
 }
 
 }

@@ -80,7 +80,7 @@ inline constexpr std::array<std::string_view, 4> kCategories{"app", "lib", "test
 
 // testModuleImport returns the top-of-file line that pulls in the module
 // under test, or "" when there is none.
-[[nodiscard]] std::string test_module_import(const project::Project& proj, std::string_view module);
+[[nodiscard]] std::string test_module_import(const project::Project& proj, std::string_view mod);
 
 [[nodiscard]] std::expected<void, error::Error> add_test(const project::Project& proj);
 

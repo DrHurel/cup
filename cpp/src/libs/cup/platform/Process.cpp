@@ -3,6 +3,7 @@ module;
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include <array>
 #include <cerrno>
 #include <cstring>
 #include <expected>
@@ -55,8 +56,8 @@ std::expected<void, error::Error> run_command_impl(const std::filesystem::path& 
     }
     argv.push_back(nullptr);
 
-    int pipefd[2];
-    if (::pipe(pipefd) != 0) {
+    std::array<int, 2> pipefd{};
+    if (::pipe(pipefd.data()) != 0) {
         return std::unexpected(error::Error(std::format("pipe: {}", std::strerror(errno))));
     }
     ::fcntl(pipefd[1], F_SETFD, FD_CLOEXEC);

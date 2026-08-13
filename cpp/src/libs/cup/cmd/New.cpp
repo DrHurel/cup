@@ -29,8 +29,8 @@ inline constexpr std::string_view kClangOnly = "clang only";
 
 std::string lowered(std::string_view s) {
     std::string out(s);
-    std::transform(out.begin(), out.end(), out.begin(),
-                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    std::ranges::transform(out, out.begin(),
+                           [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     return out;
 }
 
@@ -55,8 +55,7 @@ std::expected<std::string, error::Error> resolve_project_name(std::span<const st
 }
 
 std::expected<std::string, error::Error> choose_build_tool() {
-    const std::vector<std::string> options{std::string(project::kToolCMake),
-                                           std::string(project::kToolMake)};
+    const std::vector options{std::string(project::kToolCMake), std::string(project::kToolMake)};
     return ui::select_one("build system?", options, project::kToolCMake);
 }
 
@@ -105,8 +104,7 @@ std::expected<int, error::Error> choose_compiler_floor(std::string_view name,
 }
 
 std::expected<std::pair<int, int>, error::Error> choose_compiler_floors(int std) {
-    const std::vector<std::string> options{std::string(kBoth), std::string(kGccOnly),
-                                           std::string(kClangOnly)};
+    const std::vector options{std::string(kBoth), std::string(kGccOnly), std::string(kClangOnly)};
     auto which = ui::select_one("pin a minimum version for which compilers?", options, kBoth);
     if (!which.has_value()) {
         return std::unexpected(std::move(which).error());
