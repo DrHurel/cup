@@ -290,6 +290,14 @@ TEST_CASE("run_command passes args through to the child", "[platform][process]")
     REQUIRE(result.error().message().ends_with("exit status 7"));
 }
 
+TEST_CASE("run_command reports a signal-terminated child as an error", "[platform][process]") {
+    const TempDir dir;
+    const std::vector<std::string> args{"-c", "kill -TERM $$"};
+    const auto result = cup::platform::run_command(dir.path(), "sh", args);
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message().ends_with("signal 15"));
+}
+
 TEST_CASE("run_command_func is the override point for run_command", "[platform][process]") {
     ScopedOverride override_func(
         cup::platform::run_command_func(),

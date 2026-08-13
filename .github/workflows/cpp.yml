@@ -105,14 +105,22 @@ jobs:
           # catch_reporter_sonarqube.hpp), and geninfo treats an unopenable source as a
           # hard error. Excluding _deps at capture also skips ~100 Catch2 objects that
           # the --remove below would drop anyway.
+          #
+          # `negative` and `inconsistent` cover the same class of GCC 15 +
+          # named-modules gcov note-file quirk as gcovr's --gcov-ignore-errors
+          # all in the sonarcloud job (see ci.yml): heavily-instantiated STL
+          # headers (<charconv>, <unicode.h>, ...), pulled in from dozens of
+          # translation units, occasionally produce a negative merged count or
+          # a hit/not-hit mismatch that lcov 2.x's stricter consistency checks
+          # now treat as fatal by default where lcov 1.x only warned.
           lcov --capture --directory build/Coverage --output-file coverage.info \
                --gcov-tool gcov-15 --exclude '*/_deps/*' \
-               --ignore-errors empty,mismatch,source
+               --ignore-errors empty,mismatch,source,negative,inconsistent
           # Third-party and generated sources are not ours to cover.
           lcov --remove coverage.info \
                '/usr/*' '*/build/*/_deps/*' '*/build/*/generated/*' \
-               --output-file coverage.info --ignore-errors empty,unused
-          lcov --list coverage.info
+               --output-file coverage.info --ignore-errors empty,unused,inconsistent
+          lcov --list coverage.info --ignore-errors inconsistent
 
       - name: Upload coverage
         uses: actions/upload-artifact@v4

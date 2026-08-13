@@ -337,6 +337,15 @@ TEST_CASE("pick_or_new", "[cmd][add]") {
         REQUIRE(r.has_value());
         REQUIRE(*r == "gamma");
     }
+    SECTION("EOF on the picker aborts instead of falling through") {
+        const ScopedStdin not_a_terminal("");
+        std::istringstream in("");
+        const cup::ui::ScopedInput scoped(in);
+        const std::vector<std::string> options{"alpha", "beta"};
+        auto r = cup::cmd::pick_or_new("lib name?", options, "new lib name?", cup::scaffold::validate_ident);
+        REQUIRE_FALSE(r.has_value());
+        REQUIRE(cup::error::is_abort(r.error()));
+    }
 }
 
 TEST_CASE("choose_test_module prompts nothing when the project has no libs", "[cmd][add]") {
@@ -449,6 +458,260 @@ TEST_CASE("add_test (cmake) wires the test into src/tests/CMakeLists.txt and the
     REQUIRE(file_contains(proj.src() / "tests" / "CMakeLists.txt", "add_executable(smoke smoke.cpp)"));
     REQUIRE(file_contains(proj.src() / "tests" / "CMakeLists.txt", "add_test(NAME smoke COMMAND smoke)"));
     REQUIRE(file_contains(proj.root / "CMakeLists.txt", "add_subdirectory(src/tests)"));
+}
+
+// These exercise the "!x.has_value()) return unexpected(...)" propagation
+// lines that follow every scaffold::write_file call: write_file itself only
+// fails when its target already exists and the overwrite prompt is refused,
+// so pre-creating the exact target and then starving stdin (EOF -> abort,
+// same as a Ctrl-D) reaches that branch for real, without touching
+// production code to add a test-only seam.
+
+TEST_CASE("add_app reports a write failure when its CMakeLists exists and the overwrite "
+          "prompt hits EOF",
+          "[cmd][add]") {
+    const TempDir dir;
+    const Project proj = scaffold_project(dir, "1", 23, "1");
+    const auto app_dir = proj.src() / "apps" / "hello";
+    std::filesystem::create_directories(app_dir);
+    std::ofstream(app_dir / "CMakeLists.txt") << "# stale\n";
+
+    const ScopedStdin not_a_terminal("");
+    std::istringstream in("hello\n\n");
+    const cup::ui::ScopedInput scoped(in);
+
+    auto result = cup::cmd::add_app(proj);
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(cup::error::is_abort(result.error()));
+    REQUIRE(std::filesystem::exists(app_dir / "hello.cpp"));
+}
+
+TEST_CASE("create_lib_at reports a write failure when the primary aggregator exists and the "
+          "overwrite prompt hits EOF",
+          "[cmd][add]") {
+    const TempDir dir;
+    const Project proj = scaffold_project(dir, "1", 23, "1");
+    const std::size_t class_index = index_of_kind(proj.root, "modules", "class");
+    const auto lib_dir = proj.src() / "libs" / "utils";
+    std::filesystem::create_directories(lib_dir);
+    std::ofstream(lib_dir / "utils.cppm") << "// stale primary\n";
+
+    const ScopedStdin not_a_terminal("");
+    std::istringstream in(std::to_string(class_index) + "\nUtils\n");
+    const cup::ui::ScopedInput scoped(in);
+
+    auto result = cup::cmd::create_lib_at(proj, "utils", lib_dir, proj.src() / "libs" / "CMakeLists.txt");
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(cup::error::is_abort(result.error()));
+    // The partition itself was written before the aggregator write failed.
+    REQUIRE(std::filesystem::exists(lib_dir / "Utils.cppm"));
+}
+
+TEST_CASE("create_lib_at reports a write failure when the CMakeLists exists and the "
+          "overwrite prompt hits EOF",
+          "[cmd][add]") {
+    const TempDir dir;
+    const Project proj = scaffold_project(dir, "1", 23, "1");
+    const std::size_t class_index = index_of_kind(proj.root, "modules", "class");
+    const auto lib_dir = proj.src() / "libs" / "utils";
+    std::filesystem::create_directories(lib_dir);
+    std::ofstream(lib_dir / "CMakeLists.txt") << "# stale\n";
+
+    const ScopedStdin not_a_terminal("");
+    std::istringstream in(std::to_string(class_index) + "\nUtils\n");
+    const cup::ui::ScopedInput scoped(in);
+
+    auto result = cup::cmd::create_lib_at(proj, "utils", lib_dir, proj.src() / "libs" / "CMakeLists.txt");
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(cup::error::is_abort(result.error()));
+    REQUIRE(std::filesystem::exists(lib_dir / "utils.cppm"));
+}
+
+TEST_CASE("add_file_to_lib reports a write failure when its component exists and the "
+          "overwrite prompt hits EOF",
+          "[cmd][add]") {
+    const TempDir dir;
+    const Project proj = scaffold_project(dir, "1", 23, "1");
+    const std::size_t class_index = index_of_kind(proj.root, "modules", "class");
+    const auto lib_dir = proj.src() / "libs" / "utils";
+    {
+        const ScopedStdin not_a_terminal("");
+        std::istringstream setup_in(std::to_string(class_index) + "\nUtils\n");
+        const cup::ui::ScopedInput setup_scoped(setup_in);
+        REQUIRE(cup::cmd::create_lib_at(proj, "utils", lib_dir, proj.src() / "libs" / "CMakeLists.txt")
+                    .has_value());
+    }
+    std::ofstream(lib_dir / "extra.cppm") << "// stale\n";
+
+    const ScopedStdin not_a_terminal("");
+    std::istringstream in("extra\n" + std::to_string(class_index) + "\nExtra\n");
+    const cup::ui::ScopedInput scoped(in);
+
+    auto result = cup::cmd::add_file_to_lib(proj, lib_dir);
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(cup::error::is_abort(result.error()));
+}
+
+TEST_CASE("create_header_lib_at reports a write failure when the CMakeLists exists and the "
+          "overwrite prompt hits EOF",
+          "[cmd][add][headers]") {
+    const TempDir dir;
+    const Project proj = scaffold_project(dir, "1", 17, "1");
+    const std::size_t class_index = index_of_kind(proj.root, "headers", "class");
+    const auto lib_dir = proj.src() / "libs" / "utils";
+    std::filesystem::create_directories(lib_dir);
+    std::ofstream(lib_dir / "CMakeLists.txt") << "# stale\n";
+
+    const ScopedStdin not_a_terminal("");
+    std::istringstream in(std::to_string(class_index) + "\nUtils\n");
+    const cup::ui::ScopedInput scoped(in);
+
+    auto result =
+        cup::cmd::create_header_lib_at(proj, "utils", lib_dir, proj.src() / "libs" / "CMakeLists.txt");
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(cup::error::is_abort(result.error()));
+}
+
+TEST_CASE("add_file_to_header_lib reports a write failure when its header exists and the "
+          "overwrite prompt hits EOF",
+          "[cmd][add][headers]") {
+    const TempDir dir;
+    const Project proj = scaffold_project(dir, "1", 17, "1");
+    const std::size_t class_index = index_of_kind(proj.root, "headers", "class");
+    const auto lib_dir = proj.src() / "libs" / "utils";
+    {
+        const ScopedStdin not_a_terminal("");
+        std::istringstream setup_in(std::to_string(class_index) + "\nUtils\n");
+        const cup::ui::ScopedInput setup_scoped(setup_in);
+        REQUIRE(
+            cup::cmd::create_header_lib_at(proj, "utils", lib_dir, proj.src() / "libs" / "CMakeLists.txt")
+                .has_value());
+    }
+    std::ofstream(lib_dir / "extra.h") << "// stale\n";
+
+    const ScopedStdin not_a_terminal("");
+    std::istringstream in("extra\n" + std::to_string(class_index) + "\nExtra\n");
+    const cup::ui::ScopedInput scoped(in);
+
+    auto result = cup::cmd::add_file_to_header_lib(proj, lib_dir);
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(cup::error::is_abort(result.error()));
+}
+
+TEST_CASE("add_test reports a write failure when its source exists and the overwrite prompt "
+          "hits EOF",
+          "[cmd][add]") {
+    const TempDir dir;
+    const Project proj = scaffold_project(dir, "1", 23, "1");
+    std::filesystem::create_directories(proj.src() / "tests");
+    std::ofstream(proj.src() / "tests" / "smoke.cpp") << "// stale\n";
+
+    const ScopedStdin not_a_terminal("");
+    std::istringstream in("smoke\n");
+    const cup::ui::ScopedInput scoped(in);
+
+    auto result = cup::cmd::add_test(proj);
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(cup::error::is_abort(result.error()));
+}
+
+TEST_CASE("run_new refuses to overwrite a directory that already exists", "[cmd][new]") {
+    const TempDir dir;
+    std::filesystem::create_directories(dir.path() / "demo");
+
+    g_stub_newest_std = 23;
+    const ScopedOverride newest_override(cup::scaffold::newest_compilers_func(),
+                                         cup::scaffold::NewestCompilersFunc{&stub_newest_compilers});
+    const ScopedOverride tags_override(cup::scaffold::docker_hub_tags_func(),
+                                       cup::scaffold::DockerHubTagsFunc{&stub_no_network});
+    const ScopedCwd cwd(dir.path());
+    const ScopedStdin not_a_terminal("");
+    std::istringstream in("demo\n1\n1\n1\ndebian\n\n");
+    const cup::ui::ScopedInput scoped(in);
+
+    auto result = cup::cmd::run_new({});
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message() == "demo already exists");
+}
+
+TEST_CASE("scaffold_project_tree reports a write failure when CMakeLists.txt exists and the "
+          "overwrite prompt hits EOF",
+          "[cmd][new]") {
+    const TempDir dir;
+    const Project proj{dir.path(),
+                       Config{.name = "demo",
+                              .cpp_standard = 23,
+                              .build_tool = "cmake",
+                              .compiler = cup::project::make_compiler_config(15, 18)}};
+    std::filesystem::create_directories(proj.root);
+    std::ofstream(proj.root / "CMakeLists.txt") << "# stale\n";
+
+    const ScopedStdin not_a_terminal("");
+    std::istringstream in("");
+    const cup::ui::ScopedInput scoped(in);
+
+    auto result = cup::cmd::scaffold_project_tree(proj, 23, 15, 18);
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(cup::error::is_abort(result.error()));
+}
+
+TEST_CASE("scaffold_project_tree reports a write failure when .gitignore exists and the "
+          "overwrite prompt hits EOF",
+          "[cmd][new]") {
+    const TempDir dir;
+    const Project proj{dir.path(),
+                       Config{.name = "demo",
+                              .cpp_standard = 23,
+                              .build_tool = "cmake",
+                              .compiler = cup::project::make_compiler_config(15, 18)}};
+    std::filesystem::create_directories(proj.root);
+    std::ofstream(proj.root / ".gitignore") << "# stale\n";
+
+    const ScopedStdin not_a_terminal("");
+    std::istringstream in("");
+    const cup::ui::ScopedInput scoped(in);
+
+    auto result = cup::cmd::scaffold_project_tree(proj, 23, 15, 18);
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(cup::error::is_abort(result.error()));
+    REQUIRE(std::filesystem::exists(proj.root / "CMakeLists.txt"));
+}
+
+TEST_CASE("scaffold_make_tree reports a write failure when the Makefile exists and the "
+          "overwrite prompt hits EOF",
+          "[cmd][new]") {
+    const TempDir dir;
+    const Project proj{
+        dir.path(), Config{.name = "demo", .cpp_standard = 17, .build_tool = "make"}};
+    std::filesystem::create_directories(proj.root);
+    std::ofstream(proj.root / "Makefile") << "# stale\n";
+
+    const ScopedStdin not_a_terminal("");
+    std::istringstream in("");
+    const cup::ui::ScopedInput scoped(in);
+
+    auto result = cup::cmd::scaffold_make_tree(proj, 17);
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(cup::error::is_abort(result.error()));
+}
+
+TEST_CASE("scaffold_make_tree reports a write failure when .gitignore exists and the "
+          "overwrite prompt hits EOF",
+          "[cmd][new]") {
+    const TempDir dir;
+    const Project proj{
+        dir.path(), Config{.name = "demo", .cpp_standard = 17, .build_tool = "make"}};
+    std::filesystem::create_directories(proj.root);
+    std::ofstream(proj.root / ".gitignore") << "# stale\n";
+
+    const ScopedStdin not_a_terminal("");
+    std::istringstream in("");
+    const cup::ui::ScopedInput scoped(in);
+
+    auto result = cup::cmd::scaffold_make_tree(proj, 17);
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(cup::error::is_abort(result.error()));
+    REQUIRE(std::filesystem::exists(proj.root / "Makefile"));
 }
 
 TEST_CASE("run_new (c++23, std_module = false) never writes import std;", "[cmd][add][end-to-end]") {
@@ -585,6 +848,24 @@ TEST_CASE("extend_lib: file adds a component, subfolder recurses into a nested l
         REQUIRE(cup::cmd::extend_lib(proj, lib_dir).has_value());
         REQUIRE(std::filesystem::exists(lib_dir / "nested" / "nested.cppm"));
         REQUIRE(file_contains(lib_dir / "CMakeLists.txt", "add_subdirectory(nested)"));
+    }
+
+    SECTION("an already-existing subfolder recurses into it instead of recreating it") {
+        {
+            const ScopedStdin not_a_terminal("");
+            std::istringstream in("2\nnested\n" + std::to_string(class_index) + "\n\n");
+            const cup::ui::ScopedInput scoped(in);
+            REQUIRE(cup::cmd::extend_lib(proj, lib_dir).has_value());
+        }
+
+        const ScopedStdin not_a_terminal("");
+        // extend-as=subfolder(2); "nested" already exists, so pick_or_new
+        // offers it as option 1 instead of prompting for a new name; then
+        // extend_lib recurses into it and adds a file there.
+        std::istringstream in("2\n1\n1\ninner\n" + std::to_string(class_index) + "\n\n");
+        const cup::ui::ScopedInput scoped(in);
+        REQUIRE(cup::cmd::extend_lib(proj, lib_dir).has_value());
+        REQUIRE(std::filesystem::exists(lib_dir / "nested" / "inner.cppm"));
     }
 }
 
