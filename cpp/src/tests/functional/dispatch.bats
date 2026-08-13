@@ -65,3 +65,11 @@
     [ "$status" -eq 1 ]
     [[ "$output" == *"usage: cup completion"* ]]
 }
+
+@test "an EOF on the first interactive prompt reports \"aborted.\" and exits 1" {
+    cd "$BATS_TEST_TMPDIR"
+    printf 'name = "fixture"\ncup_version = "0.1.0"\ncpp_standard = 17\nstd_module = false\nbuild_tool = "cmake"\n' > cup.toml
+    run bash -c "'$CUP_BIN' add app < /dev/null"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"aborted."* ]]
+}

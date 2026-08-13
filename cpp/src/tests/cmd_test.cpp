@@ -1,5 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include <expected>
@@ -169,10 +170,14 @@ TEST_CASE("resolve_app", "[cmd][resolve_app]") {
     const Project proj = make_project(dir);
 
     SECTION("no apps is an error") {
+        // No `return` here: Catch2 documents that returning out of a SECTION
+        // corrupts its section-tracking, silently skipping the sibling
+        // SECTIONs below on every subsequent re-entry of this TEST_CASE (that
+        // is exactly what happened here until this fix — the other three
+        // sections never ran).
         const auto resolved = cup::cmd::resolve_app(proj, {});
         REQUIRE_FALSE(resolved.has_value());
         REQUIRE(resolved.error().message() == "no apps to run (add one with `cup add app`)");
-        return;
     }
 
     std::filesystem::create_directories(proj.src() / "apps" / "greeter");
@@ -202,6 +207,17 @@ TEST_CASE("resolve_app", "[cmd][resolve_app]") {
         REQUIRE(resolved.has_value());
         REQUIRE((resolved->first == "greeter" || resolved->first == "other"));
     }
+
+    SECTION("two apps, no name, EOF on the picker -> abort") {
+        std::filesystem::create_directories(proj.src() / "apps" / "other");
+
+        const ScopedStdin not_a_terminal("");
+        std::istringstream in("");
+        const cup::ui::ScopedInput scoped(in);
+
+        const auto resolved = cup::cmd::resolve_app(proj, {});
+        REQUIRE_FALSE(resolved.has_value());
+    }
 }
 
 TEST_CASE("run_clean removes build/ and reports success outside a build tree",
@@ -222,6 +238,67 @@ TEST_CASE("run_clean outside a project reports project::find's error", "[cmd][cl
 
     const auto result = cup::cmd::run_clean({});
     REQUIRE_FALSE(result.has_value());
+}
+
+// A read-only build/ blocks remove_all from unlinking its children, giving
+// run_clean a real (not simulated) filesystem error to propagate. Permissions
+// are restored before the TempDir's own destructor runs, or its best-effort
+// remove_all silently leaves the directory behind under /tmp.
+TEST_CASE("run_clean reports a real filesystem removal failure", "[cmd][clean]") {
+    const TempDir dir;
+    make_project(dir);
+    dir.write("build/Debug/marker", "x");
+    const ScopedCwd cwd(dir.path());
+
+    REQUIRE(::chmod((dir.path() / "build").c_str(), 0555) == 0);
+    const auto result = cup::cmd::run_clean({});
+    REQUIRE(::chmod((dir.path() / "build").c_str(), 0755) == 0);
+
+    REQUIRE_FALSE(result.has_value());
+}
+
+TEST_CASE("run_configure, run_build, run_test and run_run all report project::find's error "
+          "outside a project",
+          "[cmd]") {
+    const TempDir dir;
+    const ScopedCwd cwd(dir.path());
+
+    REQUIRE_FALSE(cup::cmd::run_configure({}).has_value());
+    REQUIRE_FALSE(cup::cmd::run_build({}).has_value());
+    REQUIRE_FALSE(cup::cmd::run_test({}).has_value());
+    REQUIRE_FALSE(cup::cmd::run_run({}).has_value());
+}
+
+TEST_CASE("run_rebuild and run_retest propagate a real clean failure instead of building",
+          "[cmd][rebuild][retest]") {
+    const TempDir dir;
+    make_project(dir, "make");
+    dir.write("build/Debug/marker", "x");
+    const ScopedCwd cwd(dir.path());
+    StubRunCommand stub;
+
+    REQUIRE(::chmod((dir.path() / "build").c_str(), 0555) == 0);
+    const auto rebuilt = cup::cmd::run_rebuild({});
+    const auto retested = cup::cmd::run_retest({});
+    REQUIRE(::chmod((dir.path() / "build").c_str(), 0755) == 0);
+
+    REQUIRE_FALSE(rebuilt.has_value());
+    REQUIRE_FALSE(retested.has_value());
+    // Neither reached make: the clean failure short-circuited both.
+    REQUIRE(stub.calls().empty());
+}
+
+TEST_CASE("run_build, run_test and run_run propagate a real cmake configure failure",
+          "[cmd][build][test][run]") {
+    const TempDir dir;
+    make_project(dir);
+    std::filesystem::create_directories(dir.path() / "src" / "apps" / "greeter");
+    const ScopedCwd cwd(dir.path());
+    StubRunCommand stub(/*fail=*/true);
+
+    REQUIRE_FALSE(cup::cmd::run_build({}).has_value());
+    REQUIRE_FALSE(cup::cmd::run_test({}).has_value());
+    REQUIRE_FALSE(cup::cmd::run_run({}).has_value());
 }
 
 TEST_CASE("run_build dispatches straight to make for a make project", "[cmd][build][make]") {
