@@ -131,7 +131,14 @@ std::array<unsigned char, 32> sha256(std::string_view data) {
                 sha256_rotr(w[i - 2], 17) ^ sha256_rotr(w[i - 2], 19) ^ (w[i - 2] >> 10);
             w[i] = w[i - 16] + s0 + w[i - 7] + s1;
         }
-        auto a = h[0], b = h[1], c = h[2], d = h[3], e = h[4], f = h[5], g = h[6], hh = h[7];
+        auto a = h[0];
+        auto b = h[1];
+        auto c = h[2];
+        auto d = h[3];
+        auto e = h[4];
+        auto f = h[5];
+        auto g = h[6];
+        auto hh = h[7];
         for (int i = 0; i < 64; ++i) {
             const std::uint32_t s1 = sha256_rotr(e, 6) ^ sha256_rotr(e, 11) ^ sha256_rotr(e, 25);
             const std::uint32_t ch = (e & f) ^ (~e & g);
@@ -330,7 +337,7 @@ std::expected<void, error::Error> persist_config(const project::Project& proj) {
     if (auto wrote = project::write_config(proj.root, proj.config); !wrote.has_value()) {
         return wrote;
     }
-    ui::updated(std::string(project::kMarker));
+    ui::updated(project::kMarker);
     return {};
 }
 

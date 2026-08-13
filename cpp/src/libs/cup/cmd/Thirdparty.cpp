@@ -187,7 +187,7 @@ std::expected<void, error::Error> register_submodule(const project::Project& pro
 
     std::vector<std::string> git_args{"submodule", "add"};
     if (!ref->empty()) {
-        git_args.push_back("--branch");
+        git_args.emplace_back("--branch");
         git_args.push_back(*ref);
     }
     git_args.push_back(*url);
@@ -383,15 +383,14 @@ std::expected<void, error::Error> remove_submodule(const project::Project& proj,
     }
     scaffold::remove_dir(proj.path(".git", "modules", "third_party", name));
     if (proj.uses_make()) {
-        auto removed = remove_make_dep_line(proj, kMethodSubmodule, name);
-        if (!removed.has_value()) {
+        if (auto removed = remove_make_dep_line(proj, kMethodSubmodule, name); !removed.has_value()) {
             return std::unexpected(std::move(removed).error());
         }
         return {};
     }
-    auto removed = scaffold::remove_line(proj.root, third_party_cmake(proj),
-                                         std::format("add_subdirectory({})", name));
-    if (!removed.has_value()) {
+    if (auto removed = scaffold::remove_line(proj.root, third_party_cmake(proj),
+                                             std::format("add_subdirectory({})", name));
+        !removed.has_value()) {
         return std::unexpected(std::move(removed).error());
     }
     return {};

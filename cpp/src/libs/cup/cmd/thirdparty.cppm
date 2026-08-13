@@ -21,7 +21,13 @@ struct Dependency {
     std::string name;
     std::string method;
 
-    friend bool operator==(const Dependency& lhs, const Dependency& rhs) {
+    // Hand-written, not `= default`: a defaulted friend comparison operator
+    // on a struct exported from a module interface segfaults GCC 15 the
+    // moment a *consuming* translation unit imports and uses it (hit while
+    // building this port's own test suite) — every other Config-shaped
+    // struct in this codebase already hand-writes its comparison for the
+    // same reason. NOSONAR: cpp:S6230 wants `= default` here; that's the bug.
+    friend bool operator==(const Dependency& lhs, const Dependency& rhs) {  // NOSONAR
         return lhs.name == rhs.name && lhs.method == rhs.method;
     }
 };

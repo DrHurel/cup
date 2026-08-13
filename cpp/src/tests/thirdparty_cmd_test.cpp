@@ -408,3 +408,129 @@ TEST_CASE("run_unregister outside a project reports project::find's error", "[cm
     const ScopedCwd cwd(dir.path());
     REQUIRE_FALSE(cup::cmd::run_unregister({}).has_value());
 }
+
+TEST_CASE("discover_dependencies (make) parses cup-dep and cup-apt marker lines",
+          "[cmd][thirdparty]") {
+    const TempDir dir;
+    const Project proj = make_project(dir, "make");
+    dir.write("third_party/third_party.mk",
+              "CUP_TP_INCLUDES += -Ithird_party/fmt -Ithird_party/fmt/include  # cup-dep: git-submodule fmt\n"
+              "CUP_TP_INCLUDES += -Ithird_party/json -Ithird_party/json/include  # cup-dep: cmake-download json\n"
+              "# cup-apt: libboost-dev libssl-dev\n");
+
+    const auto deps = cup::cmd::discover_dependencies(proj);
+    REQUIRE(deps.size() == 4);
+    REQUIRE(deps[0] == Dependency{.name = "fmt", .method = "git-submodule"});
+    REQUIRE(deps[1] == Dependency{.name = "json", .method = "cmake-download"});
+    REQUIRE(deps[2] == Dependency{.name = "libboost-dev", .method = "apt-install"});
+    REQUIRE(deps[3] == Dependency{.name = "libssl-dev", .method = "apt-install"});
+}
+
+TEST_CASE("register_download (make) shallow-clones and registers a CUP_TP_INCLUDES line",
+          "[cmd][thirdparty]") {
+    const TempDir dir;
+    const Project proj = make_project(dir, "make");
+    StubRunCommand stub;
+
+    const ScopedStdin not_a_terminal("");
+    std::istringstream in("json\nhttps://example.com/json.git\nv3\n");
+    const cup::ui::ScopedInput scoped(in);
+
+    REQUIRE(cup::cmd::register_download(proj).has_value());
+    REQUIRE(stub.calls() ==
+            std::vector<std::string>{
+                "git clone --depth 1 --branch v3 https://example.com/json.git third_party/json"});
+    REQUIRE(file_contains(dir.path() / "third_party" / "third_party.mk",
+                          "# cup-dep: cmake-download json"));
+}
+
+TEST_CASE("register_download surfaces a failing git clone (make)", "[cmd][thirdparty]") {
+    const TempDir dir;
+    const Project proj = make_project(dir, "make");
+    StubRunCommand stub(/*fail=*/true);
+
+    const ScopedStdin not_a_terminal("");
+    std::istringstream in("json\nhttps://example.com/json.git\nv3\n");
+    const cup::ui::ScopedInput scoped(in);
+
+    REQUIRE_FALSE(cup::cmd::register_download(proj).has_value());
+}
+
+TEST_CASE("register_apt (make) installs when confirmed", "[cmd][thirdparty]") {
+    const TempDir dir;
+    const Project proj = make_project(dir, "make");
+    StubRunCommand stub;
+
+    const ScopedStdin not_a_terminal("");
+    std::istringstream in("libboost-dev\ny\n");
+    const cup::ui::ScopedInput scoped(in);
+
+    REQUIRE(cup::cmd::register_apt(proj).has_value());
+    REQUIRE(stub.calls() == std::vector<std::string>{"sudo apt-get install -y libboost-dev"});
+}
+
+TEST_CASE("remove_submodule (make) drops the CUP_TP_INCLUDES line instead of a CMakeLists one",
+          "[cmd][thirdparty]") {
+    const TempDir dir;
+    const Project proj = make_project(dir, "make");
+    dir.write("third_party/third_party.mk",
+              "CUP_TP_INCLUDES += -Ithird_party/fmt -Ithird_party/fmt/include  # cup-dep: git-submodule fmt\n");
+    StubRunCommand stub;
+
+    REQUIRE(cup::cmd::remove_submodule(proj, "fmt").has_value());
+    REQUIRE_FALSE(file_contains(dir.path() / "third_party" / "third_party.mk", "cup-dep"));
+}
+
+TEST_CASE("remove_download (make) removes the vendored tree and its registration",
+          "[cmd][thirdparty]") {
+    const TempDir dir;
+    const Project proj = make_project(dir, "make");
+    dir.write("third_party/json/dummy.hpp", "// vendored\n");
+    dir.write("third_party/third_party.mk",
+              "CUP_TP_INCLUDES += -Ithird_party/json -Ithird_party/json/include  # cup-dep: cmake-download json\n");
+
+    REQUIRE(cup::cmd::remove_download(proj, "json").has_value());
+    REQUIRE_FALSE(std::filesystem::exists(dir.path() / "third_party" / "json"));
+    REQUIRE_FALSE(file_contains(dir.path() / "third_party" / "third_party.mk", "cup-dep"));
+}
+
+TEST_CASE("remove_download (make) reports when nothing is registered under that name",
+          "[cmd][thirdparty]") {
+    const TempDir dir;
+    const Project proj = make_project(dir, "make");
+    dir.write("third_party/third_party.mk", "# nothing here\n");
+    REQUIRE_FALSE(cup::cmd::remove_download(proj, "json").has_value());
+}
+
+TEST_CASE("run_unregister dispatches to remove_download and remove_apt on confirm",
+          "[cmd][thirdparty]") {
+    const TempDir dir;
+
+    SECTION("download") {
+        Project proj = make_project(dir);
+        dir.write("third_party/CMakeLists.txt",
+                  "FetchContent_Declare(\n  json\n  GIT_REPOSITORY x\n  GIT_TAG y\n)\n"
+                  "FetchContent_MakeAvailable(json)\n");
+        const ScopedCwd cwd(dir.path());
+
+        const ScopedStdin not_a_terminal("");
+        std::istringstream in("1\ny\n");
+        const cup::ui::ScopedInput scoped(in);
+
+        REQUIRE(cup::cmd::run_unregister({}).has_value());
+        REQUIRE_FALSE(
+            file_contains(dir.path() / "third_party" / "CMakeLists.txt", "FetchContent_Declare"));
+    }
+    SECTION("apt") {
+        Project proj = make_project(dir);
+        dir.write("third_party/CMakeLists.txt", "find_package(Boost REQUIRED) # cup-apt: libboost-dev\n");
+        const ScopedCwd cwd(dir.path());
+
+        const ScopedStdin not_a_terminal("");
+        std::istringstream in("1\ny\n");
+        const cup::ui::ScopedInput scoped(in);
+
+        REQUIRE(cup::cmd::run_unregister({}).has_value());
+        REQUIRE_FALSE(file_contains(dir.path() / "third_party" / "CMakeLists.txt", "find_package"));
+    }
+}
