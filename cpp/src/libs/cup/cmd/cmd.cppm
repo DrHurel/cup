@@ -10,4 +10,5 @@ export import :new_project;
 export import :add;
 export import :template_cmd;
 export import :completion;
+export import :compiler;
 export import :dispatch;

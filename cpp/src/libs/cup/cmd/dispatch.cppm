@@ -19,8 +19,8 @@ struct Command {
 
 // commands is the canonical list of cup subcommands, shared by run_main
 // (dispatch + usage). Declared here, built in Dispatch.cpp: only the
-// commands ported so far are listed; compiler and docker/register are added
-// as later groups of the migration land.
+// commands ported so far are listed; docker new|build|push and
+// register/unregister are added as the last group of the migration lands.
 [[nodiscard]] std::span<const Command> commands();
 
 // run_main is cup's whole CLI entry point: help/no-args prints usage, an

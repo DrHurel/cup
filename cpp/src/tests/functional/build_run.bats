@@ -75,3 +75,20 @@ setup() {
     [ "$status" -eq 0 ]
     [ ! -d build ]
 }
+
+@test "compiler show prints the floors pinned in cup.toml" {
+    run "$CUP_BIN" compiler show
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"gcc     >= 15"* ]]
+    [[ "$output" == *"clang   >= 18"* ]]
+}
+
+@test "compiler set onto a marker-less CMakeLists fails and leaves cup.toml untouched" {
+    # The fixture's CMakeLists carries no >>> cup:compiler-guard >>> markers
+    # (it's hand-written, not cup-scaffolded), so the guard rewrite step
+    # fails and the whole change must roll back.
+    before="$(cat cup.toml)"
+    run "$CUP_BIN" compiler set gcc 16 --no-verify
+    [ "$status" -eq 1 ]
+    [ "$(cat cup.toml)" = "$before" ]
+}

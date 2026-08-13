@@ -108,6 +108,13 @@ target_link_libraries(template_completion_test PRIVATE cmd project tmpl ui error
                                                        Catch2::Catch2WithMain)
 add_test(NAME template_completion_test COMMAND template_completion_test)
 
+add_executable(compiler_cmd_test compiler_cmd_test.cpp)
+target_compile_features(compiler_cmd_test PRIVATE cxx_std_23)
+target_include_directories(compiler_cmd_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(compiler_cmd_test PRIVATE cmd project scaffold platform error
+                                                Catch2::Catch2WithMain)
+add_test(NAME compiler_cmd_test COMMAND compiler_cmd_test)
+
 # Black-box bats suite against the real cup binary (needs the cup target from
 # src/apps, so this must come after it — see the top-level CMakeLists.txt).
 add_subdirectory(functional)

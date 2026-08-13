@@ -11,6 +11,7 @@ target_sources(cmd
         Add.cpp
         Template.cpp
         Completion.cpp
+        Compiler.cpp
     PUBLIC
         FILE_SET CXX_MODULES FILES
             cmd.cppm
@@ -20,6 +21,7 @@ target_sources(cmd
             add.cppm
             template.cppm  # partition token is :template_cmd, see template.cppm
             completion.cppm
+            compiler.cppm
             dispatch.cppm
 )
 target_compile_features(cmd PUBLIC cxx_std_23)
