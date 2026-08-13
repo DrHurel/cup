@@ -1,0 +1,96 @@
+name: Build static binary
+
+# Reusable workflow: builds cup's musl-static release binary in alpine.
+# Called from cpp.yml (continuous verification, every push/PR) and from
+# release.yml (tag-triggered publishing) so the build steps exist in exactly
+# one place.
+#
+# musl rather than glibc because cup resolves ftp.gnu.org and api.github.com to
+# discover compiler releases. glibc's getaddrinfo dlopen's NSS modules at
+# runtime, so a -static glibc binary fails DNS on any host whose glibc differs
+# from the build host's. musl's resolver is static-clean.
+#
+# alpine:3.23, not 3.22: 3.22 only carries GCC 14.2, and the floor is GCC 15.
+# 3.23 carries GCC 15.2.
+
+on:
+  workflow_call:
+    outputs:
+      artifact-name:
+        description: Name of the uploaded binary artifact
+        value: cup-musl-static
+
+jobs:
+  build:
+    name: alpine musl-static
+    runs-on: ubuntu-24.04
+    container: alpine:3.23
+
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        # Real ninja, not alpine's default samurai: samurai advertises ninja 1.9
+        # compatibility and has no dyndep support, so CMake refuses to scan for
+        # modules ("Ninja 1.11 or higher is required"). ninja-is-really-ninja
+        # points the `ninja` command at ninja-build (and excludes samurai).
+        # The *-static packages carry the archives a fully static link of libcurl
+        # needs; pkgconf resolves them via libcurl.pc's Libs.private (see
+        # third_party/CMakeLists.txt's CURL_USE_STATIC_LIBS branch).
+        run: |
+          apk add --no-cache \
+            build-base cmake ninja-build ninja-is-really-ninja git pkgconf file \
+            curl-dev curl-static \
+            openssl-libs-static zlib-static nghttp2-static brotli-static \
+            zstd-static libpsl-static libunistring-static libidn2-static
+
+      - name: Show toolchain versions
+        run: |
+          g++ --version | head -1
+          cmake --version | head -1
+          # Must be >= 1.11, or module scanning is unavailable.
+          ninja --version
+
+      - name: Configure (Release, static)
+        working-directory: cpp
+        run: |
+          # CURL_USE_STATIC_LIBS switches third_party/CMakeLists.txt onto
+          # pkg-config's STATIC mode for libcurl (see the comment there) — plain
+          # find_package(CURL) resolves the shared libcurl.so even with this
+          # variable set, which fails "-static" linking.
+          cmake -B build/Release \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_EXE_LINKER_FLAGS="-static" \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DCURL_USE_STATIC_LIBS=ON
+
+      - name: Build
+        working-directory: cpp
+        run: cmake --build build/Release
+
+      # Checked via `file`, not `ldd`: musl/Alpine's toolchain defaults to
+      # static-*pie* (position-independent) executables, and a PIE binary
+      # carries an ELF interpreter entry (pointing at itself) regardless of
+      # whether it's statically or dynamically linked — musl's ldd reports that
+      # interpreter path either way, so "not a dynamic executable" never
+      # matches a real static-pie cup binary even though it has zero NEEDED
+      # entries (verified with `readelf -d`). `file`'s "static-pie linked" vs
+      # "dynamically linked" distinction is the one that actually tracks it.
+      - name: Verify the binary is static
+        working-directory: cpp
+        run: |
+          file build/Release/bin/cup
+          if file build/Release/bin/cup | grep -q 'dynamically linked'; then
+            echo "ERROR: binary is dynamically linked"
+            exit 1
+          fi
+          ./build/Release/bin/cup --help
+
+      - name: Upload release binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: cup-musl-static
+          path: cpp/build/Release/bin/cup

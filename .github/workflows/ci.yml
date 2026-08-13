@@ -11,86 +11,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
-
-    permissions:
-      contents: read
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: 1.26
-
-      - name: Cache Go modules
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/.local/share/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-
-
-      - name: Verify formatting
-        run: |
-          unformatted=$(gofmt -l .)
-          if [ -n "$unformatted" ]; then
-            echo "The following files are not formatted:"
-            echo "$unformatted"
-            exit 1
-          fi
-
-      - name: Run tests with coverage
-        run: go test -covermode=atomic -coverprofile=coverage.out ./...
-
-      - name: Report coverage total
-        run: go tool cover -func=coverage.out | tail -n 1
-
-      - name: Generate HTML coverage report
-        run: |
-          mkdir -p site
-          go tool cover -html=coverage.out -o site/index.html
-
-      - name: Upload coverage artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage
-          path: |
-            coverage.out
-            site/index.html
-
-      - name: Build executable
-        run: |
-          mkdir -p build
-          go build -o build/cup .
-
-  architecture:
-    runs-on: ubuntu-latest
-
-    permissions:
-      contents: read
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: 1.26
-
-      - name: Install go-arch-lint
-        # Pinned to the immutable commit SHA of v1.16.0 for reproducible builds.
-        run: go install github.com/fe3dback/go-arch-lint@828ca876e1f51496988116e9375c491f983a655c
-
-      - name: Check architecture
-        run: go-arch-lint check --project-path .
-
   sonarcloud:
-    needs: test
     # Pinned rather than ubuntu-latest: this job configures the C++ port to
     # produce a compilation database, and that wants g++-15 (via the
     # ubuntu-toolchain-r PPA — noble's own archive tops out at g++-13) — the
@@ -110,11 +31,6 @@ jobs:
         with:
           # Full history gives SonarCloud accurate blame / new-code detection.
           fetch-depth: 0
-
-      - name: Download coverage report
-        uses: actions/download-artifact@v4
-        with:
-          name: coverage
 
       # --- C++ compilation database ---------------------------------------
       #
@@ -213,8 +129,13 @@ jobs:
       # every new line in those files reads as uncovered. Measured on this
       # branch: new_coverage went from 59.3% (gate: fail, needs 80%) to 93.1%
       # once source_not_found was ignored too, with no test changes at all.
+      #
+      # --html-details also lands a browsable per-file report in site/ — the
+      # same gcovr run and .gcda data that feeds Sonar, reused rather than
+      # captured twice; deploy-pages below publishes it.
       - name: Generate the C++ coverage report
         run: |
+          mkdir -p site
           gcovr --root . \
                 --gcov-executable gcov-15 \
                 --gcov-exclude '.*/_deps/.*' \
@@ -225,9 +146,16 @@ jobs:
                 --exclude-throw-branches \
                 --exclude-noncode-lines \
                 --sonarqube cpp/coverage.xml \
+                --html-details site/index.html \
                 cpp/build/Coverage
           echo "--- coverage.xml head ---"
           head -5 cpp/coverage.xml
+
+      - name: Upload coverage artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: site
 
       - name: SonarCloud scan
         uses: SonarSource/sonarqube-scan-action@22918119ff8e1ca75a623e15c8296b6ea4fbe28f # v8.2.1
@@ -244,7 +172,7 @@ jobs:
   deploy-pages:
     # Only publish the coverage site from the default branch.
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    needs: test
+    needs: sonarcloud
     runs-on: ubuntu-latest
 
     permissions:
@@ -260,6 +188,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: coverage
+          path: site
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3

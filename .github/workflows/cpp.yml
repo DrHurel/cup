@@ -1,10 +1,8 @@
 name: C++ CI
 
-# Build and test the C++ port under cpp/, which the Go cup scaffolded and which
-# will eventually replace it (see docs/migration-cpp23.md).
-#
-# This pipeline is deliberately separate from ci.yml: the Go binary must stay
-# shippable for the whole migration, so nothing here can affect the Go gate.
+# Build and test cup — the C++23 port under cpp/ that replaced the original Go
+# implementation (see docs/migration-cpp23.md; the Go sources live on in the
+# go-legacy branch).
 #
 # Everything is built with plain `cmake -G Ninja`, not with cup. That is not an
 # oversight — the first C++ cup has no cup to build it, and that bootstrap path is
@@ -166,93 +164,10 @@ jobs:
         working-directory: cpp
         run: ctest --test-dir build/Debug --output-on-failure
 
-  # The release artifact: a musl-static binary built in alpine.
-  #
-  # musl rather than glibc because cup resolves ftp.gnu.org and api.github.com to
-  # discover compiler releases. glibc's getaddrinfo dlopen's NSS modules at
-  # runtime, so a -static glibc binary fails DNS on any host whose glibc differs
-  # from the build host's. musl's resolver is static-clean.
-  #
-  # alpine:3.23, not 3.22: 3.22 only carries GCC 14.2, and the floor is GCC 15
-  # (see build-gcc15's comment above). 3.23 carries GCC 15.2.
+  # The release artifact: a musl-static binary built in alpine. Steps live in
+  # build-static.yml, a reusable workflow release.yml also calls (tag-triggered
+  # publishing) — see there for why musl and why alpine:3.23.
   release-musl-static:
-    name: alpine musl-static
-    runs-on: ubuntu-24.04
-    container: alpine:3.23
-
+    uses: ./.github/workflows/build-static.yml
     permissions:
       contents: read
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install toolchain
-        # Real ninja, not alpine's default samurai: samurai advertises ninja 1.9
-        # compatibility and has no dyndep support, so CMake refuses to scan for
-        # modules ("Ninja 1.11 or higher is required"). ninja-is-really-ninja
-        # points the `ninja` command at ninja-build (and excludes samurai).
-        # The *-static packages carry the archives a fully static link of libcurl
-        # needs; pkgconf resolves them via libcurl.pc's Libs.private (see
-        # third_party/CMakeLists.txt's CURL_USE_STATIC_LIBS branch).
-        run: |
-          apk add --no-cache \
-            build-base cmake ninja-build ninja-is-really-ninja git pkgconf file \
-            curl-dev curl-static \
-            openssl-libs-static zlib-static nghttp2-static brotli-static \
-            zstd-static libpsl-static libunistring-static libidn2-static
-
-      - name: Show toolchain versions
-        run: |
-          g++ --version | head -1
-          cmake --version | head -1
-          # Must be >= 1.11, or module scanning is unavailable.
-          ninja --version
-
-      - name: Configure (Release, static)
-        working-directory: cpp
-        run: |
-          # CURL_USE_STATIC_LIBS switches third_party/CMakeLists.txt onto
-          # pkg-config's STATIC mode for libcurl (see the comment there) — plain
-          # find_package(CURL) resolves the shared libcurl.so even with this
-          # variable set, which fails "-static" linking.
-          cmake -B build/Release \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_EXE_LINKER_FLAGS="-static" \
-            -DBUILD_SHARED_LIBS=OFF \
-            -DCURL_USE_STATIC_LIBS=ON
-
-      - name: Build
-        working-directory: cpp
-        run: cmake --build build/Release
-
-      # Proves the "static" in musl-static. Until Phase 4 lands an executable
-      # there is nothing to check, so an empty bin/ is not yet a failure.
-      #
-      # Checked via `file`, not `ldd`: musl/Alpine's toolchain defaults to
-      # static-*pie* (position-independent) executables, and a PIE binary
-      # carries an ELF interpreter entry (pointing at itself) regardless of
-      # whether it's statically or dynamically linked — musl's ldd reports that
-      # interpreter path either way, so "not a dynamic executable" never
-      # matches a real static-pie cup binary even though it has zero NEEDED
-      # entries (verified with `readelf -d`). `file`'s "static-pie linked" vs
-      # "dynamically linked" distinction is the one that actually tracks it.
-      - name: Verify the binary is static
-        working-directory: cpp
-        run: |
-          if [ ! -f build/Release/bin/cup ]; then
-            echo "no cup executable yet — skipping (expected until Phase 4)"
-            exit 0
-          fi
-          file build/Release/bin/cup
-          if file build/Release/bin/cup | grep -q 'dynamically linked'; then
-            echo "ERROR: binary is dynamically linked"
-            exit 1
-          fi
-          ./build/Release/bin/cup --help || true
-
-      - name: Upload release binary
-        if: hashFiles('cpp/build/Release/bin/cup') != ''
-        uses: actions/upload-artifact@v4
-        with:
-          name: cup-musl-static
-          path: cpp/build/Release/bin/cup
