@@ -183,8 +183,7 @@ std::expected<void, error::Error> dispatch_category(const project::Project& proj
         return add_test(proj);
     }
     if (category == "third-party") {
-        return std::unexpected(
-            error::Error("`cup register` is not ported yet (Phase 4 group 5 of the migration)"));
+        return run_register({});
     }
     return std::unexpected(error::Error(std::format("unknown category: \"{}\"", category)));
 }

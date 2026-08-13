@@ -115,6 +115,20 @@ target_link_libraries(compiler_cmd_test PRIVATE cmd project scaffold platform er
                                                 Catch2::Catch2WithMain)
 add_test(NAME compiler_cmd_test COMMAND compiler_cmd_test)
 
+add_executable(docker_cmd_test docker_cmd_test.cpp)
+target_compile_features(docker_cmd_test PRIVATE cxx_std_23)
+target_include_directories(docker_cmd_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(docker_cmd_test PRIVATE cmd project scaffold platform ui error
+                                              Catch2::Catch2WithMain)
+add_test(NAME docker_cmd_test COMMAND docker_cmd_test)
+
+add_executable(thirdparty_cmd_test thirdparty_cmd_test.cpp)
+target_compile_features(thirdparty_cmd_test PRIVATE cxx_std_23)
+target_include_directories(thirdparty_cmd_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(thirdparty_cmd_test PRIVATE cmd project platform ui error
+                                                  Catch2::Catch2WithMain)
+add_test(NAME thirdparty_cmd_test COMMAND thirdparty_cmd_test)
+
 # Black-box bats suite against the real cup binary (needs the cup target from
 # src/apps, so this must come after it — see the top-level CMakeLists.txt).
 add_subdirectory(functional)

@@ -10,11 +10,10 @@ export module cup.cmd:docker;
 export import cup.error;
 export import cup.project;
 
-// Declarations only, defined in Docker.cpp. Only the slice `cup new` needs is
-// here so far: the default build image's Dockerfile stays in sync with the
-// project's base image and (once `cup register` exists) its apt dependencies.
-// `cup docker new|build|push` and `cup register`/`cup unregister` land in a
-// later group of the migration and extend this same partition.
+// Declarations only, defined in Docker.cpp. `cup docker new|build|push`
+// manages the project's build images, each living at docker/<name>/Dockerfile
+// and versioned in cup.toml's [docker] table; the default image (created by
+// `cup new`) additionally tracks the project's apt third-party dependencies.
 export namespace cup::cmd {
 
 [[nodiscard]] std::filesystem::path docker_image_dir(const project::Project& proj,
@@ -50,5 +49,46 @@ export namespace cup::cmd {
 // (newest first) list so the menu stays usable, and falling back to
 // free-text entry when the tags cannot be fetched. Exposed for testing.
 [[nodiscard]] std::expected<std::string, error::Error> choose_image_tag(std::string_view repo);
+
+// select_images resolves the images a build/push acts on: the one named in
+// args, or all of them when no name is given. The returned pointers alias
+// proj.config.docker.images, so mutating an image through them and then
+// calling persist_config makes the change stick.
+[[nodiscard]] std::expected<std::vector<project::DockerImage*>, error::Error> select_images(
+    project::Project& proj, std::span<const std::string> args);
+
+// next_version advances an image's version only when its content changed: an
+// unchanged, already-built image keeps its number, while a first build or a
+// content change increments it.
+[[nodiscard]] int next_version(int cur, std::string_view old_hash, std::string_view new_hash);
+
+[[nodiscard]] std::string image_tag(std::string_view name, int version);
+
+// persist_config writes the (mutated) project config back to cup.toml.
+[[nodiscard]] std::expected<void, error::Error> persist_config(const project::Project& proj);
+
+// docker_new scaffolds an additional, user-managed build image: a
+// docker/<name>/ directory with a starter Dockerfile and a
+// [[docker.image]] entry. Unlike the default image, cup does not rewrite
+// this Dockerfile once written.
+[[nodiscard]] std::expected<void, error::Error> docker_new(project::Project& proj);
+
+// build_image regenerates the default image's Dockerfile (when img is the
+// default), hashes it to decide whether the version should advance, and
+// builds the image under its versioned and :latest tags.
+[[nodiscard]] std::expected<void, error::Error> build_image(const project::Project& proj,
+                                                             project::DockerImage& img);
+
+[[nodiscard]] std::expected<void, error::Error> run_docker_build(project::Project& proj,
+                                                                  std::span<const std::string> args);
+
+[[nodiscard]] std::expected<void, error::Error> push_image(const project::Project& proj,
+                                                            std::string_view registry,
+                                                            const project::DockerImage& img);
+
+[[nodiscard]] std::expected<void, error::Error> run_docker_push(project::Project& proj,
+                                                                 std::span<const std::string> args);
+
+[[nodiscard]] std::expected<void, error::Error> run_docker(std::span<const std::string> args);
 
 }

@@ -73,3 +73,27 @@
     [ "$status" -eq 1 ]
     [[ "$output" == *"aborted."* ]]
 }
+
+@test "docker with no args prints a usage error" {
+    cd "$BATS_TEST_TMPDIR"
+    printf 'name = "fixture"\ncup_version = "0.1.0"\ncpp_standard = 17\nstd_module = false\nbuild_tool = "cmake"\n' > cup.toml
+    run "$CUP_BIN" docker
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"usage: cup docker <new|build|push>"* ]]
+}
+
+@test "docker with an unknown subcommand fails with a usage error" {
+    cd "$BATS_TEST_TMPDIR"
+    printf 'name = "fixture"\ncup_version = "0.1.0"\ncpp_standard = 17\nstd_module = false\nbuild_tool = "cmake"\n' > cup.toml
+    run "$CUP_BIN" docker bogus
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"unknown \`cup docker\` subcommand \"bogus\""* ]]
+}
+
+@test "unregister with nothing registered reports it and exits 0" {
+    cd "$BATS_TEST_TMPDIR"
+    printf 'name = "fixture"\ncup_version = "0.1.0"\ncpp_standard = 17\nstd_module = false\nbuild_tool = "cmake"\n' > cup.toml
+    run "$CUP_BIN" unregister
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"no third-party dependencies registered"* ]]
+}

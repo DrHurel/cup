@@ -11,4 +11,5 @@ export import :add;
 export import :template_cmd;
 export import :completion;
 export import :compiler;
+export import :thirdparty;
 export import :dispatch;

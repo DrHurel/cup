@@ -14,7 +14,7 @@ import cup.ui;
 namespace cup::cmd {
 
 std::span<const Command> commands() {
-    static const std::array<Command, 12> table{{
+    static const std::array<Command, 15> table{{
         {"new", "create a new C++ project", &run_new},
         {"add", "scaffold an app, lib, or test (interactive)", &run_add},
         {"configure", "generate the CMake build system [MODE]", &run_configure},
@@ -27,6 +27,9 @@ std::span<const Command> commands() {
         {"template", "list or add project-local templates <list|new>", &run_template},
         {"completion", "install or print shell completion <install|bash|zsh|fish>", &run_completion},
         {"compiler", "show or change minimum compiler versions <set|verify>", &run_compiler},
+        {"docker", "manage build images <new|build|push>", &run_docker},
+        {"register", "register a third-party dependency", &run_register},
+        {"unregister", "remove a third-party dependency [name]", &run_unregister},
     }};
     return table;
 }

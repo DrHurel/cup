@@ -760,14 +760,23 @@ TEST_CASE("run_add dispatches an explicit category without prompting",
     REQUIRE(std::filesystem::exists(proj.src() / "apps" / "hello" / "hello.cpp"));
 }
 
-TEST_CASE("run_add rejects third-party (not ported yet) and an unknown category",
+TEST_CASE("run_add routes the third-party category to cup register, and rejects an "
+          "unknown category",
           "[cmd][add]") {
     const TempDir dir;
     const Project proj = scaffold_project(dir, "1", 23, "1");
     const ScopedCwd cwd(proj.root);
 
+    // method=apt-install(3), find_package name, apt package default, decline
+    // the install prompt — exercises run_add's own dispatch responsibility
+    // (routing to run_register), not register_apt's internals, which
+    // thirdparty_cmd_test.cpp already covers directly.
+    const ScopedStdin not_a_terminal("");
+    std::istringstream in("3\nBoost\n\nn\n");
+    const cup::ui::ScopedInput scoped(in);
     auto third_party = cup::cmd::run_add(std::vector<std::string>{"third-party"});
-    REQUIRE_FALSE(third_party.has_value());
+    REQUIRE(third_party.has_value());
+    REQUIRE(file_contains(proj.root / "third_party" / "CMakeLists.txt", "find_package(Boost REQUIRED)"));
 
     auto unknown = cup::cmd::run_add(std::vector<std::string>{"bogus"});
     REQUIRE_FALSE(unknown.has_value());
