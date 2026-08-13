@@ -29,6 +29,14 @@ jobs:
     permissions:
       contents: read
 
+    env:
+      # Named modules require Ninja: CMake's Makefile generator does not
+      # implement the dyndep scanning protocol modules need. A caller
+      # workflow's own top-level `env:` does not propagate into a
+      # `workflow_call`-triggered workflow, so this has to be set here too
+      # rather than inherited from cpp.yml.
+      CMAKE_GENERATOR: Ninja
+
     steps:
       - uses: actions/checkout@v4
 
