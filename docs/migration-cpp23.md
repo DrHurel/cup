@@ -460,6 +460,44 @@ Bootstrapping honesty: the *first* C++ `cup` must be built by plain
 `cmake -G Ninja`, because there is no cup yet to build it. Document that as the
 from-source path; everyone else gets the static release binary.
 
+### The relay happened
+
+All four gates passed:
+
+1. **Self-scaffold** — subsumed by gate 3 below (the matrix *is* the
+   self-scaffold check, run against both binaries rather than against a
+   fixed golden corpus).
+2. **Self-build** — `build/cup configure && build/cup build && build/cup
+   test` against `cpp/`, driven through the compiled C++ binary itself: 18
+   suites green, including the bats functional suite.
+3. **Cross-validation** — `devtools/cross-validate.py` (checked in) drives
+   both binaries over a plain pipe (`pexpect.popen_spawn.PopenSpawn`, not a
+   pty — that keeps cup on its numbered-select fallback instead of the
+   arrow-key TUI, so prompts are just text to match rather than raw
+   keystrokes to simulate) across all 8 golden cells plus the
+   `std_module = false` case. All 9 trees byte-identical, modulo
+   `cup_version` and the docker image content hash — the same two fields
+   Go's own golden tests already normalise, since a real timestamp/hash and
+   not a behavioural difference is exactly what they're for.
+4. **Coverage parity** — the SonarCloud quality gate is green on the C++
+   port's own PRs (new-code coverage held at 80%+ throughout Phase 4).
+
+One thing gate 3 caught early, before it ever became a false "diff": `cup
+new` calls `choose_base_image` unconditionally, regardless of build tool — a
+Make project still records a default `[[docker.image]]` in `cup.toml` (for
+`cup compiler verify` / a later `cup docker build`) even though it never
+generates a Dockerfile. An early draft of the harness assumed the base-image
+prompt was cmake-only and hung waiting for EOF on every Make cell until that
+assumption was corrected.
+
+**`devtools/build.sh` now builds the C++ `cup`** (this phase's actual
+handover), and `docker/Dockerfile` — the portable dev container the script
+can run inside — was repointed from a Go toolchain to GCC 15 + CMake + Ninja
+(matching CI's floor job exactly) so the containerized flow keeps working.
+`devtools/test.sh` still runs `go test ./...`: the Go sources themselves
+aren't retired until Phase 6, and that stays a Go-only script, and the dev
+container a C++-only one, until then.
+
 ---
 
 ## Phase 6 — Retire Go
