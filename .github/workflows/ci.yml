@@ -133,6 +133,15 @@ jobs:
       # --html-details also lands a browsable per-file report in site/ — the
       # same gcovr run and .gcda data that feeds Sonar, reused rather than
       # captured twice; deploy-pages below publishes it.
+      #
+      # The extra `.*/catch2/.*` exclude is only load-bearing for that HTML
+      # report: unlike --sonarqube (pure line/branch counts), --html-details
+      # opens and embeds each file's source, so it hard-fails instead of
+      # degrading when it can't — and around 170 vendored Catch2 files can't
+      # be opened, because their .gcno notes carry the same truncated path
+      # (missing the _deps/catch2-src/ prefix) the FetchContent-sourced
+      # "source" ignore-error above already works around for gcov itself.
+      # --exclude '.*/_deps/.*' does not match that truncated form.
       - name: Generate the C++ coverage report
         run: |
           mkdir -p site
@@ -143,6 +152,7 @@ jobs:
                 --exclude '.*/_deps/.*' \
                 --exclude '.*/generated/.*' \
                 --exclude 'cpp/src/tests/.*' \
+                --exclude '.*/catch2/.*' \
                 --exclude-throw-branches \
                 --exclude-noncode-lines \
                 --sonarqube cpp/coverage.xml \
