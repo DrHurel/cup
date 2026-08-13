@@ -52,7 +52,7 @@ std::string floor_label(int v) {
     if (v == 0) {
         return "(no floor)";
     }
-    return ">= " + std::to_string(v);
+    return std::format(">= {}", v);
 }
 
 std::expected<void, error::Error> show_compilers(const project::Project& proj) {
@@ -71,17 +71,20 @@ std::expected<void, error::Error> show_compilers(const project::Project& proj) {
 std::expected<ParsedCompilerFlags, error::Error> parse_compiler_flags(
     std::span<const std::string> args) {
     ParsedCompilerFlags parsed;
-    for (std::size_t i = 0; i < args.size(); ++i) {
+    std::size_t i = 0;
+    while (i < args.size()) {
         if (args[i] == "--no-verify") {
             parsed.no_verify = true;
+            ++i;
         } else if (args[i] == "--image") {
             if (i + 1 >= args.size()) {
                 return std::unexpected(error::Error("--image needs a docker image reference"));
             }
-            ++i;
-            parsed.image = args[i];
+            parsed.image = args[i + 1];
+            i += 2;
         } else {
             parsed.rest.push_back(args[i]);
+            ++i;
         }
     }
     return parsed;
@@ -99,8 +102,8 @@ std::expected<PlannedCompilerChange, error::Error> plan_compiler_change(
     }
     int ver = 0;
     const auto& text = rest[1];
-    const auto parsed = std::from_chars(text.data(), text.data() + text.size(), ver);
-    if (parsed.ec != std::errc{} || parsed.ptr != text.data() + text.size() || ver < 0) {
+    if (const auto parsed = std::from_chars(text.data(), text.data() + text.size(), ver);
+        parsed.ec != std::errc{} || parsed.ptr != text.data() + text.size() || ver < 0) {
         return std::unexpected(error::Error(
             std::format("invalid version \"{}\": want a non-negative major version like 15", text)));
     }
