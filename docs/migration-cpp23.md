@@ -516,6 +516,31 @@ container a C++-only one, until then.
    build.*
 5. Delete `go.mod`, `go.sum`, `coverage.out`.
 
+## Phase 7 — Flatten the tree
+
+`cpp/` existed to keep the C++ port out of the Go tree's way while both were
+shippable at once. Once Phase 6 deleted the Go sources, that reason was gone
+and an extra path segment was all `cpp/` still did.
+
+1. `git mv` everything tracked under `cpp/` (`CMakeLists.txt`, `cmake/`,
+   `cup.toml`, `src/`, `templates/`, `third_party/`, `docker/cup/`) up to the
+   repository root; merge `cpp/.gitignore` into the root one.
+2. Collapse the bootstrap build path into cup's own convention instead of
+   keeping it separate: `devtools/build.sh` used to configure a flat,
+   throwaway `cpp/build/` and copy the binary out to a *different* top-level
+   `build/cup`. With the project root and the repo root now the same
+   directory, both of those `build/`s would have collided — so the bootstrap
+   now configures directly into `build/Release`, the exact path a
+   self-hosted `cup build` (default mode) already uses, and copies from
+   there. Bootstrap and self-hosted builds share one tree; nothing is built
+   twice.
+3. Update every path that named `cpp/` on purpose: the CI workflows
+   (`ci.yml`, `cpp.yml`, `build-static.yml`), `sonar-project.properties`,
+   `.vscode/*.json`, `CONTRIBUTING.md`, `README.md`, `devtools/*.sh`.
+   `cpp.yml`'s trigger `paths:` moved from a single `cpp/**` entry to the
+   flattened top-level dirs individually, since there is no longer one
+   directory that scopes "the C++ port."
+
 ---
 
 ## Scope

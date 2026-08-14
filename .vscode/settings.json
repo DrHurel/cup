@@ -3,9 +3,9 @@
         "connectionId": "drhurel-1",
         "projectKey": "DrHurel_cup"
     },
-    "sonarlint.pathToCompileCommands": "${workspaceFolder}/cpp/build/Debug/compile_commands.json",
+    "sonarlint.pathToCompileCommands": "${workspaceFolder}/build/Debug/compile_commands.json",
 
-    // --- C++ (cpp/, the C++23 port — see docs/migration-cpp23.md) --------------
+    // --- C++ (the C++23 port — see docs/migration-cpp23.md) --------------
 
     // VS Code has no built-in association for module interface units.
     "files.associations": {
@@ -20,12 +20,12 @@
     "C_Cpp.default.cStandard": "c23",
     "C_Cpp.default.cppStandard": "c++23",
     "C_Cpp.default.intelliSenseMode": "linux-gcc-x64",
-    "C_Cpp.default.compileCommands": "${workspaceFolder}/cpp/build/Debug/compile_commands.json",
+    "C_Cpp.default.compileCommands": "${workspaceFolder}/build/Debug/compile_commands.json",
 
-    // The C++ project is a subdirectory, and its build tree follows cup's convention
-    // of one directory per build mode (build/Debug, build/Release, build/Coverage).
-    "cmake.sourceDirectory": "${workspaceFolder}/cpp",
-    "cmake.buildDirectory": "${workspaceFolder}/cpp/build/${buildType}",
+    // Its build tree follows cup's convention of one directory per build mode
+    // (build/Debug, build/Release, build/Coverage).
+    "cmake.sourceDirectory": "${workspaceFolder}",
+    "cmake.buildDirectory": "${workspaceFolder}/build/${buildType}",
     // Named modules require Ninja >= 1.11: CMake's Makefile generator does not
     // implement the dyndep scanning they need, and never will.
     "cmake.generator": "Ninja",
@@ -33,11 +33,9 @@
     "cmake.configureOnOpen": false,
 
     "search.exclude": {
-        "cpp/build": true,
         "build": true
     },
     "files.watcherExclude": {
-        "**/cpp/build/**": true,
         "**/build/**": true
     }
 }

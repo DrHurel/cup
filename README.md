@@ -80,8 +80,8 @@ cp build/cup ~/.local/bin/
 ```
 
 The bootstrap build is plain `cmake`/`ninja` because there is no `cup` yet to
-build itself. From then on `build/cup build` (run from `cpp/`) drives the
-same cmake/ninja invocation through cup's own config — see [Devtools
+build itself. From then on `build/cup build` drives the same cmake/ninja
+invocation through cup's own config — see [Devtools
 scripts](#devtools-scripts) and `docs/migration-cpp23.md`'s Phase 5.
 
 A portable build environment (GCC 15 + CMake + Ninja, no local toolchain
@@ -96,7 +96,7 @@ docker run --rm -v "$PWD:/work" cup-dev ./devtools/build.sh
 
 - `./devtools/build.sh` — bootstrap-build `cup` (plain cmake/ninja) into `build/cup`
 - `./devtools/test.sh` — configure, build, and run the Catch2 suite via ctest
-- `./devtools/clean.sh` — remove `build/` and `cpp/build/`
+- `./devtools/clean.sh` — remove `build/`
 - `./devtools/docker-build.sh` — build the `cup-dev` utility image
 
 ## Docker build images
@@ -207,7 +207,7 @@ in `cup.toml` keeps the **CMake 3.28 / GCC 14** requirements of C++20 modules wh
 fragment instead of `import std;`, with `std::println` and `std::expected`
 available as ordinary standard-library features. Leave `std_module` out and the
 standard decides (C++23 uses the std module, C++20 cannot). `cup new` has no
-prompt for it yet, so set it by hand; cup's own C++ port under `cpp/` sets
+prompt for it yet, so set it by hand; cup's own `cup.toml` sets
 `std_module = false` this way, though it separately pins a GCC 15 floor of its
 own — an unrelated GCC 14 modules limitation, not a `std_module` requirement;
 see `docs/migration-cpp23.md`'s Phase 4 note.

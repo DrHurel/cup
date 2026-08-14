@@ -5,15 +5,15 @@
             // compile_commands.json is the authority: cup's CMake sets
             // CMAKE_EXPORT_COMPILE_COMMANDS, so every translation unit is described
             // with the exact flags it is built with. Configure once
-            // (`cmake -G Ninja -B build/Debug -DCMAKE_BUILD_TYPE=Debug` in cpp/, or
+            // (`cmake -G Ninja -B build/Debug -DCMAKE_BUILD_TYPE=Debug`, or
             // CMake Tools) and IntelliSense follows the build.
-            "compileCommands": "${workspaceFolder}/cpp/build/Debug/compile_commands.json",
+            "compileCommands": "${workspaceFolder}/build/Debug/compile_commands.json",
             // Fallback for files the database does not cover yet — a .cppm that has
             // not been added to a target, and the embedded-template header generated
             // by cmake/EmbedTemplates.cmake.
             "includePath": [
-                "${workspaceFolder}/cpp/src/**",
-                "${workspaceFolder}/cpp/build/Debug/generated/**"
+                "${workspaceFolder}/src/**",
+                "${workspaceFolder}/build/Debug/generated/**"
             ],
             "defines": [],
             // GCC 15 is the project's floor (raised from GCC 14 in Phase 4 — see

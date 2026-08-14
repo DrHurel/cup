@@ -20,5 +20,10 @@ site/
 # Editor/IDE
 # .idea/
 # .vscode/
+.cache/
+
+# CMake's compilation database — machine-specific absolute paths, regenerated
+# by every configure.
+compile_commands.json
 
 build/
