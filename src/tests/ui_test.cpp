@@ -423,14 +423,22 @@ TEST_CASE("make_select_component moves the cursor and reports the pick", "[ui][s
     auto screen = ftxui::ScreenInteractive::TerminalOutput();
     auto component = cup::ui::detail::make_select_component(state, "pick?", screen);
 
+    // Rendered at each cursor position: entries_option.transform's ternary
+    // (highlighted vs. plain entry) needs the highlighted entry to actually
+    // move across all three for both its branches to be exercised on every
+    // entry, not just whichever one happened to be selected at the one
+    // Render() call a single snapshot would give.
+    REQUIRE_NOTHROW(component->Render());
     REQUIRE(component->OnEvent(ftxui::Event::ArrowDown));
     REQUIRE(state.selected == 1);
+    REQUIRE_NOTHROW(component->Render());
     REQUIRE(component->OnEvent(ftxui::Event::ArrowDown));
     REQUIRE(state.selected == 2);
+    REQUIRE_NOTHROW(component->Render());
     REQUIRE(component->OnEvent(ftxui::Event::ArrowUp));
     REQUIRE(state.selected == 1);
-
     REQUIRE_NOTHROW(component->Render());
+
     REQUIRE_FALSE(state.aborted);
 }
 
@@ -458,6 +466,9 @@ TEST_CASE("make_text_component tracks typed content and validates on enter",
             return std::nullopt;
         });
 
+    REQUIRE_NOTHROW(component->Render());  // no error yet: exercises the
+                                            // "no error line" branch
+
     for (const char c : std::string_view("bad")) {
         component->OnEvent(ftxui::Event::Character(c));
     }
@@ -466,6 +477,8 @@ TEST_CASE("make_text_component tracks typed content and validates on enter",
     component->OnEvent(ftxui::Event::Return);
     REQUIRE(state.error_message == "must not be bad");
     REQUIRE_FALSE(state.aborted);
+    REQUIRE_NOTHROW(component->Render());  // error set: exercises the
+                                            // error-line-pushed branch
 
     for (int i = 0; i < 3; ++i) {
         component->OnEvent(ftxui::Event::Backspace);
@@ -479,7 +492,7 @@ TEST_CASE("make_text_component tracks typed content and validates on enter",
     REQUIRE(state.error_message.empty());
     REQUIRE_FALSE(state.aborted);
 
-    REQUIRE_NOTHROW(component->Render());
+    REQUIRE_NOTHROW(component->Render());  // error cleared again
 }
 
 TEST_CASE("make_text_component aborts on Ctrl+C and Ctrl+D", "[ui][text][ftxui]") {
