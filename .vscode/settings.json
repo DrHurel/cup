@@ -16,7 +16,7 @@
     // Defaults for anyone without a local .vscode/c_cpp_properties.json (that file
     // is gitignored, since compiler paths are per-machine). Same compile_commands.json
     // sonarlint reads above — cup's CMake exports it for exactly this.
-    "C_Cpp.default.compilerPath": "/usr/bin/g++-14",
+    "C_Cpp.default.compilerPath": "/usr/bin/g++-15",
     "C_Cpp.default.cStandard": "c23",
     "C_Cpp.default.cppStandard": "c++23",
     "C_Cpp.default.intelliSenseMode": "linux-gcc-x64",

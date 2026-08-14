@@ -1,7 +1,7 @@
 {
     "configurations": [
         {
-            "name": "cup-cpp (gcc-14, C++23 named modules)",
+            "name": "cup-cpp (gcc-15, C++23 named modules)",
             // compile_commands.json is the authority: cup's CMake sets
             // CMAKE_EXPORT_COMPILE_COMMANDS, so every translation unit is described
             // with the exact flags it is built with. Configure once
@@ -16,9 +16,10 @@
                 "${workspaceFolder}/cpp/build/Debug/generated/**"
             ],
             "defines": [],
-            // GCC 14 is the project's floor and the only local compiler that builds
-            // named modules; g++-13 on this machine cannot.
-            "compilerPath": "/usr/bin/g++-14",
+            // GCC 15 is the project's floor (raised from GCC 14 in Phase 4 — see
+            // docs/migration-cpp23.md); g++-13, noble's own default, cannot build
+            // named modules at all.
+            "compilerPath": "/usr/bin/g++-15",
             "compilerArgs": [
                 "-std=c++23"
             ],

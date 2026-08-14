@@ -14,8 +14,9 @@
 [![Lines of Code](https://sonarcloud.io/api/project_badges/measure?project=DrHurel_cup&metric=ncloc)](https://sonarcloud.io/summary/new_code?id=DrHurel_cup)
 
 
-`cup` scaffolds and manages C++ projects from a single Go binary. Pick a
-standard when you create a project and `cup` scaffolds to match it: **C++20/23**
+`cup` scaffolds and manages C++ projects from a single binary — itself written
+in C++23. Pick a standard when you create a project and `cup` scaffolds to
+match it: **C++20/23**
 projects are built from C++ modules (`import std;` on C++23 unless you opt out —
 see [Toolchain requirements](#toolchain-requirements)), while
 **C++11/14/17** projects use classic headers. Either way the projects it creates
@@ -45,25 +46,58 @@ no rebase/merge conflicts in a shared build file. Objects land under
 `build/<mode>/bin` — the same `build/<mode>` layout as the CMake backend, so
 `cup build|run|test|clean [Debug|Release|Coverage]` work identically either way.
 
-## Build & install
+## Install
+
+Most people never need a compiler at all: grab the precompiled
+**musl-static** binary from the [latest
+release](https://github.com/DrHurel/cup/releases/latest) (built in
+`alpine:3.23`, so it runs on any x86-64 Linux — static means no libc version
+to match) and put it on `PATH`:
 
 ```sh
-./devtools/build.sh           # produces build/cup
-cp build/cup ~/.local/bin/     # put it on PATH (any dir on PATH works)
+cp cup-linux-x86_64-musl ~/.local/bin/cup
+chmod +x ~/.local/bin/cup      # any dir on PATH works
+cup completion install         # detects your shell and wires it in (optional)
 ```
 
-Then enable shell completion (optional):
+Every push also builds the same binary as a CI artifact (see the `alpine
+musl-static` job), for testing a specific commit ahead of a tagged release.
+
+### Building from source
+
+Needs **GCC 15+** (named modules) and **CMake 3.28+** with **Ninja** (CMake's
+Makefile generator has no dyndep support for modules — see [Toolchain
+requirements](#toolchain-requirements)). Ubuntu 24.04's own archive tops out
+at `g++-13`; add the toolchain PPA first, or use an OS that already ships
+GCC 15+ (Fedora 42+, any rolling release):
 
 ```sh
-cup completion install         # detects your shell and wires it in
+sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
+sudo apt-get update && sudo apt-get install -y g++-15 ninja-build cmake libcurl4-openssl-dev
+
+./devtools/build.sh            # bootstrap: plain cmake, produces build/cup
+cp build/cup ~/.local/bin/
 ```
 
-## Devtools
+The bootstrap build is plain `cmake`/`ninja` because there is no `cup` yet to
+build itself. From then on `build/cup build` (run from `cpp/`) drives the
+same cmake/ninja invocation through cup's own config — see [Devtools
+scripts](#devtools-scripts) and `docs/migration-cpp23.md`'s Phase 5.
 
-- `./devtools/build.sh` — build into `build/cup`
-- `./devtools/test.sh` — run Go tests
-- `./devtools/clean.sh` — remove `build/`
-- `./devtools/docker-build.sh` — build the Docker image
+A portable build environment (GCC 15 + CMake + Ninja, no local toolchain
+install needed) is available via Docker:
+
+```sh
+./devtools/docker-build.sh
+docker run --rm -v "$PWD:/work" cup-dev ./devtools/build.sh
+```
+
+## Devtools scripts
+
+- `./devtools/build.sh` — bootstrap-build `cup` (plain cmake/ninja) into `build/cup`
+- `./devtools/test.sh` — configure, build, and run the Catch2 suite via ctest
+- `./devtools/clean.sh` — remove `build/` and `cpp/build/`
+- `./devtools/docker-build.sh` — build the `cup-dev` utility image
 
 ## Docker build images
 
