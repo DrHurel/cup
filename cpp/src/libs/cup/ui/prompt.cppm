@@ -82,8 +82,12 @@ namespace detail {
         emit(line);
         flush_output();
 
-        auto answer = detail::read_answer().transform([def](std::string value) {
-            return value.empty() ? std::string(def) : std::move(value);
+        // Named distinctly from rejection()'s `value` parameter below: SonarCloud's
+        // CFamily symbolic execution conflated the two identically-named locals
+        // across the call graph and flagged rejection()'s (never moved) `value` as
+        // used-after-move because of this lambda's own std::move(entered).
+        auto answer = detail::read_answer().transform([def](std::string entered) {
+            return entered.empty() ? std::string(def) : std::move(entered);
         });
         if (!answer.has_value()) {
             return answer;
