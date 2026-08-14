@@ -4,8 +4,17 @@
 #include <fcntl.h>
 #include <unistd.h>
 
+// #included directly rather than reached through cup.ui: it declares the
+// FTXUI component-tree builders behind select_one/text's interactive path,
+// letting this suite drive them with synthetic ftxui::Event objects for real
+// coverage — no real terminal (and so no pty) needed for this part. See its
+// header comment. Interactive.cpp is the other (and only other) includer.
+#include "../libs/cup/ui/Interactive.hpp"
+#include <ftxui/component/event.hpp>
+
 #include <array>
 #include <expected>
+#include <optional>
 #include <span>
 #include <sstream>
 #include <string>
@@ -407,6 +416,83 @@ TEST_CASE("select_one propagates the interactive seam's error", "[ui][select]") 
     const auto got = cup::ui::select_one("pick?", options, "a");
     REQUIRE_FALSE(got.has_value());
     REQUIRE(cup::error::is_abort(got.error()));
+}
+
+TEST_CASE("make_select_component moves the cursor and reports the pick", "[ui][select][ftxui]") {
+    cup::ui::detail::SelectState state{.entries = {"red", "green", "blue"}, .selected = 0};
+    auto screen = ftxui::ScreenInteractive::TerminalOutput();
+    auto component = cup::ui::detail::make_select_component(state, "pick?", screen);
+
+    REQUIRE(component->OnEvent(ftxui::Event::ArrowDown));
+    REQUIRE(state.selected == 1);
+    REQUIRE(component->OnEvent(ftxui::Event::ArrowDown));
+    REQUIRE(state.selected == 2);
+    REQUIRE(component->OnEvent(ftxui::Event::ArrowUp));
+    REQUIRE(state.selected == 1);
+
+    REQUIRE_NOTHROW(component->Render());
+    REQUIRE_FALSE(state.aborted);
+}
+
+TEST_CASE("make_select_component aborts on Ctrl+C and Ctrl+D", "[ui][select][ftxui]") {
+    for (const auto& event : {ftxui::Event::CtrlC, ftxui::Event::CtrlD}) {
+        cup::ui::detail::SelectState state{.entries = {"a", "b"}, .selected = 0};
+        auto screen = ftxui::ScreenInteractive::TerminalOutput();
+        auto component = cup::ui::detail::make_select_component(state, "pick?", screen);
+
+        REQUIRE(component->OnEvent(event));
+        REQUIRE(state.aborted);
+    }
+}
+
+TEST_CASE("make_text_component tracks typed content and validates on enter",
+          "[ui][text][ftxui]") {
+    cup::ui::detail::TextState state;
+    auto screen = ftxui::ScreenInteractive::TerminalOutput();
+    auto component = cup::ui::detail::make_text_component(
+        state, "name?", "fallback", screen,
+        [](std::string_view answer) -> std::optional<std::string> {
+            if (answer == "bad") {
+                return "must not be bad";
+            }
+            return std::nullopt;
+        });
+
+    for (const char c : std::string_view("bad")) {
+        component->OnEvent(ftxui::Event::Character(c));
+    }
+    REQUIRE(state.content == "bad");
+
+    component->OnEvent(ftxui::Event::Return);
+    REQUIRE(state.error_message == "must not be bad");
+    REQUIRE_FALSE(state.aborted);
+
+    for (int i = 0; i < 3; ++i) {
+        component->OnEvent(ftxui::Event::Backspace);
+    }
+    for (const char c : std::string_view("good")) {
+        component->OnEvent(ftxui::Event::Character(c));
+    }
+    REQUIRE(state.content == "good");
+
+    component->OnEvent(ftxui::Event::Return);
+    REQUIRE(state.error_message.empty());
+    REQUIRE_FALSE(state.aborted);
+
+    REQUIRE_NOTHROW(component->Render());
+}
+
+TEST_CASE("make_text_component aborts on Ctrl+C and Ctrl+D", "[ui][text][ftxui]") {
+    for (const auto& event : {ftxui::Event::CtrlC, ftxui::Event::CtrlD}) {
+        cup::ui::detail::TextState state;
+        auto screen = ftxui::ScreenInteractive::TerminalOutput();
+        auto component = cup::ui::detail::make_text_component(
+            state, "name?", "", screen,
+            [](std::string_view) -> std::optional<std::string> { return std::nullopt; });
+
+        REQUIRE(component->OnEvent(event));
+        REQUIRE(state.aborted);
+    }
 }
 
 TEST_CASE("errors compare by kind and message", "[error]") {
