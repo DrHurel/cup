@@ -63,7 +63,6 @@ jobs:
           ninja --version
 
       - name: Configure (Release, static)
-        working-directory: cpp
         run: |
           # CURL_USE_STATIC_LIBS switches third_party/CMakeLists.txt onto
           # pkg-config's STATIC mode for libcurl (see the comment there) — plain
@@ -76,7 +75,6 @@ jobs:
             -DCURL_USE_STATIC_LIBS=ON
 
       - name: Build
-        working-directory: cpp
         run: cmake --build build/Release
 
       # Checked via `file`, not `ldd`: musl/Alpine's toolchain defaults to
@@ -88,7 +86,6 @@ jobs:
       # entries (verified with `readelf -d`). `file`'s "static-pie linked" vs
       # "dynamically linked" distinction is the one that actually tracks it.
       - name: Verify the binary is static
-        working-directory: cpp
         run: |
           file build/Release/bin/cup
           if file build/Release/bin/cup | grep -q 'dynamically linked'; then
@@ -101,4 +98,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: cup-musl-static
-          path: cpp/build/Release/bin/cup
+          path: build/Release/bin/cup

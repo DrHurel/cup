@@ -8,9 +8,7 @@
 #   docker run --rm -it -v "$PWD:/work" cup-dev            # drops into a shell
 #
 # Matches cpp.yml's gcc-15 (floor) CI job's toolchain exactly, so a build that
-# works here works there. devtools/test.sh still runs `go test ./...` (the Go
-# sources aren't retired until Phase 6 of docs/migration-cpp23.md) — this
-# image is C++-only, so that one script won't run in it until then.
+# works here works there.
 FROM ubuntu:24.04
 
 # git is handy for module fetches and cup's own `git init`; ca-certificates

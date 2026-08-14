@@ -1,12 +1,12 @@
 #!/usr/bin/env sh
 set -eu
 # Bootstrap: no cup exists yet to build itself, so this is plain cmake/ninja
-# (see docs/migration-cpp23.md's Phase 5). Once build/cup exists, prefer
-# `build/cup build` on cpp/ directly — it drives the same cmake/ninja
-# invocation through cup's own config, with the version-tagged build/<mode>
-# tree cup's other commands expect.
-cmake -G Ninja -B cpp/build -S cpp -DCMAKE_BUILD_TYPE=Release
-cmake --build cpp/build
-mkdir -p build
-cp cpp/build/bin/cup build/cup
+# (see docs/migration-cpp23.md's Phase 5). It targets build/Release directly —
+# the same path cup's own `build`/`configure` commands use for that mode — so
+# this first build and every self-hosted one after it share one tree instead
+# of a throwaway bootstrap copy plus a separate self-hosted one. Once
+# build/cup exists, prefer `build/cup build` on the project directly.
+cmake -G Ninja -B build/Release -DCMAKE_BUILD_TYPE=Release
+cmake --build build/Release
+cp build/Release/bin/cup build/cup
 printf 'Built %s\n' "build/cup"

@@ -1,8 +1,9 @@
 name: C++ CI
 
-# Build and test cup — the C++23 port under cpp/ that replaced the original Go
+# Build and test cup — the C++23 port that replaced the original Go
 # implementation (see docs/migration-cpp23.md; the Go sources live on in the
-# go-legacy branch).
+# go-legacy branch). Phase 7 flattened what was cpp/ up to the repository
+# root, once the Go tree it used to sit alongside was gone.
 #
 # Everything is built with plain `cmake -G Ninja`, not with cup. That is not an
 # oversight — the first C++ cup has no cup to build it, and that bootstrap path is
@@ -11,9 +12,25 @@ name: C++ CI
 on:
   push:
     branches: [main]
-    paths: ['cpp/**', '.github/workflows/cpp.yml']
+    paths:
+      - 'src/**'
+      - 'cmake/**'
+      - 'templates/**'
+      - 'third_party/**'
+      - 'CMakeLists.txt'
+      - 'cup.toml'
+      - '.github/workflows/cpp.yml'
+      - '.github/workflows/build-static.yml'
   pull_request:
-    paths: ['cpp/**', '.github/workflows/cpp.yml']
+    paths:
+      - 'src/**'
+      - 'cmake/**'
+      - 'templates/**'
+      - 'third_party/**'
+      - 'CMakeLists.txt'
+      - 'cup.toml'
+      - '.github/workflows/cpp.yml'
+      - '.github/workflows/build-static.yml'
   workflow_dispatch:
 
 concurrency:
@@ -72,31 +89,27 @@ jobs:
       - name: Cache FetchContent dependencies
         uses: actions/cache@v4
         with:
-          path: cpp/build/Coverage/_deps
-          key: ${{ runner.os }}-deps-gcc15-${{ hashFiles('cpp/third_party/CMakeLists.txt') }}
+          path: build/Coverage/_deps
+          key: ${{ runner.os }}-deps-gcc15-${{ hashFiles('third_party/CMakeLists.txt') }}
           restore-keys: ${{ runner.os }}-deps-gcc15-
 
       # Coverage is a first-class build mode in a cup project, so the gcov run is
       # the same build the tests run against — no second configure.
       - name: Configure (Coverage)
-        working-directory: cpp
         env:
           CC: gcc-15
           CXX: g++-15
         run: cmake -B build/Coverage -DCMAKE_BUILD_TYPE=Coverage
 
       - name: Build
-        working-directory: cpp
         run: cmake --build build/Coverage
 
       # No --no-tests=ignore: Phase 2 landed the ui, tmpl and project suites, so a
       # run that discovers no tests means the wiring broke and must fail loudly.
       - name: Test
-        working-directory: cpp
         run: ctest --test-dir build/Coverage --output-on-failure
 
       - name: Collect coverage
-        working-directory: cpp
         run: |
           # `source` is not optional: some .gcda name Catch2 headers by a path that
           # does not resolve in the build tree (build/Coverage/src/catch2/reporters/
@@ -125,8 +138,8 @@ jobs:
         with:
           name: cpp-coverage
           path: |
-            cpp/coverage.info
-            cpp/build/Coverage/compile_commands.json
+            coverage.info
+            build/Coverage/compile_commands.json
 
   # Early warning against a newer GCC. Module support moves fast, and an ICE or a
   # stale-BMI bug should surface here rather than in a contributor's first PR.
@@ -150,18 +163,15 @@ jobs:
             g++-16 ninja-build cmake libcurl4-openssl-dev bats
 
       - name: Configure
-        working-directory: cpp
         env:
           CC: gcc-16
           CXX: g++-16
         run: cmake -B build/Debug -DCMAKE_BUILD_TYPE=Debug
 
       - name: Build
-        working-directory: cpp
         run: cmake --build build/Debug
 
       - name: Test
-        working-directory: cpp
         run: ctest --test-dir build/Debug --output-on-failure
 
   # The release artifact: a musl-static binary built in alpine. Steps live in

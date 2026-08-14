@@ -63,33 +63,30 @@ jobs:
       - name: Cache FetchContent dependencies
         uses: actions/cache@v4
         with:
-          path: cpp/build/Coverage/_deps
-          key: ${{ runner.os }}-sonar-deps-gcc15-${{ hashFiles('cpp/third_party/CMakeLists.txt') }}
+          path: build/Coverage/_deps
+          key: ${{ runner.os }}-sonar-deps-gcc15-${{ hashFiles('third_party/CMakeLists.txt') }}
           restore-keys: ${{ runner.os }}-sonar-deps-gcc15-
 
       # Must land on the path sonar.cfamily.compile-commands names.
       - name: Configure the C++ port
-        working-directory: cpp
         env:
           CC: gcc-15
           CXX: g++-15
         run: cmake -B build/Coverage -DCMAKE_BUILD_TYPE=Coverage
 
       - name: Build the C++ port
-        working-directory: cpp
         run: cmake --build build/Coverage
 
       # Produces the .gcda files gcovr reads. Without --no-tests=ignore, so a
       # suite that stops being discovered fails here instead of quietly reporting
       # zero coverage and failing the gate with a far less obvious message.
       - name: Test the C++ port
-        working-directory: cpp
         run: ctest --test-dir build/Coverage --output-on-failure
 
       # Run from the repository root on purpose: --root decides the paths written
-      # into the report, and Sonar keys C++ files as cpp/src/... . Rooting this at
-      # cpp/ would emit src/... and match nothing, which shows up as 0% coverage
-      # rather than as an error.
+      # into the report, and Sonar keys C++ files as src/... — matching --root .
+      # here. Rooting this anywhere else would emit a different prefix and match
+      # nothing, which shows up as 0% coverage rather than as an error.
       #
       # gcov-15 must match the compiler; the default `gcov` is GCC 13 on this
       # runner and rejects the notes files. Vendored, generated and test sources
@@ -102,7 +99,7 @@ jobs:
       #   - --exclude-throw-branches. gcov emits a branch pair for *every* call
       #     that could throw — the landing-pad edge — and the port's style is a
       #     dense chain of std::format, std::string and and_then/transform calls,
-      #     so this dominates: 951 branches reported for cpp/src/libs, of which
+      #     so this dominates: 951 branches reported for src/libs, of which
       #     287 are exception edges no test can take without forcing bad_alloc.
       #     Sonar counts each as an uncovered condition, which is what put
       #     Toml.cpp at 60% branch coverage while 193 of its 197 real ones are
@@ -124,8 +121,8 @@ jobs:
       # g++-15/ninja-build/cmake/gcovr) treats an unignored gcov error as
       # fatal *for that whole translation unit* and drops the file from the
       # report outright, rather than degrading gracefully like 8.x does. That
-      # silently deleted cpp/src/libs/cup/scaffold/{Cmake,Releases,Render}.cpp
-      # from cpp/coverage.xml — Sonar then has zero coverage data for them, so
+      # silently deleted src/libs/cup/scaffold/{Cmake,Releases,Render}.cpp
+      # from coverage.xml — Sonar then has zero coverage data for them, so
       # every new line in those files reads as uncovered. Measured on this
       # branch: new_coverage went from 59.3% (gate: fail, needs 80%) to 93.1%
       # once source_not_found was ignored too, with no test changes at all.
@@ -151,15 +148,15 @@ jobs:
                 --gcov-ignore-errors all \
                 --exclude '.*/_deps/.*' \
                 --exclude '.*/generated/.*' \
-                --exclude 'cpp/src/tests/.*' \
+                --exclude 'src/tests/.*' \
                 --exclude '.*/catch2/.*' \
                 --exclude-throw-branches \
                 --exclude-noncode-lines \
-                --sonarqube cpp/coverage.xml \
+                --sonarqube coverage.xml \
                 --html-details site/index.html \
-                cpp/build/Coverage
+                build/Coverage
           echo "--- coverage.xml head ---"
-          head -5 cpp/coverage.xml
+          head -5 coverage.xml
 
       - name: Upload coverage artifacts
         uses: actions/upload-artifact@v4

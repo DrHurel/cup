@@ -5,7 +5,7 @@ matrix, plus the std_module=false `cup add` case TestAddWithoutStdModule
 covers on the Go side, and diff the resulting trees.
 
 Usage:
-    python3 devtools/cross-validate.py build/cup cpp/build/bin/cup
+    python3 devtools/cross-validate.py <go-cup-binary> build/Debug/bin/cup
 
 Requires pexpect (`pip install pexpect`). Drives each binary over a plain
 pipe (pexpect.popen_spawn.PopenSpawn, not a pty), so cup's is_tty check
@@ -85,7 +85,7 @@ def scaffold(binary, root, tool, std, name="proj"):
 
 def add_flows_without_std_module(binary, root, name="proj"):
     """Mirrors TestAddWithoutStdModule: flip std_module=false by hand (no
-    picker sets it yet, same as cpp/cup.toml itself), then run `cup add app`
+    picker sets it yet, same as cup's own cup.toml), then run `cup add app`
     and `cup add lib` and let the tree speak for itself."""
     proj_dir = os.path.join(root, name)
     toml_path = os.path.join(proj_dir, "cup.toml")

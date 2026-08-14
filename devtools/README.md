@@ -4,11 +4,11 @@ Helper scripts for building, testing, and packaging the `cup` CLI.
 
 ## Usage
 
-- `./devtools/build.sh` — bootstrap-build the C++ `cup` (plain `cmake -G Ninja`
-  against `cpp/`, since there is no `cup` yet to build itself) into `build/cup`
-- `./devtools/test.sh` — run the Go test suite (the Go sources aren't retired
-  until Phase 6 of `docs/migration-cpp23.md`); the C++ suite runs via `ctest`
-  or `build/cup test` once you have a built binary
+- `./devtools/build.sh` — bootstrap-build `cup` (plain `cmake -G Ninja`, since
+  there is no `cup` yet to build itself) into `build/cup`
+- `./devtools/test.sh` — configure, build and run the full Catch2 suite via
+  `ctest` in a separate Debug tree; `build/cup test` does the same thing
+  through cup itself once you have a built binary
 - `./devtools/clean.sh` — remove the local `build/` tree
 - `./devtools/docker-build.sh [tag]` — build the utility dev image (default tag `cup-dev`) from `docker/Dockerfile`
 

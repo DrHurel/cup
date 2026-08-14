@@ -719,7 +719,7 @@ TEST_CASE("run_new (c++23, std_module = false) never writes import std;", "[cmd]
     Project proj = scaffold_project(dir, "1", 23, "1");
 
     // No picker sets std_module yet (matches the Go source), so flip it by
-    // hand and re-persist, the way cpp/cup.toml itself does.
+    // hand and re-persist, the way cup's own cup.toml itself does.
     proj.config.std_module = false;
     REQUIRE(cup::project::write_config(proj.root, proj.config).has_value());
 
