@@ -13,7 +13,7 @@ target_compile_features(ui_test PRIVATE cxx_std_23)
 # without re-exporting it. ftxui backs Interactive.hpp, #included directly (not via
 # the cup.ui module) so the suite can drive its component trees with synthetic
 # events — see Interactive.hpp's header comment.
-target_link_libraries(ui_test PRIVATE ui error platform probe Threads::Threads
+target_link_libraries(ui_test PRIVATE ui error platform Threads::Threads
                                       ftxui::ftxui Catch2::Catch2WithMain)
 add_test(NAME ui_test COMMAND ui_test)
 
