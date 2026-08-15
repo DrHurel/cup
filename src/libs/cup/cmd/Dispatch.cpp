@@ -92,7 +92,7 @@ int run_main(std::span<const std::string> args) {
     const auto cmds = commands();
     const auto it = std::ranges::find(cmds, name, &Command::name);
     if (it == cmds.end()) {
-        log::warn(std::format("command={} status=unknown", name));
+        log::user::warn(std::format("command={} status=unknown", name));
         ui::err("unknown command \"" + name + "\"");
         usage();
         return 1;
@@ -103,8 +103,8 @@ int run_main(std::span<const std::string> args) {
     const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                         std::chrono::steady_clock::now() - start)
                         .count();
-    log::info(std::format("command={} status={} duration_ms={}", name,
-                          result.has_value() ? "ok" : "error", ms));
+    log::user::info(std::format("command={} status={} duration_ms={}", name,
+                                result.has_value() ? "ok" : "error", ms));
 
     if (!result.has_value()) {
         if (const auto& err = result.error(); error::is_abort(err)) {
