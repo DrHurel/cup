@@ -142,6 +142,7 @@ TEST_CASE("the [docker] table round-trips and its lookups work", "[project][dock
     const TempDir root;
     const Config cfg{
         .name = "demo",
+        .cpp_standard = 20,
         .docker = DockerConfig{
             .registry = "docker.io/youruser",
             .images = {DockerImage{.name = "demo",
@@ -247,7 +248,8 @@ TEST_CASE("default_image reports none when no image is marked default", "[projec
 
 TEST_CASE("find_from walks up to the project root", "[project][find]") {
     const TempDir root;
-    REQUIRE(cup::project::write_config(root, Config{.name = "demo"}).has_value());
+    REQUIRE(
+        cup::project::write_config(root, Config{.name = "demo", .cpp_standard = 20}).has_value());
     const std::filesystem::path nested = root.path() / "src" / "libs" / "utils";
     std::filesystem::create_directories(nested);
 
@@ -323,17 +325,17 @@ TEST_CASE("parse_config reports a field of the wrong type", "[project][toml]") {
         {"name = 1", "name"},
         {"cup_version = 1", "cup_version"},
         {R"(cpp_standard = "23")", "cpp_standard"},
-        {R"(std_module = "false")", "std_module"},
-        {"build_tool = 1", "build_tool"},
-        {"[compiler]\ngcc = \"14\"", "gcc"},
-        {"[compiler]\nclang = \"18\"", "clang"},
-        {"[compiler]\nverify_image = 1", "verify_image"},
-        {"[docker]\nregistry = 1", "registry"},
-        {"[[docker.image]]\nname = 1", "name"},
-        {"[[docker.image]]\nbase = 1", "base"},
-        {"[[docker.image]]\nversion = \"3\"", "version"},
-        {"[[docker.image]]\nhash = 1", "hash"},
-        {"[[docker.image]]\ndefault = \"yes\"", "default"},
+        {"cpp_standard = 20\nstd_module = \"false\"", "std_module"},
+        {"cpp_standard = 20\nbuild_tool = 1", "build_tool"},
+        {"cpp_standard = 20\n[compiler]\ngcc = \"14\"", "gcc"},
+        {"cpp_standard = 20\n[compiler]\nclang = \"18\"", "clang"},
+        {"cpp_standard = 20\n[compiler]\nverify_image = 1", "verify_image"},
+        {"cpp_standard = 20\n[docker]\nregistry = 1", "registry"},
+        {"cpp_standard = 20\n[[docker.image]]\nname = 1", "name"},
+        {"cpp_standard = 20\n[[docker.image]]\nbase = 1", "base"},
+        {"cpp_standard = 20\n[[docker.image]]\nversion = \"3\"", "version"},
+        {"cpp_standard = 20\n[[docker.image]]\nhash = 1", "hash"},
+        {"cpp_standard = 20\n[[docker.image]]\ndefault = \"yes\"", "default"},
     };
 
     for (const auto& c : cases) {
@@ -346,13 +348,14 @@ TEST_CASE("parse_config reports a field of the wrong type", "[project][toml]") {
 }
 
 TEST_CASE("parse_config rejects a docker.image entry that is not a table", "[project][toml]") {
-    const auto cfg = cup::project::parse_config("[docker]\nimage = [1]\n");
+    const auto cfg = cup::project::parse_config("cpp_standard = 20\n[docker]\nimage = [1]\n");
     REQUIRE_FALSE(cfg.has_value());
     REQUIRE(cfg.error().message() == "docker.image entries must be tables");
 }
 
 TEST_CASE("parse_config accepts a [docker] table with no images", "[project][toml]") {
-    const auto cfg = cup::project::parse_config("[docker]\nregistry = \"docker.io/youruser\"\n");
+    const auto cfg = cup::project::parse_config(
+        "cpp_standard = 20\n[docker]\nregistry = \"docker.io/youruser\"\n");
     REQUIRE(cfg.has_value());
     REQUIRE(cfg->docker.registry == "docker.io/youruser");
     REQUIRE(cfg->docker.images.empty());
@@ -360,9 +363,24 @@ TEST_CASE("parse_config accepts a [docker] table with no images", "[project][tom
 }
 
 TEST_CASE("parse_config ignores keys it does not know", "[project][toml]") {
-    const auto cfg = cup::project::parse_config("name = \"demo\"\nfuture_thing = 1\n");
+    const auto cfg =
+        cup::project::parse_config("name = \"demo\"\ncpp_standard = 20\nfuture_thing = 1\n");
     REQUIRE(cfg.has_value());
     REQUIRE(cfg->name == "demo");
+}
+
+TEST_CASE("parse_config rejects an out-of-range cpp_standard", "[project][toml]") {
+    const auto cfg = cup::project::parse_config("name = \"demo\"\ncpp_standard = 99\n");
+    REQUIRE_FALSE(cfg.has_value());
+    REQUIRE(cfg.error().message().find("cpp_standard") != std::string::npos);
+    REQUIRE(cfg.error().message().find("99") != std::string::npos);
+}
+
+TEST_CASE("parse_config rejects an omitted cpp_standard", "[project][toml]") {
+    const auto cfg = cup::project::parse_config("name = \"demo\"\n");
+    REQUIRE_FALSE(cfg.has_value());
+    REQUIRE(cfg.error().message().find("cpp_standard") != std::string::npos);
+    REQUIRE(cfg.error().message().find("0") != std::string::npos);
 }
 
 TEST_CASE("to_toml writes zero ints and omits empty strings", "[project][toml][parity]") {
