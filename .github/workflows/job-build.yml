@@ -51,6 +51,13 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # This job never pushes back to the repo; leaving the checkout
+          # token persisted in .git/config is an avoidable credential-
+          # exposure surface (flagged by SonarCloud's githubactions:S8262 --
+          # a broad artifact upload downstream, even one scoped to build/,
+          # is exactly the kind of step that rule exists to catch).
+          persist-credentials: false
 
       # bats is needed here, not just in job-functional-test.yml: the
       # functional/CMakeLists.txt find_program(BATS_EXECUTABLE bats) call

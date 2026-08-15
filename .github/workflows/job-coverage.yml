@@ -39,6 +39,11 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # This job never pushes back to the repo; leaving the checkout
+          # token persisted in .git/config is an avoidable credential-
+          # exposure surface (flagged by SonarCloud's githubactions:S8262).
+          persist-credentials: false
 
       - name: Install toolchain
         run: |

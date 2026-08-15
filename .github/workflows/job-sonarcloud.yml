@@ -26,6 +26,9 @@ jobs:
         with:
           # Full history gives SonarCloud accurate blame / new-code detection.
           fetch-depth: 0
+          # This job never pushes back to the repo; no reason to leave the
+          # checkout token persisted in .git/config.
+          persist-credentials: false
 
       - name: Download the Coverage build
         uses: actions/download-artifact@v4
