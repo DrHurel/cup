@@ -6,7 +6,9 @@ module;
 #include <print>
 #include <span>
 #include <string>
+#include <string_view>
 #include <typeinfo>
+#include <cup/version.h>
 module cup.cmd;
 
 import cup.ui;
@@ -51,11 +53,27 @@ void usage() {
         "build/<MODE> tree.");
 }
 
+// print_version reports cup's own cup_version (from this project's cup.toml,
+// baked in at build time) plus the build SHA when one is present — i.e. only
+// for a binary CI's build-static.yml built, never for a plain local build.
+void print_version() {
+    constexpr std::string_view sha = CUP_BUILD_SHA;
+    if (sha.empty()) {
+        std::println("cup {}", CUP_VERSION);
+    } else {
+        std::println("cup {} ({})", CUP_VERSION, sha);
+    }
+}
+
 }  // namespace
 
 int run_main(std::span<const std::string> args) {
     if (args.empty() || args[0] == "-h" || args[0] == "--help" || args[0] == "help") {
         usage();
+        return 0;
+    }
+    if (args[0] == "-v" || args[0] == "--version") {
+        print_version();
         return 0;
     }
 
