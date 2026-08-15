@@ -1,6 +1,8 @@
 module;
 #include <toml++/toml.hpp>
 
+#include <algorithm>
+#include <array>
 #include <expected>
 #include <filesystem>
 #include <format>
@@ -17,6 +19,21 @@ module cup.project;
 
 namespace cup::project {
 namespace {
+
+// Mirrors cup.scaffold's kStandards (std.cppm): the set of C++ standards cup
+// can scaffold. Duplicated rather than imported so this foundational,
+// low-level module doesn't take on cup.scaffold's much heavier dependency
+// graph (cup.ui, cup.tmpl, cup.platform) just to validate five integers.
+inline constexpr std::array<int, 5> kStandards{23, 20, 17, 14, 11};
+
+[[nodiscard]] std::expected<void, error::Error> check_cpp_standard(int cpp_standard) {
+    if (std::ranges::find(kStandards, cpp_standard) == kStandards.end()) {
+        return std::unexpected(error::Error(
+            std::format("cpp_standard {}: not a supported standard (11, 14, 17, 20, 23)",
+                        cpp_standard)));
+    }
+    return {};
+}
 
 [[nodiscard]] std::string quote(std::string_view s) {
     std::string out;
@@ -221,6 +238,7 @@ std::expected<Config, error::Error> parse_config(std::string_view text) {
             .and_then(
                 [&tbl, &cfg] { return bind<std::string>(tbl, "cup_version", cfg.cup_version); })
             .and_then([&tbl, &cfg] { return bind<int>(tbl, "cpp_standard", cfg.cpp_standard); })
+            .and_then([&cfg] { return check_cpp_standard(cfg.cpp_standard); })
             .and_then([&tbl, &cfg] { return bind<bool>(tbl, "std_module", cfg.std_module); })
             .and_then(
                 [&tbl, &cfg] { return bind<std::string>(tbl, "build_tool", cfg.build_tool); })
