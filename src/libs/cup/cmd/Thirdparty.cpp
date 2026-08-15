@@ -228,9 +228,10 @@ std::expected<void, error::Error> register_download(const project::Project& proj
     if (proj.uses_make()) {
         // See register_submodule's matching comment: "--" pins the URL and
         // path as positional regardless of a leading dash.
-        const std::vector<std::string> clone_args{
-            "clone", "--depth", "1", "--branch", *tag, "--", *url,
-            std::string(kThirdPartyPath) + *name};
+        std::vector<std::string> clone_args{"clone", "--depth", "1", "--branch", *tag};
+        clone_args.emplace_back("--");
+        clone_args.push_back(*url);
+        clone_args.push_back(std::string(kThirdPartyPath) + *name);
         if (auto cloned = run_shell(proj.root, "git", clone_args); !cloned.has_value()) {
             return cloned;
         }
