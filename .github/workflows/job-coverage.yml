@@ -1,0 +1,124 @@
+name: Coverage
+
+# Reusable: the one job that builds Coverage mode and runs every test
+# (unit + functional) against it in a single pass, then collects lcov data.
+# Unlike the Debug/Release split (job-build.yml + job-unit-test.yml /
+# job-functional-test.yml), this stays one job on purpose -- coverage
+# collection wants the exact build that ran the tests, and splitting it
+# across jobs would mean re-downloading and re-linking just to run lcov.
+#
+# Also uploads the built tree (minus _deps) so job-sonarcloud.yml can run
+# gcovr straight against it instead of configuring/building/testing a third
+# time.
+
+on:
+  workflow_call: {}
+
+env:
+  # Named modules require Ninja: CMake's Makefile generator does not implement
+  # the dyndep scanning protocol modules need, and never will.
+  CMAKE_GENERATOR: Ninja
+
+jobs:
+  coverage:
+    name: gcc-15 (floor) — build + test + coverage
+    runs-on: ubuntu-24.04
+
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            g++-15 ninja-build cmake libcurl4-openssl-dev lcov bats
+
+      - name: Show toolchain versions
+        run: |
+          g++-15 --version | head -1
+          cmake --version | head -1
+          ninja --version
+
+      # FetchContent clones toml++ and Catch2 on every configure; cache the
+      # populated _deps tree so PRs do not re-clone them each run.
+      #
+      # Keyed on the compiler too, not just third_party/CMakeLists.txt: _deps
+      # holds compiled .gcno/.gcda coverage artifacts, and restoring a cache
+      # built by a different GCC (e.g. across the GCC 14 -> 15 floor bump)
+      # mixes gcov note/data format versions — geninfo then fails with
+      # "stamp mismatch with notes file" / "version 'B42*', prefer 'B52*'"
+      # instead of silently reusing a compatible cache. The restore-keys
+      # prefix carries the same suffix, or a floor bump would still fall back
+      # to the stale entry as a "partial match".
+      - name: Cache FetchContent dependencies
+        uses: actions/cache@v4
+        with:
+          path: build/Coverage/_deps
+          key: ${{ runner.os }}-deps-gcc15-${{ hashFiles('third_party/CMakeLists.txt') }}
+          restore-keys: ${{ runner.os }}-deps-gcc15-
+
+      # Coverage is a first-class build mode in a cup project, so the gcov run is
+      # the same build the tests run against — no second configure.
+      - name: Configure (Coverage)
+        env:
+          CC: gcc-15
+          CXX: g++-15
+        run: cmake -B build/Coverage -DCMAKE_BUILD_TYPE=Coverage
+
+      - name: Build
+        run: cmake --build build/Coverage
+
+      # No --no-tests=ignore: Phase 2 landed the ui, tmpl and project suites, so a
+      # run that discovers no tests means the wiring broke and must fail loudly.
+      - name: Test
+        run: ctest --test-dir build/Coverage --output-on-failure
+
+      - name: Collect coverage
+        run: |
+          # `source` is not optional: some .gcda name Catch2 headers by a path that
+          # does not resolve in the build tree (build/Coverage/src/catch2/reporters/
+          # catch_reporter_sonarqube.hpp), and geninfo treats an unopenable source as a
+          # hard error. Excluding _deps at capture also skips ~100 Catch2 objects that
+          # the --remove below would drop anyway.
+          #
+          # `negative` and `inconsistent` cover the same class of GCC 15 +
+          # named-modules gcov note-file quirk as gcovr's --gcov-ignore-errors
+          # all in job-sonarcloud.yml: heavily-instantiated STL headers
+          # (<charconv>, <unicode.h>, ...), pulled in from dozens of
+          # translation units, occasionally produce a negative merged count or
+          # a hit/not-hit mismatch that lcov 2.x's stricter consistency checks
+          # now treat as fatal by default where lcov 1.x only warned.
+          lcov --capture --directory build/Coverage --output-file coverage.info \
+               --gcov-tool gcov-15 --exclude '*/_deps/*' \
+               --ignore-errors empty,mismatch,source,negative,inconsistent
+          # Third-party and generated sources are not ours to cover.
+          lcov --remove coverage.info \
+               '/usr/*' '*/build/*/_deps/*' '*/build/*/generated/*' \
+               --output-file coverage.info --ignore-errors empty,unused,inconsistent
+          lcov --list coverage.info --ignore-errors inconsistent
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: cpp-coverage
+          path: |
+            coverage.info
+            build/Coverage/compile_commands.json
+
+      # _deps is excluded for the same reason job-build.yml excludes it from
+      # the Debug/Release uploads: gcovr's own --gcov-exclude/--exclude flags
+      # (job-sonarcloud.yml) already skip it by path, so shipping it in the
+      # artifact would only cost transfer time.
+      - name: Upload build tree for SonarCloud
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-Coverage
+          path: |
+            build/Coverage
+            !build/Coverage/_deps
+          include-hidden-files: true
+          retention-days: 1

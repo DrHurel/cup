@@ -1,30 +1,25 @@
-name: CI
+name: SonarCloud
+
+# Reusable: reuses job-coverage.yml's already-built + already-tested
+# build/Coverage tree (gcno *and* gcda both present, since that job ran
+# ctest) to generate the gcovr report and feed the SonarCloud scan — no
+# second configure/build/test cycle. Needs its own g++-15 install anyway:
+# CFamily's analyser runs the real compiler to learn its built-in macros and
+# include paths (compile_commands.json names /usr/bin/g++-15 outright), and
+# gcovr needs the matching gcov-15 to read GCC 15's note/data files.
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-  workflow_dispatch:
-
-concurrency:
-  group: pages-${{ github.ref }}
-  cancel-in-progress: false
+  workflow_call:
+    secrets:
+      SONAR_TOKEN:
+        required: true
 
 jobs:
   sonarcloud:
-    # Pinned rather than ubuntu-latest: this job configures the C++ port to
-    # produce a compilation database, and that wants g++-15 (via the
-    # ubuntu-toolchain-r PPA — noble's own archive tops out at g++-13) — the
-    # same floor .github/workflows/cpp.yml builds against.
     runs-on: ubuntu-24.04
 
     permissions:
       contents: read
-
-    env:
-      # Named modules require Ninja: CMake's Makefile generator does not
-      # implement the dyndep scanning protocol modules need.
-      CMAKE_GENERATOR: Ninja
 
     steps:
       - uses: actions/checkout@v4
@@ -32,56 +27,20 @@ jobs:
           # Full history gives SonarCloud accurate blame / new-code detection.
           fetch-depth: 0
 
-      # --- C++ compilation database ---------------------------------------
-      #
-      # Without one the CFamily analyser skips the port outright, however much of
-      # cpp/ sonar.sources covers: before this the project's language breakdown
-      # was `go=3230;yaml=112`, with no C++ in it at all.
-      #
-      # This used to *configure* only, which was enough for the compilation
-      # database. Phase 1.5 dropped `sonar.coverage.exclusions=cpp/**`, and
-      # importing coverage means the tests have to actually run here — so the job
-      # now configures, builds and tests the Coverage tree, and one build serves
-      # both the database and the gcov data.
-      #
-      # cpp.yml still owns the *matrix* (GCC 15 floor, GCC 16 canary, musl-static);
-      # this job builds one configuration purely to feed the scanner.
-      #
-      # The toolchain is installed here rather than carried in from cpp.yml
-      # because CFamily runs the real compiler to learn its built-in macros and
-      # include paths, and compile_commands.json names /usr/bin/g++-15 outright.
-      - name: Install the C++ toolchain
+      - name: Download the Coverage build
+        uses: actions/download-artifact@v4
+        with:
+          name: build-Coverage
+          path: build/Coverage
+
+      - name: Restore executable permissions
+        run: chmod -R +x build/Coverage/bin
+
+      - name: Install gcov + gcovr
         run: |
           sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            g++-15 ninja-build cmake libcurl4-openssl-dev gcovr bats
-
-      # Keyed on the compiler too — see cpp.yml's floor job cache for why a
-      # bare third_party/CMakeLists.txt hash isn't enough (mixed-GCC gcov
-      # format mismatches on a floor bump).
-      - name: Cache FetchContent dependencies
-        uses: actions/cache@v4
-        with:
-          path: build/Coverage/_deps
-          key: ${{ runner.os }}-sonar-deps-gcc15-${{ hashFiles('third_party/CMakeLists.txt') }}
-          restore-keys: ${{ runner.os }}-sonar-deps-gcc15-
-
-      # Must land on the path sonar.cfamily.compile-commands names.
-      - name: Configure the C++ port
-        env:
-          CC: gcc-15
-          CXX: g++-15
-        run: cmake -B build/Coverage -DCMAKE_BUILD_TYPE=Coverage
-
-      - name: Build the C++ port
-        run: cmake --build build/Coverage
-
-      # Produces the .gcda files gcovr reads. Without --no-tests=ignore, so a
-      # suite that stops being discovered fails here instead of quietly reporting
-      # zero coverage and failing the gate with a far less obvious message.
-      - name: Test the C++ port
-        run: ctest --test-dir build/Coverage --output-on-failure
+          sudo apt-get install -y --no-install-recommends g++-15 gcovr
 
       # Run from the repository root on purpose: --root decides the paths written
       # into the report, and Sonar keys C++ files as src/... — matching --root .
@@ -118,18 +77,18 @@ jobs:
       # name (e.g. "cup.error") instead of a real path — gcc/gcov has no
       # source file to open for that, so gcov reports it as source_not_found.
       # gcovr 7.0 (what apt installs on noble, and what this job pins via
-      # g++-15/ninja-build/cmake/gcovr) treats an unignored gcov error as
-      # fatal *for that whole translation unit* and drops the file from the
-      # report outright, rather than degrading gracefully like 8.x does. That
-      # silently deleted src/libs/cup/scaffold/{Cmake,Releases,Render}.cpp
-      # from coverage.xml — Sonar then has zero coverage data for them, so
-      # every new line in those files reads as uncovered. Measured on this
-      # branch: new_coverage went from 59.3% (gate: fail, needs 80%) to 93.1%
-      # once source_not_found was ignored too, with no test changes at all.
+      # g++-15/gcovr) treats an unignored gcov error as fatal *for that whole
+      # translation unit* and drops the file from the report outright, rather
+      # than degrading gracefully like 8.x does. That silently deleted
+      # src/libs/cup/scaffold/{Cmake,Releases,Render}.cpp from coverage.xml —
+      # Sonar then has zero coverage data for them, so every new line in those
+      # files reads as uncovered. Measured on this branch: new_coverage went
+      # from 59.3% (gate: fail, needs 80%) to 93.1% once source_not_found was
+      # ignored too, with no test changes at all.
       #
       # --html-details also lands a browsable per-file report in site/ — the
       # same gcovr run and .gcda data that feeds Sonar, reused rather than
-      # captured twice; deploy-pages below publishes it.
+      # captured twice; job-deploy-pages.yml publishes it.
       #
       # The extra `.*/catch2/.*` exclude is only load-bearing for that HTML
       # report: unlike --sonarqube (pure line/branch counts), --html-details
@@ -175,33 +134,3 @@ jobs:
           # here — see the note in sonar-project.properties.
           args: >
             -Dsonar.qualitygate.wait=true
-
-  deploy-pages:
-    # Only publish the coverage site from the default branch.
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    needs: sonarcloud
-    runs-on: ubuntu-latest
-
-    permissions:
-      pages: write
-      id-token: write
-
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-
-    steps:
-      - name: Download coverage report
-        uses: actions/download-artifact@v4
-        with:
-          name: coverage
-          path: site
-
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: site
-
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4

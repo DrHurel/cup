@@ -1,0 +1,53 @@
+name: Functional tests
+
+# Reusable: downloads the build/<mode> tree job-build.yml already compiled
+# and runs only the functional_* bats suites (src/tests/functional/*.bats),
+# which drive the real compiled `cup` binary as a subprocess. Unlike the
+# Catch2 suites job-unit-test.yml runs, several of these scenarios have `cup`
+# itself orchestrate a *real* nested cmake+ninja(+bats) build of a scratch
+# fixture project (see build_run.bats/modules_build_run.bats/
+# make_build_run.bats) -- so, unlike unit tests, this job needs the full
+# toolchain installed even though `cup` itself is already built.
+
+on:
+  workflow_call:
+    inputs:
+      mode:
+        description: 'Build MODE whose artifact to test (Debug or Release)'
+        required: true
+        type: string
+
+env:
+  CMAKE_GENERATOR: Ninja
+
+jobs:
+  test:
+    name: functional tests (${{ inputs.mode }})
+    runs-on: ubuntu-24.04
+
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download build tree
+        uses: actions/download-artifact@v4
+        with:
+          name: build-${{ inputs.mode }}
+          path: build/${{ inputs.mode }}
+
+      - name: Install toolchain
+        run: |
+          sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            g++-15 ninja-build cmake libcurl4-openssl-dev bats
+
+      # actions/download-artifact does not restore the executable bit on its
+      # own; the cup binary the bats suites exec needs it back.
+      - name: Restore executable permissions
+        run: chmod -R +x build/${{ inputs.mode }}/bin
+
+      - name: Run functional tests
+        run: ctest --test-dir build/${{ inputs.mode }} -R '^functional_' --output-on-failure

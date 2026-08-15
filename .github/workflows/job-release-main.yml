@@ -1,0 +1,56 @@
+name: Package main binary
+
+# Reusable: packages the musl-static binary release-musl-static already
+# built for continuous verification into a downloadable, checksummed
+# artifact representing the latest main build. The call site (cpp.yml)
+# restricts this to pushes on main.
+#
+# Deliberately does not create or update a GitHub Release: that stays
+# reserved for version tags (release.yml), so merging to main never floods
+# the Releases page. This is a workflow artifact only — grab it from the
+# run's Summary page, or promote it to a real tagged release by hand when
+# ready.
+
+on:
+  workflow_call:
+    inputs:
+      artifact-name:
+        description: Name of the already-built static-binary artifact to package
+        required: true
+        type: string
+
+jobs:
+  package:
+    name: package musl-static (main)
+    runs-on: ubuntu-24.04
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Download the static binary
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: dist
+
+      # Same rename release.yml uses for the tagged release, so a build
+      # picked up from either place looks the same. Packaged as a tarball +
+      # checksum, not the bare binary, so "package" means something beyond
+      # what the upstream build job already uploads.
+      - name: Package
+        run: |
+          chmod +x dist/cup
+          mv dist/cup dist/cup-linux-x86_64-musl
+          cd dist
+          tar czf cup-linux-x86_64-musl.tar.gz cup-linux-x86_64-musl
+          sha256sum cup-linux-x86_64-musl.tar.gz > cup-linux-x86_64-musl.tar.gz.sha256
+
+      - name: Upload packaged binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: cup-main-latest
+          path: |
+            dist/cup-linux-x86_64-musl.tar.gz
+            dist/cup-linux-x86_64-musl.tar.gz.sha256
+          retention-days: 30

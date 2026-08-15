@@ -1,0 +1,49 @@
+name: Unit tests
+
+# Reusable: downloads the build/<mode> tree job-build.yml already compiled
+# and runs every ctest entry *except* the functional_* bats suites (see
+# job-functional-test.yml) -- the self-contained Catch2 executables, which
+# need no compiler, no ninja, and no bats to run, just the binaries
+# themselves. Kept split from functional so a bats-only failure doesn't hide
+# among -- or block re-running -- the much larger/faster Catch2 set.
+
+on:
+  workflow_call:
+    inputs:
+      mode:
+        description: 'Build MODE whose artifact to test (Debug or Release)'
+        required: true
+        type: string
+
+jobs:
+  test:
+    name: unit tests (${{ inputs.mode }})
+    runs-on: ubuntu-24.04
+
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download build tree
+        uses: actions/download-artifact@v4
+        with:
+          name: build-${{ inputs.mode }}
+          path: build/${{ inputs.mode }}
+
+      # Just ctest's own CLI -- no g++/ninja/bats needed, the binaries under
+      # test are already built.
+      - name: Install cmake
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake
+
+      # actions/download-artifact does not restore the executable bit on its
+      # own; every test binary and the cup app itself (CMAKE_RUNTIME_OUTPUT_
+      # DIRECTORY = build/<mode>/bin for the whole project) need it back.
+      - name: Restore executable permissions
+        run: chmod -R +x build/${{ inputs.mode }}/bin
+
+      - name: Run unit tests
+        run: ctest --test-dir build/${{ inputs.mode }} -E '^functional_' --output-on-failure
