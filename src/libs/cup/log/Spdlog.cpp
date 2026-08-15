@@ -3,7 +3,9 @@ module;
 #include <spdlog/spdlog.h>
 
 #include <cstdlib>
+#include <expected>
 #include <filesystem>
+#include <format>
 #include <memory>
 #include <string_view>
 #include <system_error>
@@ -55,26 +57,32 @@ std::shared_ptr<spdlog::logger>& active_logger() {
 
 }  // namespace
 
-void init() {
+std::expected<void, error::Error> init() {
     active_logger().reset();
     const auto level = level_from_env();
     if (level == spdlog::level::off) {
-        return;
+        return {};
     }
+    const auto path = log_dir() / "cup.log";
     try {
-        const auto dir = log_dir();
         std::error_code ec;
-        std::filesystem::create_directories(dir, ec);
+        std::filesystem::create_directories(log_dir(), ec);
         auto sink = std::make_shared<spdlog::sinks::rotating_file_sink_mt>(
-            (dir / "cup.log").string(), kMaxFileBytes, kMaxFiles);
+            path.string(), kMaxFileBytes, kMaxFiles);
         auto logger = std::make_shared<spdlog::logger>("cup", sink);
         logger->set_level(level);
         logger->set_pattern("[%Y-%m-%dT%H:%M:%S%z] [%l] %v");
         logger->flush_on(spdlog::level::warn);
         active_logger() = std::move(logger);
-    } catch (const spdlog::spdlog_ex&) {
+        return {};
+    } catch (const spdlog::spdlog_ex& e) {
         // Logging must never break the CLI: active_logger() stays null, so
-        // debug/info/warn/error below become no-ops instead of propagating.
+        // debug/info/warn/error below become no-ops — but the failure is
+        // reported rather than swallowed, so the caller can tell the user
+        // and point at CUP_LOG=off as the way to turn logging off outright.
+        return std::unexpected(error::Error(std::format(
+            "cup.log: could not open {} ({}) — set CUP_LOG=off to disable logging", path.string(),
+            e.what())));
     }
 }
 

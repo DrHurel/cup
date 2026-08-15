@@ -71,7 +71,11 @@ void print_version() {
 }  // namespace
 
 int run_main(std::span<const std::string> args) {
-    log::init();
+    // A failed init() (e.g. an unwritable log dir) must never stop cup from
+    // running the actual command — just tell the user how to quiet it.
+    if (auto logged = log::init(); !logged.has_value()) {
+        ui::err(std::format("warning: {}", logged.error().message()));
+    }
 
     if (args.empty() || args[0] == "-h" || args[0] == "--help" || args[0] == "help") {
         usage();

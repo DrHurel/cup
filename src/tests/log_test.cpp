@@ -56,7 +56,7 @@ TEST_CASE("cup.log writes leveled entries under XDG_CACHE_HOME/cup/cup.log", "[l
     const ScopedEnv xdg("XDG_CACHE_HOME", cache.path().string());
     const ScopedEnv unset_level("CUP_LOG", "info");
 
-    cup::log::init();
+    REQUIRE(cup::log::init().has_value());
     cup::log::debug("should not appear at the default info level");
     cup::log::info("hello info");
     cup::log::warn("hello warn");
@@ -76,7 +76,7 @@ TEST_CASE("CUP_LOG raises the level filter", "[log]") {
     const ScopedEnv xdg("XDG_CACHE_HOME", cache.path().string());
     const ScopedEnv level("CUP_LOG", "error");
 
-    cup::log::init();
+    REQUIRE(cup::log::init().has_value());
     cup::log::info("should be filtered out");
     cup::log::error("should be kept");
 
@@ -90,7 +90,7 @@ TEST_CASE("CUP_LOG=off disables the log file entirely", "[log]") {
     const ScopedEnv xdg("XDG_CACHE_HOME", cache.path().string());
     const ScopedEnv level("CUP_LOG", "off");
 
-    cup::log::init();
+    REQUIRE(cup::log::init().has_value());
     cup::log::error("must not be written anywhere");
 
     CHECK_FALSE(std::filesystem::exists(cache.path() / "cup" / "cup.log"));

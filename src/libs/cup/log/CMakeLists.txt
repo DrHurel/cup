@@ -12,4 +12,5 @@ target_sources(log
             Log.cppm
 )
 target_compile_features(log PUBLIC cxx_std_23)
-target_link_libraries(log PRIVATE spdlog::spdlog)
+# cup.error supplies the E of init()'s std::expected result.
+target_link_libraries(log PUBLIC error PRIVATE spdlog::spdlog)
