@@ -248,6 +248,24 @@ TEST_CASE("run_docker_push refuses an unbuilt image", "[cmd][docker]") {
     REQUIRE(stub.calls().empty());
 }
 
+TEST_CASE("run_docker_push checks buildable state before prompting for a registry",
+          "[cmd][docker]") {
+    const TempDir dir;
+    const DockerConfig docker{.images = {DockerImage{.name = "runtime", .base = "debian:trixie-slim"}}};
+    Project proj = make_project(dir, docker);
+    StubRunCommand stub;
+
+    // No registry set and the image is unbuilt (version == 0): if the
+    // registry prompt were reached first, EOF on stdin would abort it.
+    const ScopedStdin not_a_terminal("");
+
+    const auto result = cup::cmd::run_docker_push(proj, {});
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message() ==
+            "image \"runtime\" has not been built yet — run `cup docker build runtime` first");
+    REQUIRE(stub.calls().empty());
+}
+
 TEST_CASE("run_docker_push prompts for and saves a registry, then tags and pushes",
           "[cmd][docker]") {
     const TempDir dir;
