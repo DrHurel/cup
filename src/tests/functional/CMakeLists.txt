@@ -11,9 +11,12 @@ if(BATS_EXECUTABLE)
            COMMAND ${BATS_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/dispatch.bats")
   add_test(NAME functional_build_run
            COMMAND ${BATS_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/build_run.bats")
+  add_test(NAME functional_modules_build_run
+           COMMAND ${BATS_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/modules_build_run.bats")
   add_test(NAME functional_thirdparty
            COMMAND ${BATS_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty.bats")
-  set_tests_properties(functional_dispatch functional_build_run functional_thirdparty PROPERTIES
+  set_tests_properties(functional_dispatch functional_build_run functional_modules_build_run
+                       functional_thirdparty PROPERTIES
                        ENVIRONMENT "CUP_BIN=$<TARGET_FILE:cup>")
 else()
   message(WARNING "cup: bats not found — functional CLI tests will be skipped "
