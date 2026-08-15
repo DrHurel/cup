@@ -1,4 +1,5 @@
 module;
+#include <algorithm>
 #include <cstddef>
 #include <expected>
 #include <filesystem>
@@ -139,6 +140,10 @@ std::expected<std::pair<std::string, std::vector<std::string>>, error::Error> re
     if (!rest.empty() && rest[0] != "--") {
         app_name = rest[0];
         consumed = 1;
+        if (std::ranges::find(apps, app_name) == apps.end()) {
+            return std::unexpected(error::Error(
+                std::format("no such app \"{}\" (available: {})", app_name, join(apps))));
+        }
     } else if (apps.size() == 1) {
         app_name = apps[0];
     } else {

@@ -196,6 +196,14 @@ TEST_CASE("resolve_app", "[cmd][resolve_app]") {
         REQUIRE(resolved->second.empty());
     }
 
+    SECTION("an explicit unknown name is rejected before building") {
+        const auto resolved =
+            cup::cmd::resolve_app(proj, std::vector<std::string>{"not_a_real_app"});
+        REQUIRE_FALSE(resolved.has_value());
+        REQUIRE(resolved.error().message() ==
+                "no such app \"not_a_real_app\" (available: greeter)");
+    }
+
     SECTION("two apps, no name -> prompted; a numbered answer off a terminal picks by index") {
         std::filesystem::create_directories(proj.src() / "apps" / "other");
 
@@ -415,6 +423,19 @@ TEST_CASE("run_run resolves the app, builds, then runs the binary", "[cmd][run]"
     REQUIRE(stub.calls()[0] == "make MODE=Debug");
     REQUIRE(stub.calls()[1] ==
             (dir.path() / "build" / "Debug" / "bin" / "greeter").string() + " -v");
+}
+
+TEST_CASE("run_run rejects an unknown explicit app name before building", "[cmd][run]") {
+    const TempDir dir;
+    make_project(dir, "make");
+    std::filesystem::create_directories(dir.path() / "src" / "apps" / "greeter");
+    const ScopedCwd cwd(dir.path());
+    StubRunCommand stub;
+
+    const auto result = cup::cmd::run_run(std::vector<std::string>{"not_a_real_app"});
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message() == "no such app \"not_a_real_app\" (available: greeter)");
+    REQUIRE(stub.calls().empty());
 }
 
 TEST_CASE("commands lists the ported commands in cup's order", "[cmd][dispatch]") {
