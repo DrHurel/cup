@@ -75,8 +75,8 @@ GCC 15+ (Fedora 42+, any rolling release):
 sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
 sudo apt-get update && sudo apt-get install -y g++-15 ninja-build cmake libcurl4-openssl-dev
 
-./devtools/build.sh            # bootstrap: plain cmake, produces build/cup
-cp build/cup ~/.local/bin/
+./devtools/install.sh          # bootstrap-builds build/cup, then copies it
+                                # onto PATH (~/.local/bin by default)
 ```
 
 The bootstrap build is plain `cmake`/`ninja` because there is no `cup` yet to
@@ -96,6 +96,8 @@ docker run --rm -v "$PWD:/work" cup-dev ./devtools/build.sh
 
 - `./devtools/build.sh` — bootstrap-build `cup` (plain cmake/ninja) into `build/cup`
 - `./devtools/test.sh` — configure, build, and run the Catch2 suite via ctest
+- `./devtools/install.sh [dest]` — build.sh, then copy the result onto PATH
+  (default `~/.local/bin`) as `cup`
 - `./devtools/clean.sh` — remove `build/`
 - `./devtools/docker-build.sh` — build the `cup-dev` utility image
 
