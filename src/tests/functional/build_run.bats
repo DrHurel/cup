@@ -92,3 +92,108 @@ setup() {
     [ "$status" -eq 1 ]
     [ "$(cat cup.toml)" = "$before" ]
 }
+
+@test "add lib scaffolds a header-only class lib and cup build compiles it" {
+    # fixture/CMakeLists.txt add_subdirectory(src/libs) unconditionally
+    # (src/libs/CMakeLists.txt starts as an empty placeholder, same as
+    # src/apps/), matching a real `cup new` project's shape -- unlike apps,
+    # `cup add lib` never touches the root CMakeLists itself.
+    run bash -c "printf 'mylib\n\n\n' | '$CUP_BIN' add lib"
+    [ "$status" -eq 0 ]
+    [ -f src/libs/mylib/mylib.hpp ]
+    [ -f src/libs/mylib/Mylib.h ]
+    [ -f src/libs/mylib/Mylib.cpp ]
+    grep -q "add_subdirectory(mylib)" src/libs/CMakeLists.txt
+
+    run "$CUP_BIN" build
+    [ "$status" -eq 0 ]
+    # The fixture's CMakeLists.txt is deliberately plain and doesn't set
+    # CMAKE_ARCHIVE_OUTPUT_DIRECTORY, so the static lib lands under CMake's
+    # default per-target dir rather than a shared build/<mode>/lib/.
+    [ -f build/Debug/src/libs/mylib/libmylib.a ]
+}
+
+@test "add test linked to a lib builds and passes via cup test" {
+    bash -c "printf 'mylib\n\n\n' | '$CUP_BIN' add lib" >/dev/null
+
+    # choose_test_module lists libs numbered after "[none]": 1=[none], 2=mylib.
+    run bash -c "printf 'mylib_test\n2\n' | '$CUP_BIN' add test"
+    [ "$status" -eq 0 ]
+    [ -f src/tests/mylib_test.cpp ]
+    grep -q 'target_link_libraries(mylib_test PRIVATE mylib)' src/tests/CMakeLists.txt
+    grep -q 'add_subdirectory(src/tests)' CMakeLists.txt
+
+    run "$CUP_BIN" test
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"mylib_test"* ]]
+}
+
+@test "configure alone generates the build tree without compiling a binary" {
+    bash -c "printf 'hello\n\n' | '$CUP_BIN' add app" >/dev/null
+
+    run "$CUP_BIN" configure
+    [ "$status" -eq 0 ]
+    [ -f build/Debug/CMakeCache.txt ]
+    [ ! -f build/Debug/bin/hello ]
+}
+
+@test "rebuild wipes build/ then compiles from scratch" {
+    bash -c "printf 'hello\n\n' | '$CUP_BIN' add app" >/dev/null
+    "$CUP_BIN" build >/dev/null
+    [ -f build/Debug/bin/hello ]
+    touch build/Debug/marker
+
+    run "$CUP_BIN" rebuild
+    [ "$status" -eq 0 ]
+    [ ! -f build/Debug/marker ]
+    [ -f build/Debug/bin/hello ]
+}
+
+@test "retest wipes build/ then reruns the test suite" {
+    bash -c "printf 'hello\n\n' | '$CUP_BIN' add app" >/dev/null
+    "$CUP_BIN" test >/dev/null
+    [ -d build/Debug ]
+    touch build/Debug/marker
+
+    run "$CUP_BIN" retest
+    [ "$status" -eq 0 ]
+    [ ! -f build/Debug/marker ]
+}
+
+@test "build with an unrecognized MODE token reports it as a stray argument" {
+    run "$CUP_BIN" build Bogus
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"unexpected argument(s): Bogus"* ]]
+}
+
+@test "run with an app name that doesn't exist reports the error and exits 1" {
+    bash -c "printf 'hello\n\n' | '$CUP_BIN' add app" >/dev/null
+
+    run "$CUP_BIN" run Debug bogus
+    [ "$status" -eq 1 ]
+    [[ "$output" == *'no such app "bogus"'* ]]
+    [[ "$output" == *"hello"* ]]
+}
+
+@test "run forwards trailing args after -- to the program without erroring" {
+    bash -c "printf 'hello\n\n' | '$CUP_BIN' add app" >/dev/null
+
+    run "$CUP_BIN" run Debug hello -- --flag value
+    [ "$status" -eq 0 ]
+}
+
+@test "a compile error in an app surfaces the failure and exits nonzero" {
+    bash -c "printf 'hello\n\n' | '$CUP_BIN' add app" >/dev/null
+    printf 'int main() { return \n' > src/apps/hello/hello.cpp
+
+    run "$CUP_BIN" build
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"error:"* ]]
+}
+
+@test "clean before any build is a harmless no-op" {
+    [ ! -d build ]
+    run "$CUP_BIN" clean
+    [ "$status" -eq 0 ]
+    [ ! -d build ]
+}
