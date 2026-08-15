@@ -301,6 +301,35 @@ TEST_CASE("run_new survives a failing git init", "[cmd][new]") {
     REQUIRE_FALSE(std::filesystem::exists(dir.path() / "demo" / ".git"));
 }
 
+TEST_CASE("run_new fails fast on a colliding directory, before any prompt", "[cmd][new]") {
+    const TempDir dir;
+    REQUIRE(std::filesystem::create_directory(dir.path() / "demo"));
+
+    const ScopedOverride select_guard(
+        cup::ui::select_interactive_func(),
+        cup::ui::SelectInteractiveFunc{
+            [](std::string_view, std::span<const std::string>,
+              std::size_t) -> std::expected<std::string, cup::error::Error> {
+                FAIL("select_interactive_func should not have been called");
+                return std::unexpected(cup::error::abort_error());
+            }});
+    const ScopedOverride text_guard(
+        cup::ui::text_interactive_func(),
+        cup::ui::TextInteractiveFunc{
+            [](std::string_view, std::string_view,
+              const cup::ui::Validator&) -> std::expected<std::string, cup::error::Error> {
+                FAIL("text_interactive_func should not have been called");
+                return std::unexpected(cup::error::abort_error());
+            }});
+
+    const ScopedCwd cwd(dir.path());
+    const ScopedStdin not_a_terminal("");
+
+    const auto result = cup::cmd::run_new(std::vector<std::string>{"demo"});
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message() == "demo already exists");
+}
+
 // --- add.go / add_headers.go -------------------------------------------------
 
 TEST_CASE("primary_preamble carries the GCC 14 workaround exactly when there is no std module",
