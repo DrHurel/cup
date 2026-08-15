@@ -12,6 +12,7 @@ module;
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <utility>
 module cup.log;
 
 namespace cup::log {
@@ -75,7 +76,7 @@ std::array<std::shared_ptr<spdlog::logger>, kCategoryCount>& active_loggers() {
 }
 
 void log_at(Category category, spdlog::level::level_enum level, std::string_view msg) {
-    if (const auto& logger = active_loggers()[static_cast<std::size_t>(category)]) {
+    if (const auto& logger = active_loggers()[std::to_underlying(category)]) {
         logger->log(level, msg);
     }
 }
