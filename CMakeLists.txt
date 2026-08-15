@@ -1,7 +1,17 @@
 # Named modules need CMake >= 3.28.
 cmake_minimum_required(VERSION 3.28)
 
-project(cup VERSION 0.1.0 LANGUAGES C CXX)
+# CUP_VERSION is this project's own cup.toml cup_version key — the single
+# source of truth for cup's own version, read here rather than duplicated as
+# a literal so `project()`, `cup --version`, and the version New.cpp stamps
+# into freshly scaffolded projects can never drift apart.
+file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/cup.toml" _cup_version_line REGEX "^cup_version[ \t]*=")
+if(NOT _cup_version_line)
+  message(FATAL_ERROR "cup: cup.toml is missing a cup_version key")
+endif()
+string(REGEX REPLACE "^cup_version[ \t]*=[ \t]*\"([^\"]*)\".*$" "\\1" CUP_VERSION "${_cup_version_line}")
+
+project(cup VERSION ${CUP_VERSION} LANGUAGES C CXX)
 
 # >>> cup:compiler-guard >>>
 # Minimum compiler versions, managed by `cup compiler`. Building with an older
@@ -91,6 +101,21 @@ enable_testing()
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(EmbedTemplates)
 cup_embed_templates(TARGET cup_templates DIR "${CMAKE_CURRENT_SOURCE_DIR}/templates")
+
+# --- Version info, embedded for `cup --version` ----------------------------
+# CUP_BUILD_SHA is empty unless set on the command line. CI's
+# build-static.yml passes it (from $GITHUB_SHA) when it builds the binary
+# that CI verifies and releases publish; a plain `cup build`/devtools/build.sh
+# never sets it. That distinction is what lets `cup --version` show a build
+# SHA only for a binary GitHub Actions actually built.
+set(CUP_BUILD_SHA "" CACHE STRING "Git commit SHA this binary was built from (set by CI)")
+set(_cup_version_gen_dir "${CMAKE_BINARY_DIR}/generated/cup_version")
+configure_file(
+  "${CMAKE_CURRENT_SOURCE_DIR}/cmake/version.h.in"
+  "${_cup_version_gen_dir}/cup/version.h"
+  @ONLY)
+add_library(cup_version INTERFACE)
+target_include_directories(cup_version INTERFACE "${_cup_version_gen_dir}")
 
 add_subdirectory(third_party)
 add_subdirectory(src/libs)

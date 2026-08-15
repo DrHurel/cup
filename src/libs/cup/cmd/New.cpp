@@ -11,6 +11,7 @@ module;
 #include <system_error>
 #include <utility>
 #include <vector>
+#include <cup/version.h>
 module cup.cmd;
 
 import cup.scaffold;
@@ -20,8 +21,10 @@ import cup.platform;
 namespace cup::cmd {
 namespace {
 
-// version is stamped into a fresh project's cup.toml.
-inline constexpr std::string_view kCupVersion = "0.1.0";
+// version stamped into a fresh project's cup.toml — cup's own cup_version,
+// baked in at build time from this project's cup.toml (see the top-level
+// CMakeLists.txt's "Version info" section).
+inline constexpr std::string_view kCupVersion = CUP_VERSION;
 
 inline constexpr std::string_view kBoth = "gcc and clang";
 inline constexpr std::string_view kGccOnly = "gcc only";

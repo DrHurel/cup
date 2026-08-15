@@ -27,6 +27,18 @@
     [[ "$output" == *"usage: cup <command> [args]"* ]]
 }
 
+@test "--version prints the cup version and exits 0" {
+    run "$CUP_BIN" --version
+    [ "$status" -eq 0 ]
+    [[ "$output" =~ ^cup\ [0-9]+\.[0-9]+\.[0-9]+ ]]
+}
+
+@test "-v prints the cup version and exits 0" {
+    run "$CUP_BIN" -v
+    [ "$status" -eq 0 ]
+    [[ "$output" =~ ^cup\ [0-9]+\.[0-9]+\.[0-9]+ ]]
+}
+
 @test "an unknown command reports the error, prints usage, and exits 1" {
     run "$CUP_BIN" bogus
     [ "$status" -eq 1 ]

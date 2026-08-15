@@ -68,11 +68,18 @@ jobs:
           # pkg-config's STATIC mode for libcurl (see the comment there) — plain
           # find_package(CURL) resolves the shared libcurl.so even with this
           # variable set, which fails "-static" linking.
+          #
+          # CUP_BUILD_SHA is baked into the binary and surfaced by
+          # `cup --version` — this is the one build path (shared by CI
+          # verification and actual releases) that sets it, which is what lets
+          # `cup --version` distinguish a GitHub-built binary from a local
+          # `cup build`/devtools/build.sh, where it's left empty.
           cmake -B build/Release \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_EXE_LINKER_FLAGS="-static" \
             -DBUILD_SHARED_LIBS=OFF \
-            -DCURL_USE_STATIC_LIBS=ON
+            -DCURL_USE_STATIC_LIBS=ON \
+            -DCUP_BUILD_SHA="${GITHUB_SHA::7}"
 
       - name: Build
         run: cmake --build build/Release
@@ -93,6 +100,7 @@ jobs:
             exit 1
           fi
           ./build/Release/bin/cup --help
+          ./build/Release/bin/cup --version | grep -q "cup .* (${GITHUB_SHA::7})"
 
       - name: Upload release binary
         uses: actions/upload-artifact@v4
