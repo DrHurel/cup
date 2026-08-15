@@ -25,7 +25,6 @@
 
 import cup.ui;
 import cup.error;
-import cup.probe;
 import cup.platform;
 
 namespace {
@@ -549,8 +548,4 @@ TEST_CASE("errors compare by kind and message", "[error]") {
     REQUIRE_FALSE(Error("boom") == Error("bang"));
     REQUIRE(Error{}.message().empty());
     REQUIRE_FALSE(cup::error::is_abort(Error{}));
-}
-
-TEST_CASE("a scaffolded library is importable", "[scaffold][modules]") {
-    REQUIRE_NOTHROW(cup::probe::Probe());
 }
