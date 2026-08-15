@@ -62,9 +62,13 @@ struct SelectState {
 
     ftxui::MenuOption menu_option;
     menu_option.on_enter = screen.ExitLoopClosure();
+    // EntryState::state is a checkbox/radio toggle value -- always false for
+    // a plain Menu entry, which is why this used to render with no
+    // highlight at all. active is "the cursor is on this entry" (see
+    // FTXUI's own DefaultOptionTransform in menu.cpp).
     menu_option.entries_option.transform = [](const ftxui::EntryState& s) {
-        ftxui::Element label = ftxui::text((s.state ? "> " : "  ") + s.label);
-        return s.state ? (label | ftxui::bold | ftxui::color(cup_color(kCyanIdx))) : label;
+        ftxui::Element label = ftxui::text((s.active ? "> " : "  ") + s.label);
+        return s.active ? (label | ftxui::bold | ftxui::color(cup_color(kCyanIdx))) : label;
     };
 
     auto menu = ftxui::Menu(&state.entries, &state.selected, menu_option);

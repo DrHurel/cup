@@ -11,6 +11,7 @@
 // header comment. Interactive.cpp is the other (and only other) includer.
 #include "../libs/cup/ui/Interactive.hpp"
 #include <ftxui/component/event.hpp>
+#include <ftxui/screen/screen.hpp>
 
 #include <array>
 #include <expected>
@@ -124,6 +125,17 @@ private:
     T& slot_;
     T previous_;
 };
+
+// Renders a component to a plain-text screen buffer, ANSI styling and all,
+// so a test can assert on what a real terminal would actually show -- e.g.
+// that the "> " cursor marker lands next to the right entry. Catches what a
+// bare `component->Render()` REQUIRE_NOTHROW cannot: rendering without
+// throwing says nothing about rendering *correctly*.
+[[nodiscard]] std::string render_to_string(const ftxui::Component& component) {
+    auto screen = ftxui::Screen::Create(ftxui::Dimension::Fixed(80), ftxui::Dimension::Fixed(10));
+    ftxui::Render(screen, component->Render());
+    return screen.ToString();
+}
 
 }
 
@@ -423,21 +435,34 @@ TEST_CASE("make_select_component moves the cursor and reports the pick", "[ui][s
     auto screen = ftxui::ScreenInteractive::TerminalOutput();
     auto component = cup::ui::detail::make_select_component(state, "pick?", screen);
 
-    // Rendered at each cursor position: entries_option.transform's ternary
-    // (highlighted vs. plain entry) needs the highlighted entry to actually
-    // move across all three for both its branches to be exercised on every
-    // entry, not just whichever one happened to be selected at the one
-    // Render() call a single snapshot would give.
-    REQUIRE_NOTHROW(component->Render());
+    // Asserts on the actual rendered text, not just that Render() doesn't
+    // throw: entries_option.transform used EntryState::state (always false
+    // for a plain Menu entry -- see its own doc comment) instead of
+    // EntryState::active for its highlight check, so every entry rendered
+    // identically and nothing ever showed which one the cursor was on. A
+    // REQUIRE_NOTHROW render never would have caught that; only checking
+    // the rendered content does.
+    REQUIRE(render_to_string(component).find("> red") != std::string::npos);
+
     REQUIRE(component->OnEvent(ftxui::Event::ArrowDown));
     REQUIRE(state.selected == 1);
-    REQUIRE_NOTHROW(component->Render());
+    {
+        const std::string rendered = render_to_string(component);
+        REQUIRE(rendered.find("> green") != std::string::npos);
+        REQUIRE(rendered.find("> red") == std::string::npos);
+    }
+
     REQUIRE(component->OnEvent(ftxui::Event::ArrowDown));
     REQUIRE(state.selected == 2);
-    REQUIRE_NOTHROW(component->Render());
+    {
+        const std::string rendered = render_to_string(component);
+        REQUIRE(rendered.find("> blue") != std::string::npos);
+        REQUIRE(rendered.find("> green") == std::string::npos);
+    }
+
     REQUIRE(component->OnEvent(ftxui::Event::ArrowUp));
     REQUIRE(state.selected == 1);
-    REQUIRE_NOTHROW(component->Render());
+    REQUIRE(render_to_string(component).find("> green") != std::string::npos);
 
     REQUIRE_FALSE(state.aborted);
 }
@@ -466,8 +491,9 @@ TEST_CASE("make_text_component tracks typed content and validates on enter",
             return std::nullopt;
         });
 
-    REQUIRE_NOTHROW(component->Render());  // no error yet: exercises the
-                                            // "no error line" branch
+    // No error yet: exercises the "no error line" branch, and confirms one
+    // isn't rendered when there's nothing to report.
+    REQUIRE(render_to_string(component).find("must not be bad") == std::string::npos);
 
     for (const char c : std::string_view("bad")) {
         component->OnEvent(ftxui::Event::Character(c));
@@ -477,8 +503,9 @@ TEST_CASE("make_text_component tracks typed content and validates on enter",
     component->OnEvent(ftxui::Event::Return);
     REQUIRE(state.error_message == "must not be bad");
     REQUIRE_FALSE(state.aborted);
-    REQUIRE_NOTHROW(component->Render());  // error set: exercises the
-                                            // error-line-pushed branch
+    // Error set: exercises the error-line-pushed branch, and confirms the
+    // message is actually rendered, not just tracked in state.
+    REQUIRE(render_to_string(component).find("must not be bad") != std::string::npos);
 
     for (int i = 0; i < 3; ++i) {
         component->OnEvent(ftxui::Event::Backspace);
@@ -492,7 +519,8 @@ TEST_CASE("make_text_component tracks typed content and validates on enter",
     REQUIRE(state.error_message.empty());
     REQUIRE_FALSE(state.aborted);
 
-    REQUIRE_NOTHROW(component->Render());  // error cleared again
+    // Error cleared again: the message must disappear from the render too.
+    REQUIRE(render_to_string(component).find("must not be bad") == std::string::npos);
 }
 
 TEST_CASE("make_text_component aborts on Ctrl+C and Ctrl+D", "[ui][text][ftxui]") {
