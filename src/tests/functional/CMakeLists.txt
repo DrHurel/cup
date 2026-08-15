@@ -14,6 +14,6 @@ if(BATS_EXECUTABLE)
   set_tests_properties(functional_dispatch functional_build_run PROPERTIES
                        ENVIRONMENT "CUP_BIN=$<TARGET_FILE:cup>")
 else()
-  message(STATUS "cup: bats not found — functional CLI tests will be skipped "
-                 "(install the `bats` package to enable them)")
+  message(WARNING "cup: bats not found — functional CLI tests will be skipped "
+                  "(install the `bats` package to enable them)")
 endif()
