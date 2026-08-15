@@ -11,6 +11,7 @@ export module cup.ui:prompt;
 import :io;
 import :color;
 export import cup.error;
+import cup.platform;
 
 export namespace cup::ui {
 
@@ -70,10 +71,44 @@ namespace detail {
     return std::nullopt;
 }
 
+// Shared by text(), select_one() and confirm(): true only when stdin is a
+// real terminal *and* raw mode can actually be entered. The RawMode this
+// probes with restores the original termios immediately (it is a temporary,
+// destroyed at the end of the full-expression) — FTXUI enters and exits raw
+// mode itself when the interactive seam actually runs, so this is a
+// capability check only, not the thing that puts the terminal in raw mode.
+[[nodiscard]] bool can_use_interactive(int fd) {
+    if (!platform::is_tty(fd)) {
+        return false;
+    }
+    return platform::enter_raw_mode(fd).has_value();
+}
+
+// text_interactive_impl is declared here, defined in Interactive.cpp: it
+// drives an FTXUI ftxui::Input, which stays out of this interface partition
+// for the same reason curl stays out of :net (see platform/Http.cpp).
+[[nodiscard]] std::expected<std::string, error::Error> text_interactive_impl(
+    std::string_view question, std::string_view def, const Validator& validate);
+
+}
+
+using TextInteractiveFunc = std::function<std::expected<std::string, error::Error>(
+    std::string_view, std::string_view, const Validator&)>;
+
+// text_interactive_func is the seam text() calls through on a real
+// terminal; overridable in tests so callers can be tested without driving a
+// real pty. Mirrors platform::run_command_func().
+[[nodiscard]] TextInteractiveFunc& text_interactive_func() {
+    static TextInteractiveFunc f = &detail::text_interactive_impl;
+    return f;
 }
 
 [[nodiscard]] std::expected<std::string, error::Error> text(
     std::string_view question, std::string_view def, const Validator& validate = {}) {
+    if (detail::can_use_interactive(platform::kStdinFd)) {
+        return text_interactive_func()(question, def, validate);
+    }
+
     while (true) {
         std::string line = format_text("{} {} ", color(bold(kCyan), "?"), question);
         if (!def.empty()) {
@@ -97,23 +132,6 @@ namespace detail {
             return answer;
         }
         err(format_text("  {}", refused->message()));
-    }
-}
-
-[[nodiscard]] std::expected<bool, error::Error> confirm(std::string_view question, bool def) {
-    const std::string_view hint = def ? "Y/n" : "y/N";
-    while (true) {
-        emit(format_text("{} {} [{}] ", color(bold(kCyan), "?"), question, hint));
-        flush_output();
-
-        auto answer = detail::read_answer().transform(
-            [](const std::string& entered) { return detail::lower(entered); });
-        if (!answer.has_value()) {
-            return std::unexpected(std::move(answer).error());
-        }
-        if (const auto decided = detail::decide(*answer, def); decided.has_value()) {
-            return *decided;
-        }
     }
 }
 

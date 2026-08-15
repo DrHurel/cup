@@ -2,21 +2,25 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <fcntl.h>
-#include <stdlib.h>
-#include <termios.h>
 #include <unistd.h>
 
+// #included directly rather than reached through cup.ui: it declares the
+// FTXUI component-tree builders behind select_one/text's interactive path,
+// letting this suite drive them with synthetic ftxui::Event objects for real
+// coverage — no real terminal (and so no pty) needed for this part. See its
+// header comment. Interactive.cpp is the other (and only other) includer.
+#include "../libs/cup/ui/Interactive.hpp"
+#include <ftxui/component/event.hpp>
+#include <ftxui/screen/screen.hpp>
+
 #include <array>
-#include <atomic>
-#include <chrono>
-#include <cstddef>
-#include <cstdio>
 #include <expected>
-#include <functional>
+#include <optional>
+#include <span>
 #include <sstream>
 #include <string>
 #include <string_view>
-#include <thread>
+#include <utility>
 #include <vector>
 
 import cup.ui;
@@ -37,8 +41,14 @@ private:
     bool previous_;
 };
 
+// Points the real stdin fd at a pipe, so cup.platform::is_tty(kStdinFd) sees
+// "not a terminal" regardless of how the test binary was invoked (ctest's
+// own stdin may or may not be a tty depending on how it is run). Content is
+// irrelevant here -- read_line() reads from ScopedInput's istream, never
+// from this fd directly; this only has to exist and fail isatty().
 class ScopedStdin {
 public:
+    ScopedStdin() : ScopedStdin("") {}
     explicit ScopedStdin(std::string_view keys) {
         int fds[2]{};
         REQUIRE(::pipe(fds) == 0);
@@ -62,9 +72,15 @@ private:
     int saved_ = -1;
 };
 
-class ScopedTerminalStdin {
+// Points the real stdin fd at a pty slave, so is_tty(kStdinFd) is true and
+// enter_raw_mode(kStdinFd) actually succeeds -- the two things
+// cup::ui::detail::can_use_interactive gates on. Unlike the old
+// ScopedTerminalStdin this never types anything into the pty: the
+// interactive seam is stubbed in these tests (see ScopedOverride below), so
+// nothing ever reads from it.
+class ScopedPtyStdin {
 public:
-    explicit ScopedTerminalStdin(std::string_view keys) : keys_(keys) {
+    ScopedPtyStdin() {
         master_ = ::posix_openpt(O_RDWR | O_NOCTTY);
         REQUIRE(master_ >= 0);
         REQUIRE(::grantpt(master_) == 0);
@@ -77,113 +93,49 @@ public:
         saved_ = ::dup(STDIN_FILENO);
         REQUIRE(saved_ >= 0);
         REQUIRE(::dup2(slave_, STDIN_FILENO) == STDIN_FILENO);
-
-        typist_ = std::thread([this] { type(); });
     }
 
-    ScopedTerminalStdin(const ScopedTerminalStdin&) = delete;
-    ScopedTerminalStdin& operator=(const ScopedTerminalStdin&) = delete;
+    ScopedPtyStdin(const ScopedPtyStdin&) = delete;
+    ScopedPtyStdin& operator=(const ScopedPtyStdin&) = delete;
 
-    ~ScopedTerminalStdin() {
-        typist_.join();
+    ~ScopedPtyStdin() {
         ::dup2(saved_, STDIN_FILENO);
         ::close(saved_);
         ::close(slave_);
-        if (master_ >= 0) {
-            ::close(master_);
-        }
+        ::close(master_);
     }
-
-    [[nodiscard]] bool typed_in_raw_mode() const { return raw_seen_; }
 
 private:
-    void type() {
-        for (int waited = 0; waited < 2000 && !raw_seen_; ++waited) {
-            termios now{};
-            if (::tcgetattr(slave_, &now) == 0 &&
-                (now.c_lflag & static_cast<tcflag_t>(ICANON)) == 0) {
-                raw_seen_ = true;
-            } else {
-                std::this_thread::sleep_for(std::chrono::milliseconds(1));
-            }
-        }
-
-        if (::write(master_, keys_.data(), keys_.size()) !=
-            static_cast<ssize_t>(keys_.size())) {
-            ::close(master_);
-            master_ = -1;
-        }
-    }
-
-    std::string keys_;
-    std::atomic<bool> raw_seen_ = false;
-    std::thread typist_;
     int master_ = -1;
     int slave_ = -1;
     int saved_ = -1;
 };
 
-class CapturedStdout {
+// Restores a mutable global (an overridable hook) to its prior value when the
+// test ends, mirroring cmd_test.cpp's / releases_test.cpp's ScopedOverride.
+template <typename T>
+class ScopedOverride {
 public:
-    CapturedStdout() {
-        file_ = std::tmpfile();
-        REQUIRE(file_ != nullptr);
-        saved_ = ::dup(STDOUT_FILENO);
-        REQUIRE(saved_ >= 0);
-        cup::ui::flush_output();
-        REQUIRE(::dup2(::fileno(file_), STDOUT_FILENO) == STDOUT_FILENO);
-    }
-
-    CapturedStdout(const CapturedStdout&) = delete;
-    CapturedStdout& operator=(const CapturedStdout&) = delete;
-
-    ~CapturedStdout() {
-        stop();
-        std::fclose(file_);
-    }
-
-    void stop() {
-        if (saved_ < 0) {
-            return;
-        }
-        cup::ui::flush_output();
-        ::dup2(saved_, STDOUT_FILENO);
-        ::close(saved_);
-        saved_ = -1;
-    }
-
-    [[nodiscard]] std::string str() {
-        stop();
-        std::rewind(file_);
-        std::string out;
-        std::array<char, 512> chunk{};
-        while (const std::size_t n = std::fread(chunk.data(), 1, chunk.size(), file_)) {
-            out.append(chunk.data(), n);
-        }
-        return out;
-    }
+    ScopedOverride(T& slot, T value) : slot_(slot), previous_(slot) { slot_ = std::move(value); }
+    ~ScopedOverride() { slot_ = std::move(previous_); }
+    ScopedOverride(const ScopedOverride&) = delete;
+    ScopedOverride& operator=(const ScopedOverride&) = delete;
 
 private:
-    std::FILE* file_ = nullptr;
-    int saved_ = -1;
+    T& slot_;
+    T previous_;
 };
 
-constexpr std::size_t kFrameBytes = 3;
-
-[[nodiscard]] std::string frame(std::string_view press) {
-    std::string padded(press);
-    padded.resize(kFrameBytes, '\0');
-    return padded;
+// Renders a component to a plain-text screen buffer, ANSI styling and all,
+// so a test can assert on what a real terminal would actually show -- e.g.
+// that the cursor marker lands next to the right entry. Catches what a bare
+// `component->Render()` REQUIRE_NOTHROW cannot: rendering without throwing
+// says nothing about rendering *correctly*.
+[[nodiscard]] std::string render_to_string(const ftxui::Component& component) {
+    auto screen = ftxui::Screen::Create(ftxui::Dimension::Fixed(80), ftxui::Dimension::Fixed(10));
+    ftxui::Render(screen, component->Render());
+    return screen.ToString();
 }
-
-constexpr std::string_view kUp = "\x{1b}[A";
-constexpr std::string_view kDown = "\x{1b}[B";
-constexpr std::string_view kVimUp = "k";
-constexpr std::string_view kVimDown = "j";
-constexpr std::string_view kEnter = "\r";
-constexpr std::string_view kLineFeed = "\n";
-constexpr std::string_view kCtrlC = "\x{03}";
-constexpr std::string_view kCtrlD = "\x{04}";
 
 }
 
@@ -199,6 +151,7 @@ TEST_CASE("color honours the colour setting", "[ui][color]") {
 }
 
 TEST_CASE("text falls back to the default on empty input", "[ui][text]") {
+    const ScopedStdin not_a_terminal;
     std::istringstream in("\n");
     const cup::ui::ScopedInput scoped(in);
 
@@ -208,6 +161,7 @@ TEST_CASE("text falls back to the default on empty input", "[ui][text]") {
 }
 
 TEST_CASE("text trims surrounding whitespace", "[ui][text]") {
+    const ScopedStdin not_a_terminal;
     std::istringstream in("  hello  \n");
     const cup::ui::ScopedInput scoped(in);
 
@@ -217,6 +171,7 @@ TEST_CASE("text trims surrounding whitespace", "[ui][text]") {
 }
 
 TEST_CASE("text repeats until the value validates", "[ui][text]") {
+    const ScopedStdin not_a_terminal;
     std::istringstream in("bad\ngood\n");
     const cup::ui::ScopedInput scoped(in);
 
@@ -234,8 +189,47 @@ TEST_CASE("text repeats until the value validates", "[ui][text]") {
 }
 
 TEST_CASE("text aborts on EOF", "[ui][text]") {
+    const ScopedStdin not_a_terminal;
     std::istringstream in("");
     const cup::ui::ScopedInput scoped(in);
+
+    const auto got = cup::ui::text("name?", "");
+    REQUIRE_FALSE(got.has_value());
+    REQUIRE(cup::error::is_abort(got.error()));
+}
+
+TEST_CASE("text calls the interactive seam on a terminal", "[ui][text]") {
+    const ScopedPtyStdin pty;
+    REQUIRE(cup::platform::is_tty(cup::platform::kStdinFd));
+
+    std::string seen_question;
+    std::string seen_def;
+    const ScopedOverride guard(
+        cup::ui::text_interactive_func(),
+        cup::ui::TextInteractiveFunc{[&](std::string_view q, std::string_view def,
+                                         const cup::ui::Validator&)
+                                          -> std::expected<std::string, Error> {
+            seen_question = q;
+            seen_def = def;
+            return std::string("typed");
+        }});
+
+    const auto got = cup::ui::text("name?", "fallback");
+    REQUIRE(got.has_value());
+    REQUIRE(*got == "typed");
+    REQUIRE(seen_question == "name?");
+    REQUIRE(seen_def == "fallback");
+}
+
+TEST_CASE("text propagates the interactive seam's error", "[ui][text]") {
+    const ScopedPtyStdin pty;
+    const ScopedOverride guard(
+        cup::ui::text_interactive_func(),
+        cup::ui::TextInteractiveFunc{[](std::string_view, std::string_view,
+                                        const cup::ui::Validator&)
+                                         -> std::expected<std::string, Error> {
+            return std::unexpected(cup::error::abort_error());
+        }});
 
     const auto got = cup::ui::text("name?", "");
     REQUIRE_FALSE(got.has_value());
@@ -262,6 +256,7 @@ TEST_CASE("confirm parses answers and honours its default", "[ui][confirm]") {
 
     for (const auto& c : cases) {
         INFO(c.why);
+        const ScopedStdin not_a_terminal;
         std::istringstream in(c.input);
         const cup::ui::ScopedInput scoped(in);
 
@@ -272,12 +267,34 @@ TEST_CASE("confirm parses answers and honours its default", "[ui][confirm]") {
 }
 
 TEST_CASE("confirm aborts on EOF", "[ui][confirm]") {
+    const ScopedStdin not_a_terminal;
     std::istringstream in("");
     const cup::ui::ScopedInput scoped(in);
 
     const auto got = cup::ui::confirm("ok?", false);
     REQUIRE_FALSE(got.has_value());
     REQUIRE(cup::error::is_abort(got.error()));
+}
+
+TEST_CASE("confirm calls the same interactive seam as select_one", "[ui][confirm][select]") {
+    const ScopedPtyStdin pty;
+    std::vector<std::string> seen_options;
+    std::size_t seen_cursor = 0;
+    const ScopedOverride guard(
+        cup::ui::select_interactive_func(),
+        cup::ui::SelectInteractiveFunc{[&](std::string_view, std::span<const std::string> opts,
+                                           std::size_t cursor)
+                                            -> std::expected<std::string, Error> {
+            seen_options.assign(opts.begin(), opts.end());
+            seen_cursor = cursor;
+            return std::string("Yes");
+        }});
+
+    const auto got = cup::ui::confirm("ok?", false);
+    REQUIRE(got.has_value());
+    REQUIRE(*got);
+    REQUIRE(seen_options == std::vector<std::string>{"Yes", "No"});
+    REQUIRE(seen_cursor == 1);
 }
 
 TEST_CASE("the status helpers emit without throwing", "[ui][status]") {
@@ -299,123 +316,6 @@ TEST_CASE("index_of finds an option, or falls back to the first", "[ui][select]"
     REQUIRE(cup::ui::detail::index_of(options, "c") == 2);
     REQUIRE(cup::ui::detail::index_of(options, "z") == 0);
     REQUIRE(cup::ui::detail::index_of(options, "") == 0);
-}
-
-TEST_CASE("is_up_key decodes k and the up-arrow sequence", "[ui][select][keys]") {
-    const std::array<unsigned char, 3> vim{'k', 0, 0};
-    const std::array<unsigned char, 3> arrow{27, '[', 'A'};
-    REQUIRE(cup::ui::detail::is_up_key(vim, 1));
-    REQUIRE(cup::ui::detail::is_up_key(arrow, 3));
-
-    const std::array<unsigned char, 3> down_vim{'j', 0, 0};
-    const std::array<unsigned char, 3> down_arrow{27, '[', 'B'};
-    const std::array<unsigned char, 3> other{'x', 0, 0};
-    REQUIRE_FALSE(cup::ui::detail::is_up_key(down_vim, 1));
-    REQUIRE_FALSE(cup::ui::detail::is_up_key(down_arrow, 3));
-    REQUIRE_FALSE(cup::ui::detail::is_up_key(other, 1));
-    REQUIRE_FALSE(cup::ui::detail::is_up_key(arrow, 1));
-    REQUIRE_FALSE(cup::ui::detail::is_up_key({}, 0));
-}
-
-TEST_CASE("is_down_key decodes j and the down-arrow sequence", "[ui][select][keys]") {
-    const std::array<unsigned char, 3> vim{'j', 0, 0};
-    const std::array<unsigned char, 3> arrow{27, '[', 'B'};
-    REQUIRE(cup::ui::detail::is_down_key(vim, 1));
-    REQUIRE(cup::ui::detail::is_down_key(arrow, 3));
-
-    const std::array<unsigned char, 3> up_vim{'k', 0, 0};
-    const std::array<unsigned char, 3> up_arrow{27, '[', 'A'};
-    REQUIRE_FALSE(cup::ui::detail::is_down_key(up_vim, 1));
-    REQUIRE_FALSE(cup::ui::detail::is_down_key(up_arrow, 3));
-    REQUIRE_FALSE(cup::ui::detail::is_down_key(arrow, 1));
-    REQUIRE_FALSE(cup::ui::detail::is_down_key({}, 0));
-}
-
-TEST_CASE("select_interactive walks the list and returns the highlighted option",
-          "[ui][select][keys]") {
-    const std::vector<std::string> options{"red", "green", "blue"};
-
-    const struct Case {
-        std::string keys;
-        std::size_t start;
-        const char* want;
-        const char* why;
-    } cases[]{
-        {frame(kEnter), 0, "red", "enter takes the option under the cursor"},
-        {frame(kDown) + frame(kEnter), 0, "green", "down moves one"},
-        {frame(kDown) + frame(kDown) + frame(kEnter), 0, "blue", "and again"},
-        {frame(kUp) + frame(kEnter), 0, "blue", "up from the first wraps to the last"},
-        {frame(kDown) + frame(kEnter), 2, "red", "down from the last wraps to the first"},
-        {frame(kVimDown) + frame(kEnter), 0, "green", "j moves down"},
-        {frame(kVimUp) + frame(kEnter), 1, "red", "k moves up"},
-        {frame("x") + frame(kEnter), 1, "green", "a key with no meaning is ignored"},
-        {frame(kLineFeed), 1, "green", "a terminal sending LF rather than CR commits too"},
-        {frame(kDown) + frame(kUp) + frame(kEnter), 1, "green", "down then up is where it began"},
-    };
-
-    for (const auto& c : cases) {
-        INFO(c.why);
-        const ScopedStdin keys(c.keys);
-        CapturedStdout painted;
-
-        const auto got = cup::ui::detail::select_interactive("pick?", options, c.start);
-        painted.stop();
-
-        REQUIRE(got.has_value());
-        REQUIRE(*got == c.want);
-    }
-}
-
-TEST_CASE("select_interactive aborts on Ctrl+C, Ctrl+D and a closed input",
-          "[ui][select][keys]") {
-    const std::vector<std::string> options{"red", "green"};
-
-    const struct Case {
-        std::string keys;
-        const char* why;
-    } cases[]{
-        {frame(kCtrlC), "Ctrl+C"},
-        {frame(kCtrlD), "Ctrl+D"},
-        {std::string(), "the input ended with no key pressed"},
-    };
-
-    for (const auto& c : cases) {
-        INFO(c.why);
-        const ScopedStdin keys(c.keys);
-        CapturedStdout painted;
-
-        const auto got = cup::ui::detail::select_interactive("pick?", options, 0);
-        painted.stop();
-
-        REQUIRE_FALSE(got.has_value());
-        REQUIRE(cup::error::is_abort(got.error()));
-    }
-}
-
-TEST_CASE("select_interactive redraws in place and marks the pick", "[ui][select][render]") {
-    const ScopedColor colour(true);
-    const std::vector<std::string> options{"red", "green", "blue"};
-    const ScopedStdin keys(frame(kDown) + frame(kEnter));
-
-    CapturedStdout capture;
-    const auto got = cup::ui::detail::select_interactive("pick?", options, 0);
-    const std::string painted = capture.str();
-
-    REQUIRE(got.has_value());
-    REQUIRE(*got == "green");
-    REQUIRE(painted ==
-            "\x{1b}[38;5;81;1m?\x{1b}[0m pick? \x{1b}[38;5;244m(up/down, enter)\x{1b}[0m\r\n"
-            "\x{1b}[38;5;81;1m> \x{1b}[0m\x{1b}[38;5;81;1mred\x{1b}[0m\r\n"
-            "  green\r\n"
-            "  blue\r\n"
-            "\x{1b}[1A\x{1b}[2K\x{1b}[1A\x{1b}[2K\x{1b}[1A\x{1b}[2K"
-            "  red\r\n"
-            "\x{1b}[38;5;81;1m> \x{1b}[0m\x{1b}[38;5;81;1mgreen\x{1b}[0m\r\n"
-            "  blue\r\n"
-            "\x{1b}[1A\x{1b}[2K\x{1b}[1A\x{1b}[2K\x{1b}[1A\x{1b}[2K"
-            "  \x{1b}[38;5;244mred\x{1b}[0m\r\n"
-            "\x{1b}[38;5;77;1m> \x{1b}[0m\x{1b}[38;5;77;1mgreen\x{1b}[0m\r\n"
-            "  \x{1b}[38;5;244mblue\x{1b}[0m\r\n");
 }
 
 TEST_CASE("select_numbered picks by index and repeats when out of range", "[ui][select]") {
@@ -477,7 +377,7 @@ TEST_CASE("select_one rejects an empty option list", "[ui][select]") {
 TEST_CASE("select_one falls back to the numbered list off a terminal", "[ui][select]") {
     const std::vector<std::string> options{"red", "green", "blue"};
 
-    const ScopedStdin not_a_terminal("");
+    const ScopedStdin not_a_terminal;
     REQUIRE_FALSE(cup::platform::is_tty(cup::platform::kStdinFd));
 
     std::istringstream in("3\n");
@@ -488,20 +388,152 @@ TEST_CASE("select_one falls back to the numbered list off a terminal", "[ui][sel
     REQUIRE(*got == "blue");
 }
 
-TEST_CASE("select_one drives the arrow-key menu on a terminal", "[ui][select][keys]") {
-    const std::vector<std::string> options{"red", "green", "blue"};
-
-    ScopedTerminalStdin terminal("\r");
+TEST_CASE("select_one calls the interactive seam on a terminal", "[ui][select]") {
+    const ScopedPtyStdin pty;
     REQUIRE(cup::platform::is_tty(cup::platform::kStdinFd));
 
-    CapturedStdout capture;
-    const auto got = cup::ui::select_one("pick?", options, "blue");
-    const std::string painted = capture.str();
+    std::string seen_question;
+    std::vector<std::string> seen_options;
+    std::size_t seen_cursor = 0;
+    const ScopedOverride guard(
+        cup::ui::select_interactive_func(),
+        cup::ui::SelectInteractiveFunc{[&](std::string_view q, std::span<const std::string> opts,
+                                           std::size_t cursor)
+                                            -> std::expected<std::string, Error> {
+            seen_question = q;
+            seen_options.assign(opts.begin(), opts.end());
+            seen_cursor = cursor;
+            return std::string("blue");
+        }});
 
-    REQUIRE(terminal.typed_in_raw_mode());
+    const std::vector<std::string> options{"red", "green", "blue"};
+    const auto got = cup::ui::select_one("pick?", options, "green");
     REQUIRE(got.has_value());
     REQUIRE(*got == "blue");
-    REQUIRE(painted.contains("(up/down, enter)"));
+    REQUIRE(seen_question == "pick?");
+    REQUIRE(seen_options == options);
+    REQUIRE(seen_cursor == 1);
+}
+
+TEST_CASE("select_one propagates the interactive seam's error", "[ui][select]") {
+    const ScopedPtyStdin pty;
+    const ScopedOverride guard(
+        cup::ui::select_interactive_func(),
+        cup::ui::SelectInteractiveFunc{[](std::string_view, std::span<const std::string>,
+                                          std::size_t) -> std::expected<std::string, Error> {
+            return std::unexpected(cup::error::abort_error());
+        }});
+
+    const std::vector<std::string> options{"a", "b"};
+    const auto got = cup::ui::select_one("pick?", options, "a");
+    REQUIRE_FALSE(got.has_value());
+    REQUIRE(cup::error::is_abort(got.error()));
+}
+
+TEST_CASE("make_select_component moves the cursor and reports the pick", "[ui][select][ftxui]") {
+    cup::ui::detail::SelectState state{.entries = {"red", "green", "blue"}, .selected = 0};
+    auto screen = ftxui::ScreenInteractive::TerminalOutput();
+    auto component = cup::ui::detail::make_select_component(state, "pick?", screen);
+
+    // Asserts on the actual rendered text, not just that Render() doesn't
+    // throw: entries_option.transform used EntryState::state (always false
+    // for a plain Menu entry -- see its own doc comment) instead of
+    // EntryState::active for its highlight check, so every entry rendered
+    // identically and nothing ever showed which one the cursor was on. A
+    // REQUIRE_NOTHROW render never would have caught that; only checking
+    // the rendered content does.
+    REQUIRE(render_to_string(component).find("❯ red") != std::string::npos);
+
+    REQUIRE(component->OnEvent(ftxui::Event::ArrowDown));
+    REQUIRE(state.selected == 1);
+    {
+        const std::string rendered = render_to_string(component);
+        REQUIRE(rendered.find("❯ green") != std::string::npos);
+        REQUIRE(rendered.find("❯ red") == std::string::npos);
+    }
+
+    REQUIRE(component->OnEvent(ftxui::Event::ArrowDown));
+    REQUIRE(state.selected == 2);
+    {
+        const std::string rendered = render_to_string(component);
+        REQUIRE(rendered.find("❯ blue") != std::string::npos);
+        REQUIRE(rendered.find("❯ green") == std::string::npos);
+    }
+
+    REQUIRE(component->OnEvent(ftxui::Event::ArrowUp));
+    REQUIRE(state.selected == 1);
+    REQUIRE(render_to_string(component).find("❯ green") != std::string::npos);
+
+    REQUIRE_FALSE(state.aborted);
+}
+
+TEST_CASE("make_select_component aborts on Ctrl+C and Ctrl+D", "[ui][select][ftxui]") {
+    for (const auto& event : {ftxui::Event::CtrlC, ftxui::Event::CtrlD}) {
+        cup::ui::detail::SelectState state{.entries = {"a", "b"}, .selected = 0};
+        auto screen = ftxui::ScreenInteractive::TerminalOutput();
+        auto component = cup::ui::detail::make_select_component(state, "pick?", screen);
+
+        REQUIRE(component->OnEvent(event));
+        REQUIRE(state.aborted);
+    }
+}
+
+TEST_CASE("make_text_component tracks typed content and validates on enter",
+          "[ui][text][ftxui]") {
+    cup::ui::detail::TextState state;
+    auto screen = ftxui::ScreenInteractive::TerminalOutput();
+    auto component = cup::ui::detail::make_text_component(
+        state, "name?", "fallback", screen,
+        [](std::string_view answer) -> std::optional<std::string> {
+            if (answer == "bad") {
+                return "must not be bad";
+            }
+            return std::nullopt;
+        });
+
+    // No error yet: exercises the "no error line" branch, and confirms one
+    // isn't rendered when there's nothing to report.
+    REQUIRE(render_to_string(component).find("must not be bad") == std::string::npos);
+
+    for (const char c : std::string_view("bad")) {
+        component->OnEvent(ftxui::Event::Character(c));
+    }
+    REQUIRE(state.content == "bad");
+
+    component->OnEvent(ftxui::Event::Return);
+    REQUIRE(state.error_message == "must not be bad");
+    REQUIRE_FALSE(state.aborted);
+    // Error set: exercises the error-line-pushed branch, and confirms the
+    // message is actually rendered, not just tracked in state.
+    REQUIRE(render_to_string(component).find("must not be bad") != std::string::npos);
+
+    for (int i = 0; i < 3; ++i) {
+        component->OnEvent(ftxui::Event::Backspace);
+    }
+    for (const char c : std::string_view("good")) {
+        component->OnEvent(ftxui::Event::Character(c));
+    }
+    REQUIRE(state.content == "good");
+
+    component->OnEvent(ftxui::Event::Return);
+    REQUIRE(state.error_message.empty());
+    REQUIRE_FALSE(state.aborted);
+
+    // Error cleared again: the message must disappear from the render too.
+    REQUIRE(render_to_string(component).find("must not be bad") == std::string::npos);
+}
+
+TEST_CASE("make_text_component aborts on Ctrl+C and Ctrl+D", "[ui][text][ftxui]") {
+    for (const auto& event : {ftxui::Event::CtrlC, ftxui::Event::CtrlD}) {
+        cup::ui::detail::TextState state;
+        auto screen = ftxui::ScreenInteractive::TerminalOutput();
+        auto component = cup::ui::detail::make_text_component(
+            state, "name?", "", screen,
+            [](std::string_view) -> std::optional<std::string> { return std::nullopt; });
+
+        REQUIRE(component->OnEvent(event));
+        REQUIRE(state.aborted);
+    }
 }
 
 TEST_CASE("errors compare by kind and message", "[error]") {

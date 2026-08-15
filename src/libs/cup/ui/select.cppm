@@ -3,6 +3,7 @@ module;
 #include <charconv>
 #include <cstddef>
 #include <expected>
+#include <functional>
 #include <optional>
 #include <span>
 #include <string>
@@ -30,80 +31,12 @@ namespace detail {
     return 0;
 }
 
-[[nodiscard]] bool is_up_key(std::span<const unsigned char> buf, int n) {
-    if (buf.empty()) {
-        return false;
-    }
-    return buf[0] == 'k' || (n == 3 && buf[0] == 27 && buf[2] == 'A');
-}
-
-[[nodiscard]] bool is_down_key(std::span<const unsigned char> buf, int n) {
-    if (buf.empty()) {
-        return false;
-    }
-    return buf[0] == 'j' || (n == 3 && buf[0] == 27 && buf[2] == 'B');
-}
-
-void move_up(std::size_t n) {
-    for (std::size_t i = 0; i < n; ++i) {
-        emit("\x{1b}[1A\x{1b}[2K");
-    }
-}
-
-void render(std::span<const std::string> options, std::size_t cursor) {
-    for (std::size_t i = 0; i < options.size(); ++i) {
-        if (i == cursor) {
-            emit(format_text("{}{}\r\n", color(bold(kCyan), "> "), color(bold(kCyan), options[i])));
-        } else {
-            emit(format_text("  {}\r\n", options[i]));
-        }
-    }
-}
-
-void redraw_final(std::span<const std::string> options, std::size_t cursor) {
-    for (std::size_t i = 0; i < options.size(); ++i) {
-        if (i == cursor) {
-            emit(format_text("{}{}\r\n", color(bold(kGreen), "> "),
-                             color(bold(kGreen), options[i])));
-        } else {
-            emit(format_text("  {}\r\n", color(kGrey, options[i])));
-        }
-    }
-}
-
-[[nodiscard]] std::expected<std::string, error::Error> select_interactive(
-    std::string_view question, std::span<const std::string> options, std::size_t cursor) {
-    emit(format_text("{} {} {}\r\n", color(bold(kCyan), "?"), question,
-                     color(kGrey, "(up/down, enter)")));
-    render(options, cursor);
-
-    std::array<unsigned char, 3> buf{};
-    while (true) {
-        const int n = read_key(buf);
-        if (n <= 0) {
-            return std::unexpected(error::abort_error());
-        }
-        const std::span<const unsigned char> keys(buf.data(), static_cast<std::size_t>(n));
-
-        if (buf[0] == 3 || buf[0] == 4) {
-            return std::unexpected(error::abort_error());
-        }
-        if (buf[0] == '\r' || buf[0] == '\n') {
-            move_up(options.size());
-            redraw_final(options, cursor);
-            return options[cursor];
-        }
-        if (is_up_key(keys, n)) {
-            cursor = (cursor + options.size() - 1) % options.size();
-        } else if (is_down_key(keys, n)) {
-            cursor = (cursor + 1) % options.size();
-        } else {
-            continue;
-        }
-        move_up(options.size());
-        render(options, cursor);
-    }
-}
+// select_interactive_impl is declared here, defined in Interactive.cpp: it
+// drives an FTXUI ftxui::Menu, which stays out of this interface partition
+// for the same reason curl stays out of :net (see platform/Http.cpp) — a
+// heavy third-party header would otherwise enter every importer's BMI.
+[[nodiscard]] std::expected<std::string, error::Error> select_interactive_impl(
+    std::string_view question, std::span<const std::string> options, std::size_t initial_cursor);
 
 [[nodiscard]] std::optional<std::size_t> parse_choice(std::string_view answer,
                                                       std::size_t count) {
@@ -136,18 +69,55 @@ void redraw_final(std::span<const std::string> options, std::size_t cursor) {
 
 }
 
+using SelectInteractiveFunc = std::function<std::expected<std::string, error::Error>(
+    std::string_view, std::span<const std::string>, std::size_t)>;
+
+// select_interactive_func is the seam select_one and confirm call through on
+// a real terminal; overridable in tests so callers can be tested without
+// driving a real pty. Mirrors platform::run_command_func().
+[[nodiscard]] SelectInteractiveFunc& select_interactive_func() {
+    static SelectInteractiveFunc f = &detail::select_interactive_impl;
+    return f;
+}
+
 [[nodiscard]] std::expected<std::string, error::Error> select_one(
     std::string_view question, std::span<const std::string> options, std::string_view def) {
     if (options.empty()) {
         return std::unexpected(error::Error("no options to choose from"));
     }
-    if (!platform::is_tty(platform::kStdinFd)) {
+    if (!detail::can_use_interactive(platform::kStdinFd)) {
         return detail::select_numbered(question, options);
     }
-    if (auto raw = platform::enter_raw_mode(platform::kStdinFd); raw.has_value()) {
-        return detail::select_interactive(question, options, detail::index_of(options, def));
+    return select_interactive_func()(question, options, detail::index_of(options, def));
+}
+
+// Shares select_interactive_func's menu widget with entries = {"Yes", "No"}
+// rather than a separate FTXUI component — one real interactive
+// implementation, not two.
+[[nodiscard]] std::expected<bool, error::Error> confirm(std::string_view question, bool def) {
+    if (detail::can_use_interactive(platform::kStdinFd)) {
+        const std::array<std::string, 2> options{"Yes", "No"};
+        auto chosen = select_interactive_func()(question, options, def ? 0 : 1);
+        if (!chosen.has_value()) {
+            return std::unexpected(std::move(chosen).error());
+        }
+        return *chosen == "Yes";
     }
-    return detail::select_numbered(question, options);
+
+    const std::string_view hint = def ? "Y/n" : "y/N";
+    while (true) {
+        emit(format_text("{} {} [{}] ", color(bold(kCyan), "?"), question, hint));
+        flush_output();
+
+        auto answer = detail::read_answer().transform(
+            [](const std::string& entered) { return detail::lower(entered); });
+        if (!answer.has_value()) {
+            return std::unexpected(std::move(answer).error());
+        }
+        if (const auto decided = detail::decide(*answer, def); decided.has_value()) {
+            return *decided;
+        }
+    }
 }
 
 }

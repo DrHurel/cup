@@ -10,6 +10,9 @@ Helper scripts for building, testing, and packaging the `cup` CLI.
   `ctest` in a separate Debug tree; `build/cup test` does the same thing
   through cup itself once you have a built binary
 - `./devtools/clean.sh` — remove the local `build/` tree
+- `./devtools/install.sh [dest]` — build.sh, then copy the result onto PATH
+  (default `~/.local/bin`) as `cup`, so the installed binary always reflects
+  the latest local build
 - `./devtools/docker-build.sh [tag]` — build the utility dev image (default tag `cup-dev`) from `docker/Dockerfile`
 
 ## Docker utility image

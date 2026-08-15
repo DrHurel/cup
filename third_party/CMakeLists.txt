@@ -17,6 +17,7 @@ FetchContent_Declare(
   GIT_TAG v3.9.1
 )
 FetchContent_MakeAvailable(Catch2)
+
 # GLOBAL: find_package's/pkg_check_modules' imported targets are scoped to this
 # directory (and its children) by default, but cup.platform needing
 # CURL::libcurl lives under src/libs, a sibling of third_party — without GLOBAL
@@ -49,3 +50,16 @@ if(CURL_USE_STATIC_LIBS)
 else()
   find_package(CURL REQUIRED GLOBAL) # cup-apt: libcurl4-openssl-dev
 endif()
+
+FetchContent_Declare(
+  ftxui
+  GIT_REPOSITORY https://github.com/ArthurSonzogni/ftxui.git
+  GIT_TAG v7.0.3
+)
+# Explicit rather than relying on the defaults: cup builds its own C++23
+# modules already, and FTXUI's experimental C++20-modules build (off by
+# default) has no reason to run alongside that. cup installs nothing, so
+# skip FTXUI's install rules too.
+set(FTXUI_BUILD_MODULES OFF)
+set(FTXUI_ENABLE_INSTALL OFF)
+FetchContent_MakeAvailable(ftxui)

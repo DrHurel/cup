@@ -10,9 +10,11 @@ target_compile_features(ui_test PRIVATE cxx_std_23)
 # cup scaffolds the target but not its dependencies: the module under test and
 # Catch2's bundled main(). platform is named because the suite imports cup.platform
 # itself to check the terminal condition select_one branches on — cup.ui imports it
-# without re-exporting it.
+# without re-exporting it. ftxui backs Interactive.hpp, #included directly (not via
+# the cup.ui module) so the suite can drive its component trees with synthetic
+# events — see Interactive.hpp's header comment.
 target_link_libraries(ui_test PRIVATE ui error platform probe Threads::Threads
-                                      Catch2::Catch2WithMain)
+                                      ftxui::ftxui Catch2::Catch2WithMain)
 add_test(NAME ui_test COMMAND ui_test)
 
 add_executable(platform_test platform_test.cpp)
