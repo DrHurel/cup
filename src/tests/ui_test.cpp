@@ -128,9 +128,9 @@ private:
 
 // Renders a component to a plain-text screen buffer, ANSI styling and all,
 // so a test can assert on what a real terminal would actually show -- e.g.
-// that the "> " cursor marker lands next to the right entry. Catches what a
-// bare `component->Render()` REQUIRE_NOTHROW cannot: rendering without
-// throwing says nothing about rendering *correctly*.
+// that the cursor marker lands next to the right entry. Catches what a bare
+// `component->Render()` REQUIRE_NOTHROW cannot: rendering without throwing
+// says nothing about rendering *correctly*.
 [[nodiscard]] std::string render_to_string(const ftxui::Component& component) {
     auto screen = ftxui::Screen::Create(ftxui::Dimension::Fixed(80), ftxui::Dimension::Fixed(10));
     ftxui::Render(screen, component->Render());
@@ -442,27 +442,27 @@ TEST_CASE("make_select_component moves the cursor and reports the pick", "[ui][s
     // identically and nothing ever showed which one the cursor was on. A
     // REQUIRE_NOTHROW render never would have caught that; only checking
     // the rendered content does.
-    REQUIRE(render_to_string(component).find("> red") != std::string::npos);
+    REQUIRE(render_to_string(component).find("❯ red") != std::string::npos);
 
     REQUIRE(component->OnEvent(ftxui::Event::ArrowDown));
     REQUIRE(state.selected == 1);
     {
         const std::string rendered = render_to_string(component);
-        REQUIRE(rendered.find("> green") != std::string::npos);
-        REQUIRE(rendered.find("> red") == std::string::npos);
+        REQUIRE(rendered.find("❯ green") != std::string::npos);
+        REQUIRE(rendered.find("❯ red") == std::string::npos);
     }
 
     REQUIRE(component->OnEvent(ftxui::Event::ArrowDown));
     REQUIRE(state.selected == 2);
     {
         const std::string rendered = render_to_string(component);
-        REQUIRE(rendered.find("> blue") != std::string::npos);
-        REQUIRE(rendered.find("> green") == std::string::npos);
+        REQUIRE(rendered.find("❯ blue") != std::string::npos);
+        REQUIRE(rendered.find("❯ green") == std::string::npos);
     }
 
     REQUIRE(component->OnEvent(ftxui::Event::ArrowUp));
     REQUIRE(state.selected == 1);
-    REQUIRE(render_to_string(component).find("> green") != std::string::npos);
+    REQUIRE(render_to_string(component).find("❯ green") != std::string::npos);
 
     REQUIRE_FALSE(state.aborted);
 }

@@ -65,9 +65,11 @@ struct SelectState {
     // EntryState::state is a checkbox/radio toggle value -- always false for
     // a plain Menu entry, which is why this used to render with no
     // highlight at all. active is "the cursor is on this entry" (see
-    // FTXUI's own DefaultOptionTransform in menu.cpp).
+    // FTXUI's own DefaultOptionTransform in menu.cpp, which this otherwise
+    // mirrors -- "> " swapped for the same heavy-angle arrow gum, starship
+    // and most modern CLI selection prompts use instead of a bare ">").
     menu_option.entries_option.transform = [](const ftxui::EntryState& s) {
-        ftxui::Element label = ftxui::text((s.active ? "> " : "  ") + s.label);
+        ftxui::Element label = ftxui::text((s.active ? "❯ " : "  ") + s.label);
         return s.active ? (label | ftxui::bold | ftxui::color(cup_color(kCyanIdx))) : label;
     };
 
