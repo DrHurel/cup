@@ -168,7 +168,7 @@ TEST_CASE("register_submodule adds the git submodule and registers it", "[cmd][t
     REQUIRE(cup::cmd::register_submodule(proj).has_value());
     REQUIRE(stub.calls().size() == 1);
     REQUIRE(stub.calls()[0] ==
-            "git submodule add --branch v10 https://example.com/fmt.git third_party/fmt");
+            "git submodule add --branch v10 -- https://example.com/fmt.git third_party/fmt");
     REQUIRE(file_contains(dir.path() / "third_party" / "CMakeLists.txt", "add_subdirectory(fmt)"));
     REQUIRE(file_contains(dir.path() / "CMakeLists.txt", "add_subdirectory(third_party)"));
 }
@@ -183,7 +183,7 @@ TEST_CASE("register_submodule with a blank ref omits --branch", "[cmd][thirdpart
     const cup::ui::ScopedInput scoped(in);
 
     REQUIRE(cup::cmd::register_submodule(proj).has_value());
-    REQUIRE(stub.calls()[0] == "git submodule add https://example.com/fmt.git third_party/fmt");
+    REQUIRE(stub.calls()[0] == "git submodule add -- https://example.com/fmt.git third_party/fmt");
 }
 
 TEST_CASE("register_submodule surfaces a failing git command", "[cmd][thirdparty]") {
@@ -196,6 +196,20 @@ TEST_CASE("register_submodule surfaces a failing git command", "[cmd][thirdparty
     const cup::ui::ScopedInput scoped(in);
 
     REQUIRE_FALSE(cup::cmd::register_submodule(proj).has_value());
+}
+
+TEST_CASE("register_submodule inserts -- before the URL and path", "[cmd][thirdparty]") {
+    const TempDir dir;
+    const Project proj = make_project(dir);
+    StubRunCommand stub;
+
+    const ScopedStdin not_a_terminal("");
+    std::istringstream in("fmt\n--upload-pack=evil\nv10\n");
+    const cup::ui::ScopedInput scoped(in);
+
+    REQUIRE(cup::cmd::register_submodule(proj).has_value());
+    REQUIRE(stub.calls()[0] ==
+            "git submodule add --branch v10 -- --upload-pack=evil third_party/fmt");
 }
 
 TEST_CASE("register_download appends a FetchContent block", "[cmd][thirdparty]") {
@@ -438,8 +452,8 @@ TEST_CASE("register_download (make) shallow-clones and registers a CUP_TP_INCLUD
 
     REQUIRE(cup::cmd::register_download(proj).has_value());
     REQUIRE(stub.calls() ==
-            std::vector<std::string>{
-                "git clone --depth 1 --branch v3 https://example.com/json.git third_party/json"});
+            std::vector<std::string>{"git clone --depth 1 --branch v3 -- "
+                                     "https://example.com/json.git third_party/json"});
     REQUIRE(file_contains(dir.path() / "third_party" / "third_party.mk",
                           "# cup-dep: cmake-download json"));
 }
