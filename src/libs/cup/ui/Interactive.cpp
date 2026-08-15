@@ -21,6 +21,14 @@ std::expected<std::string, error::Error> select_interactive_impl(
 
     auto screen = ftxui::ScreenInteractive::TerminalOutput();
     auto component = make_select_component(state, question, screen);
+    // Root cause of the Ctrl-C-kills-the-process bug: FTXUI's own
+    // App::Internal::HandleTask always re-raises a real SIGINT once Loop()
+    // returns after a Ctrl-C event -- even when a component's CatchEvent
+    // already handled it (ours does, above in make_select_component) --
+    // unless told not to. ForceHandleCtrlC(false) opts out of that
+    // re-raise, since our own handling already produces the same
+    // "aborted." + exit 1 outcome Ctrl-D gets.
+    screen.ForceHandleCtrlC(false);
     screen.Loop(component);
 
     if (state.aborted) {
@@ -45,6 +53,8 @@ std::expected<std::string, error::Error> text_interactive_impl(std::string_view 
             }
             return checked.error().message();
         });
+    // See select_interactive_impl's comment on ForceHandleCtrlC(false).
+    screen.ForceHandleCtrlC(false);
     screen.Loop(component);
 
     if (state.aborted) {
