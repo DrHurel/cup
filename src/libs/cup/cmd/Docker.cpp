@@ -431,6 +431,13 @@ std::expected<void, error::Error> run_docker_push(project::Project& proj,
     if (!targets.has_value()) {
         return std::unexpected(std::move(targets).error());
     }
+    for (auto* img : *targets) {
+        if (img->version == 0) {
+            return std::unexpected(error::Error(std::format(
+                "image \"{}\" has not been built yet — run `cup docker build {}` first", img->name,
+                img->name)));
+        }
+    }
     if (proj.config.docker.registry.empty()) {
         auto reg =
             ui::text("registry/namespace to push to? (e.g. docker.io/youruser)", "", scaffold::validate_non_empty);
@@ -448,11 +455,6 @@ std::expected<void, error::Error> run_docker_push(project::Project& proj,
     }
     const std::string reg = proj.config.docker.registry;
     for (auto* img : *targets) {
-        if (img->version == 0) {
-            return std::unexpected(error::Error(std::format(
-                "image \"{}\" has not been built yet — run `cup docker build {}` first", img->name,
-                img->name)));
-        }
         if (auto pushed = push_image(proj, reg, *img); !pushed.has_value()) {
             return pushed;
         }
