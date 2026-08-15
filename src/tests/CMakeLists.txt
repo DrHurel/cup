@@ -131,6 +131,16 @@ target_link_libraries(thirdparty_cmd_test PRIVATE cmd project platform ui error
                                                   Catch2::Catch2WithMain)
 add_test(NAME thirdparty_cmd_test COMMAND thirdparty_cmd_test)
 
+# Drives the real cup binary through a real pty (fork+exec, not synthetic
+# ftxui::Event objects) -- needs the cup target from src/apps to exist, same
+# as the bats suite below, hence CUP_TEST_BIN's use of $<TARGET_FILE:cup>.
+add_executable(interactive_signal_test interactive_signal_test.cpp)
+target_compile_features(interactive_signal_test PRIVATE cxx_std_23)
+target_include_directories(interactive_signal_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+target_compile_definitions(interactive_signal_test PRIVATE CUP_TEST_BIN="$<TARGET_FILE:cup>")
+target_link_libraries(interactive_signal_test PRIVATE Catch2::Catch2WithMain)
+add_test(NAME interactive_signal_test COMMAND interactive_signal_test)
+
 # Black-box bats suite against the real cup binary (needs the cup target from
 # src/apps, so this must come after it — see the top-level CMakeLists.txt).
 add_subdirectory(functional)
