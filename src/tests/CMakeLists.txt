@@ -82,6 +82,12 @@ target_include_directories(dockerhub_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(dockerhub_test PRIVATE scaffold error Threads::Threads Catch2::Catch2WithMain)
 add_test(NAME dockerhub_test COMMAND dockerhub_test)
 
+add_executable(log_test log_test.cpp)
+target_compile_features(log_test PRIVATE cxx_std_23)
+target_include_directories(log_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(log_test PRIVATE log Catch2::Catch2WithMain)
+add_test(NAME log_test COMMAND log_test)
+
 add_executable(cmd_test cmd_test.cpp)
 target_compile_features(cmd_test PRIVATE cxx_std_23)
 target_include_directories(cmd_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")

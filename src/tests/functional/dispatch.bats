@@ -109,3 +109,12 @@
     [ "$status" -eq 0 ]
     [[ "$output" == *"no third-party dependencies registered"* ]]
 }
+
+@test "a dispatched command writes a structured entry to XDG_CACHE_HOME/cup/cup.log" {
+    cd "$BATS_TEST_TMPDIR"
+    export XDG_CACHE_HOME="$BATS_TEST_TMPDIR/cache"
+    run "$CUP_BIN" clean
+    [ "$status" -eq 1 ]
+    [ -f "$XDG_CACHE_HOME/cup/cup.log" ]
+    grep -q 'command=clean status=error duration_ms=' "$XDG_CACHE_HOME/cup/cup.log"
+}
