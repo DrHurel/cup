@@ -239,6 +239,11 @@ std::expected<void, error::Error> run_new(std::span<const std::string> args) {
         return std::unexpected(std::move(name).error());
     }
 
+    const std::filesystem::path root = std::filesystem::absolute(*name);
+    if (std::filesystem::exists(root)) {
+        return std::unexpected(error::Error(std::format("{} already exists", *name)));
+    }
+
     auto tool = choose_build_tool();
     if (!tool.has_value()) {
         return std::unexpected(std::move(tool).error());
@@ -258,11 +263,6 @@ std::expected<void, error::Error> run_new(std::span<const std::string> args) {
     auto base = choose_base_image();
     if (!base.has_value()) {
         return std::unexpected(std::move(base).error());
-    }
-
-    const std::filesystem::path root = std::filesystem::absolute(*name);
-    if (std::filesystem::exists(root)) {
-        return std::unexpected(error::Error(std::format("{} already exists", *name)));
     }
 
     // The default build image shares the project's (lowercased) name; cup
