@@ -1,7 +1,9 @@
 module;
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <expected>
+#include <format>
 #include <functional>
 #include <print>
 #include <span>
@@ -11,6 +13,7 @@ module;
 #include <cup/version.h>
 module cup.cmd;
 
+import cup.log;
 import cup.ui;
 
 namespace cup::cmd {
@@ -68,6 +71,8 @@ void print_version() {
 }  // namespace
 
 int run_main(std::span<const std::string> args) {
+    log::init();
+
     if (args.empty() || args[0] == "-h" || args[0] == "--help" || args[0] == "help") {
         usage();
         return 0;
@@ -83,12 +88,21 @@ int run_main(std::span<const std::string> args) {
     const auto cmds = commands();
     const auto it = std::ranges::find(cmds, name, &Command::name);
     if (it == cmds.end()) {
+        log::warn(std::format("command={} status=unknown", name));
         ui::err("unknown command \"" + name + "\"");
         usage();
         return 1;
     }
 
-    if (auto result = it->run(rest); !result.has_value()) {
+    const auto start = std::chrono::steady_clock::now();
+    auto result = it->run(rest);
+    const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                        std::chrono::steady_clock::now() - start)
+                        .count();
+    log::info(std::format("command={} status={} duration_ms={}", name,
+                          result.has_value() ? "ok" : "error", ms));
+
+    if (!result.has_value()) {
         if (const auto& err = result.error(); error::is_abort(err)) {
             ui::err("aborted.");
         } else {

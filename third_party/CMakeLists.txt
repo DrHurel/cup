@@ -63,3 +63,13 @@ FetchContent_Declare(
 set(FTXUI_BUILD_MODULES OFF)
 set(FTXUI_ENABLE_INSTALL OFF)
 FetchContent_MakeAvailable(ftxui)
+
+FetchContent_Declare(
+  spdlog
+  GIT_REPOSITORY https://github.com/gabime/spdlog.git
+  GIT_TAG v1.15.3
+)
+# Use the C++23 <format> the rest of cup already relies on instead of
+# bundling fmtlib as a second formatting library.
+set(SPDLOG_USE_STD_FORMAT ON)
+FetchContent_MakeAvailable(spdlog)

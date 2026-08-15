@@ -33,4 +33,4 @@ target_compile_features(cmd PUBLIC cxx_std_23)
 # (run_command, git init). None of those types appear in cup.cmd's own
 # exported interface (Command's Run is a std::function<..., cup::error::Error>),
 # so all are PRIVATE; only cup.error is PUBLIC.
-target_link_libraries(cmd PUBLIC error PRIVATE project scaffold tmpl ui platform cup_version)
+target_link_libraries(cmd PUBLIC error PRIVATE project scaffold tmpl ui platform log cup_version)
