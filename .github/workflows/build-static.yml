@@ -17,7 +17,7 @@ on:
   workflow_call:
     outputs:
       artifact-name:
-        description: Name of the uploaded binary artifact
+        description: Name of the uploaded build-tree artifact
         value: cup-musl-static
 
 jobs:
@@ -102,8 +102,18 @@ jobs:
           ./build/Release/bin/cup --help
           ./build/Release/bin/cup --version | grep -q "cup .* (${GITHUB_SHA::7})"
 
-      - name: Upload release binary
+      # The full tree, not just the binary: cpp.yml's unit-test/functional-
+      # test jobs run ctest against this build (it's *the* build-release
+      # artifact, not a separate verification build -- see cpp.yml), so they
+      # need every test binary and CTestTestfile.cmake, not only `cup`.
+      # release.yml (tag-triggered publishing) only wants the bare binary and
+      # picks it out at dist/bin/cup after downloading this same artifact.
+      - name: Upload build tree
         uses: actions/upload-artifact@v4
         with:
           name: cup-musl-static
-          path: build/Release/bin/cup
+          path: |
+            build/Release
+            !build/Release/_deps
+          include-hidden-files: true
+          retention-days: 1

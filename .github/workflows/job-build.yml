@@ -1,10 +1,17 @@
 name: Build
 
-# Reusable: configures and compiles one build MODE (Debug or Release), then
-# uploads build/<mode> so the matching unit-test/functional-test jobs can run
-# ctest against the already-compiled tree instead of recompiling per job.
-# Coverage has its own job (job-coverage.yml) since it also runs the tests
-# and collects lcov data in the same step, rather than splitting build/test.
+# Reusable: configures and compiles one build MODE (Debug or Release) with
+# one GCC version, then uploads build/<mode> so the matching unit-test/
+# functional-test jobs can run ctest against the already-compiled tree
+# instead of recompiling per job. Coverage has its own job (job-coverage.yml)
+# since it also runs the tests and collects lcov data in the same step,
+# rather than splitting build/test.
+#
+# gcc-version defaults to the floor (15); cpp.yml also calls this at 16 for
+# the canary build, structured identically to the Debug/Release pipeline
+# (build -> parallel unit-test/functional-test) rather than as a bespoke
+# combined job -- continue-on-error is threaded through as an input so the
+# canary variant can be non-blocking without a separate job definition.
 
 on:
   workflow_call:
@@ -13,6 +20,20 @@ on:
         description: 'CMAKE_BUILD_TYPE to configure/build (Debug or Release)'
         required: true
         type: string
+      gcc-version:
+        description: 'GCC major version to build with'
+        required: false
+        type: string
+        default: '15'
+      continue-on-error:
+        description: 'Report failure without failing the overall run (for the gcc-16 canary)'
+        required: false
+        type: boolean
+        default: false
+    outputs:
+      artifact-name:
+        description: Name of the uploaded build-tree artifact
+        value: build-${{ inputs.mode }}-gcc${{ inputs.gcc-version }}
 
 env:
   # Named modules require Ninja: CMake's Makefile generator does not implement
@@ -21,8 +42,9 @@ env:
 
 jobs:
   build:
-    name: build (${{ inputs.mode }})
+    name: build (${{ inputs.mode }}, gcc-${{ inputs.gcc-version }})
     runs-on: ubuntu-24.04
+    continue-on-error: ${{ inputs.continue-on-error }}
 
     permissions:
       contents: read
@@ -41,19 +63,19 @@ jobs:
           sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            g++-15 ninja-build cmake libcurl4-openssl-dev bats
+            g++-${{ inputs.gcc-version }} ninja-build cmake libcurl4-openssl-dev bats
 
       - name: Cache FetchContent dependencies
         uses: actions/cache@v4
         with:
           path: build/${{ inputs.mode }}/_deps
-          key: ${{ runner.os }}-deps-gcc15-${{ inputs.mode }}-${{ hashFiles('third_party/CMakeLists.txt') }}
-          restore-keys: ${{ runner.os }}-deps-gcc15-${{ inputs.mode }}-
+          key: ${{ runner.os }}-deps-gcc${{ inputs.gcc-version }}-${{ inputs.mode }}-${{ hashFiles('third_party/CMakeLists.txt') }}
+          restore-keys: ${{ runner.os }}-deps-gcc${{ inputs.gcc-version }}-${{ inputs.mode }}-
 
       - name: Configure
         env:
-          CC: gcc-15
-          CXX: g++-15
+          CC: gcc-${{ inputs.gcc-version }}
+          CXX: g++-${{ inputs.gcc-version }}
         run: cmake -B build/${{ inputs.mode }} -DCMAKE_BUILD_TYPE=${{ inputs.mode }}
 
       - name: Build
@@ -66,7 +88,7 @@ jobs:
       - name: Upload build tree
         uses: actions/upload-artifact@v4
         with:
-          name: build-${{ inputs.mode }}
+          name: build-${{ inputs.mode }}-gcc${{ inputs.gcc-version }}
           path: |
             build/${{ inputs.mode }}
             !build/${{ inputs.mode }}/_deps

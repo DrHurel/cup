@@ -24,6 +24,9 @@ setup() {
     grep -q "add_subdirectory(hello)" src/apps/CMakeLists.txt
 
     run "$CUP_BIN" build
+    # TEMP DEBUG: root-causing a CI-only failure that doesn't reproduce
+    # locally or in a matched ubuntu:24.04 container -- remove once diagnosed.
+    if [ "$status" -ne 0 ]; then echo "DEBUG build status=$status output: $output"; fi
     [ "$status" -eq 0 ]
     [ -f build/Debug/bin/hello ]
 

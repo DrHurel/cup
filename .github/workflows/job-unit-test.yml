@@ -11,14 +11,24 @@ on:
   workflow_call:
     inputs:
       mode:
-        description: 'Build MODE whose artifact to test (Debug or Release)'
+        description: 'Build MODE whose artifact to test (Debug or Release) -- decides the download/ctest path, not which artifact'
         required: true
         type: string
+      artifact-name:
+        description: 'Name of the build-tree artifact to download and test (e.g. a job-build.yml or build-static.yml output)'
+        required: true
+        type: string
+      continue-on-error:
+        description: 'Report failure without failing the overall run (for the gcc-16 canary)'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   test:
     name: unit tests (${{ inputs.mode }})
     runs-on: ubuntu-24.04
+    continue-on-error: ${{ inputs.continue-on-error }}
 
     permissions:
       contents: read
@@ -29,7 +39,7 @@ jobs:
       - name: Download build tree
         uses: actions/download-artifact@v4
         with:
-          name: build-${{ inputs.mode }}
+          name: ${{ inputs.artifact-name }}
           path: build/${{ inputs.mode }}
 
       # Just ctest's own CLI -- no g++/ninja/bats needed, the binaries under
@@ -40,8 +50,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends cmake
 
       # actions/download-artifact does not restore the executable bit on its
-      # own; every test binary and the cup app itself (CMAKE_RUNTIME_OUTPUT_
-      # DIRECTORY = build/<mode>/bin for the whole project) need it back.
+      # own; every test binary and the cup app itself need it back.
       - name: Restore executable permissions
         run: chmod -R +x build/${{ inputs.mode }}/bin
 

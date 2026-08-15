@@ -1,9 +1,9 @@
 name: Package main binary
 
-# Reusable: packages the musl-static binary release-musl-static already
-# built for continuous verification into a downloadable, checksummed
-# artifact representing the latest main build. The call site (cpp.yml)
-# restricts this to pushes on main.
+# Reusable: packages the musl-static binary build-release already built (and
+# tested -- see cpp.yml, build-release *is* the release artifact) into a
+# downloadable, checksummed artifact representing the latest main build. The
+# call site (cpp.yml) restricts this to pushes on main.
 #
 # Deliberately does not create or update a GitHub Release: that stays
 # reserved for version tags (release.yml), so merging to main never floods
@@ -28,6 +28,9 @@ jobs:
       contents: read
 
     steps:
+      # The artifact is the whole build tree (see build-static.yml), not
+      # just the binary; the rest (test binaries, CTestTestfile.cmake, ...)
+      # is simply unused here.
       - name: Download the static binary
         uses: actions/download-artifact@v4
         with:
@@ -40,8 +43,8 @@ jobs:
       # what the upstream build job already uploads.
       - name: Package
         run: |
-          chmod +x dist/cup
-          mv dist/cup dist/cup-linux-x86_64-musl
+          chmod +x dist/bin/cup
+          mv dist/bin/cup dist/cup-linux-x86_64-musl
           cd dist
           tar czf cup-linux-x86_64-musl.tar.gz cup-linux-x86_64-musl
           sha256sum cup-linux-x86_64-musl.tar.gz > cup-linux-x86_64-musl.tar.gz.sha256

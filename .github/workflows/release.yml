@@ -32,11 +32,12 @@ jobs:
           name: ${{ needs.build.outputs.artifact-name }}
           path: dist
 
-      # The artifact is uploaded as a bare `cup` file (see build-static.yml);
-      # rename it so multiple platforms could one day sit in the same release
-      # without colliding.
+      # The artifact is the whole build tree, not just the binary (see
+      # build-static.yml -- cpp.yml's test jobs need the rest of it); pull
+      # just the binary out and rename it so multiple platforms could one day
+      # sit in the same release without colliding.
       - name: Rename for release
-        run: mv dist/cup dist/cup-linux-x86_64-musl
+        run: mv dist/bin/cup dist/cup-linux-x86_64-musl
 
       - name: Create GitHub Release
         # SHA-pinned, not @v2: this step runs with contents:write and

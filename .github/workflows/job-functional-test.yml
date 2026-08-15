@@ -1,21 +1,40 @@
 name: Functional tests
 
-# Reusable: downloads the build/<mode> tree job-build.yml already compiled
-# and runs only the functional_* bats suites (src/tests/functional/*.bats),
-# which drive the real compiled `cup` binary as a subprocess. Unlike the
-# Catch2 suites job-unit-test.yml runs, several of these scenarios have `cup`
-# itself orchestrate a *real* nested cmake+ninja(+bats) build of a scratch
-# fixture project (see build_run.bats/modules_build_run.bats/
-# make_build_run.bats) -- so, unlike unit tests, this job needs the full
-# toolchain installed even though `cup` itself is already built.
+# Reusable: downloads a build/<mode> tree (from job-build.yml or
+# build-static.yml) and runs only the functional_* bats suites
+# (src/tests/functional/*.bats), which drive the real compiled `cup` binary
+# as a subprocess. Unlike the Catch2 suites job-unit-test.yml runs, several
+# of these scenarios have `cup` itself orchestrate a *real* nested
+# cmake+ninja(+bats) build of a scratch fixture project (see
+# build_run.bats/modules_build_run.bats/make_build_run.bats) -- so, unlike
+# unit tests, this job needs the full toolchain installed. gcc-version picks
+# which g++ *this job* installs to run those nested builds -- independent of
+# how the artifact's own `cup` binary was compiled (e.g. the musl-static
+# Release build still runs its bats suites against a normal glibc g++-15
+# here, since that only affects the fixture projects cup scaffolds and
+# builds during the test, not cup itself).
 
 on:
   workflow_call:
     inputs:
       mode:
-        description: 'Build MODE whose artifact to test (Debug or Release)'
+        description: 'Build MODE whose artifact to test (Debug or Release) -- decides the download/ctest path, not which artifact'
         required: true
         type: string
+      artifact-name:
+        description: 'Name of the build-tree artifact to download and test (e.g. a job-build.yml or build-static.yml output)'
+        required: true
+        type: string
+      gcc-version:
+        description: 'GCC major version this job installs to compile fixture projects during the bats suites'
+        required: false
+        type: string
+        default: '15'
+      continue-on-error:
+        description: 'Report failure without failing the overall run (for the gcc-16 canary)'
+        required: false
+        type: boolean
+        default: false
 
 env:
   CMAKE_GENERATOR: Ninja
@@ -24,6 +43,7 @@ jobs:
   test:
     name: functional tests (${{ inputs.mode }})
     runs-on: ubuntu-24.04
+    continue-on-error: ${{ inputs.continue-on-error }}
 
     permissions:
       contents: read
@@ -34,7 +54,7 @@ jobs:
       - name: Download build tree
         uses: actions/download-artifact@v4
         with:
-          name: build-${{ inputs.mode }}
+          name: ${{ inputs.artifact-name }}
           path: build/${{ inputs.mode }}
 
       - name: Install toolchain
@@ -42,7 +62,7 @@ jobs:
           sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            g++-15 ninja-build cmake libcurl4-openssl-dev bats
+            g++-${{ inputs.gcc-version }} ninja-build cmake libcurl4-openssl-dev bats
 
       # actions/download-artifact does not restore the executable bit on its
       # own; the cup binary the bats suites exec needs it back.

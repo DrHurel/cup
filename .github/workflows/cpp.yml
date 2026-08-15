@@ -17,9 +17,16 @@ name: C++ CI
 #   build-debug ──┬──> unit-test-debug      │
 #                 └──> functional-test-debug│
 #   build-release ┬──> unit-test-release    │
-#         (*)     └──> functional-test-release
-#   canary (*, non-blocking)                │
-#   release-musl-static (*) ──────────────> release-main (main push only)
+#         (*)     ├──> functional-test-release
+#         (*)     └───────────────────────────> release-main (main push only)
+#   build-canary ─┬──> unit-test-canary (*, non-blocking)
+#         (*)     └──> functional-test-canary (*, non-blocking)
+#
+# build-release *is* the musl-static release artifact (build-static.yml),
+# not a separate glibc verification build: cup's real Release output builds
+# and passes the exact same test matrix as Debug, and release.yml (the
+# tag-triggered publisher) and release-main both consume this same job's
+# output rather than a redundant fourth build.
 #
 # (*) gated on the PR not being a draft — draft PRs only run build-debug and
 # coverage, for the fastest possible signal while iterating. Everything else
@@ -79,21 +86,13 @@ jobs:
     permissions:
       contents: read
 
-  # --- gated: skipped on a draft PR ---------------------------------------
-  build-release:
-    if: ${{ !github.event.pull_request.draft }}
-    uses: ./.github/workflows/job-build.yml
-    with:
-      mode: Release
-    permissions:
-      contents: read
-
   unit-test-debug:
     needs: build-debug
     if: ${{ !github.event.pull_request.draft }}
     uses: ./.github/workflows/job-unit-test.yml
     with:
       mode: Debug
+      artifact-name: ${{ needs.build-debug.outputs.artifact-name }}
     permissions:
       contents: read
 
@@ -103,6 +102,18 @@ jobs:
     uses: ./.github/workflows/job-functional-test.yml
     with:
       mode: Debug
+      artifact-name: ${{ needs.build-debug.outputs.artifact-name }}
+    permissions:
+      contents: read
+
+  # --- gated: skipped on a draft PR ---------------------------------------
+  # The release artifact itself: a musl-static binary built in alpine (see
+  # build-static.yml for why musl and why alpine:3.23). This *is*
+  # build-release, not a separate verification build alongside it -- cup's
+  # actual shippable Release output is what gets tested and packaged.
+  build-release:
+    if: ${{ !github.event.pull_request.draft }}
+    uses: ./.github/workflows/build-static.yml
     permissions:
       contents: read
 
@@ -112,6 +123,7 @@ jobs:
     uses: ./.github/workflows/job-unit-test.yml
     with:
       mode: Release
+      artifact-name: ${{ needs.build-release.outputs.artifact-name }}
     permissions:
       contents: read
 
@@ -121,23 +133,44 @@ jobs:
     uses: ./.github/workflows/job-functional-test.yml
     with:
       mode: Release
+      artifact-name: ${{ needs.build-release.outputs.artifact-name }}
     permissions:
       contents: read
 
-  # Early warning against a newer GCC. Non-blocking on purpose: this job
-  # exists to tell us something, not to gate.
-  canary:
+  # Early warning against a newer GCC: the exact same build -> parallel
+  # unit-test/functional-test shape as Debug/Release, just gcc-16 and
+  # continue-on-error: true instead of a bespoke combined job. Non-blocking
+  # on purpose: this exists to tell us something, not to gate.
+  build-canary:
     if: ${{ !github.event.pull_request.draft }}
-    uses: ./.github/workflows/job-canary.yml
+    uses: ./.github/workflows/job-build.yml
+    with:
+      mode: Debug
+      gcc-version: '16'
+      continue-on-error: true
     permissions:
       contents: read
 
-  # The release artifact: a musl-static binary built in alpine. Also called
-  # from release.yml (tag-triggered publishing) — see build-static.yml for
-  # why musl and why alpine:3.23.
-  release-musl-static:
+  unit-test-canary:
+    needs: build-canary
     if: ${{ !github.event.pull_request.draft }}
-    uses: ./.github/workflows/build-static.yml
+    uses: ./.github/workflows/job-unit-test.yml
+    with:
+      mode: Debug
+      artifact-name: ${{ needs.build-canary.outputs.artifact-name }}
+      continue-on-error: true
+    permissions:
+      contents: read
+
+  functional-test-canary:
+    needs: build-canary
+    if: ${{ !github.event.pull_request.draft }}
+    uses: ./.github/workflows/job-functional-test.yml
+    with:
+      mode: Debug
+      artifact-name: ${{ needs.build-canary.outputs.artifact-name }}
+      gcc-version: '16'
+      continue-on-error: true
     permissions:
       contents: read
 
@@ -158,14 +191,15 @@ jobs:
       pages: write
       id-token: write
 
-  # Packages the musl-static binary release-musl-static already built into a
-  # downloadable artifact for the latest main build — not a GitHub Release
-  # (that stays reserved for version tags; see release.yml).
+  # Packages build-release's musl-static binary into a downloadable artifact
+  # for the latest main build — not a GitHub Release (that stays reserved
+  # for version tags; see release.yml, which consumes the same build-release
+  # output independently on its own tag-triggered pipeline).
   release-main:
-    needs: release-musl-static
+    needs: build-release
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     uses: ./.github/workflows/job-release-main.yml
     with:
-      artifact-name: ${{ needs.release-musl-static.outputs.artifact-name }}
+      artifact-name: ${{ needs.build-release.outputs.artifact-name }}
     permissions:
       contents: read
