@@ -18,6 +18,16 @@ env:
   # Named modules require Ninja: CMake's Makefile generator does not implement
   # the dyndep scanning protocol modules need, and never will.
   CMAKE_GENERATOR: Ninja
+  # Job-level, not just on "Configure": several functional_* bats suites
+  # (see src/tests/functional/*.bats) have the just-built `cup` binary
+  # orchestrate a *nested* cmake configure of a scratch fixture project
+  # during "Test". A step-scoped CC/CXX would not reach that nested
+  # invocation, which would then fall back to whatever `cc`/`c++` resolve to
+  # by default -- Ubuntu 24.04's system GCC 13, too old for the fixture's
+  # named-modules code path (modules_build_run.bats) even though the g++-15
+  # this job explicitly installed is right there on PATH.
+  CC: gcc-15
+  CXX: g++-15
 
 jobs:
   coverage:
@@ -64,9 +74,6 @@ jobs:
       # Coverage is a first-class build mode in a cup project, so the gcov run is
       # the same build the tests run against — no second configure.
       - name: Configure (Coverage)
-        env:
-          CC: gcc-15
-          CXX: g++-15
         run: cmake -B build/Coverage -DCMAKE_BUILD_TYPE=Coverage
 
       - name: Build

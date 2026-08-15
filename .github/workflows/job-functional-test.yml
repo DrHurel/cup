@@ -48,6 +48,18 @@ jobs:
     permissions:
       contents: read
 
+    # Job-level, not step-scoped: the "Run functional tests" step has the
+    # already-built `cup` binary orchestrate *nested* cmake configures of
+    # scratch fixture projects (see build_run.bats/modules_build_run.bats/
+    # make_build_run.bats). Without CC/CXX reaching that nested invocation
+    # too, it falls back to whatever `cc`/`c++` resolve to by default --
+    # Ubuntu 24.04's system GCC 13, too old for the fixture's named-modules
+    # code path even though g++-${{ inputs.gcc-version }} is right there on
+    # PATH.
+    env:
+      CC: gcc-${{ inputs.gcc-version }}
+      CXX: g++-${{ inputs.gcc-version }}
+
     steps:
       - uses: actions/checkout@v4
 

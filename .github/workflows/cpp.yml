@@ -16,17 +16,20 @@ name: C++ CI
 #   coverage ──────────────────────────────┬──> sonarcloud ──> deploy-pages (main push only)
 #   build-debug ──┬──> unit-test-debug      │
 #                 └──> functional-test-debug│
-#   build-release ┬──> unit-test-release    │
-#         (*)     ├──> functional-test-release
-#         (*)     └───────────────────────────> release-main (main push only)
+#   build-release (*, tests itself) ──────────> release-main (main push only)
 #   build-canary ─┬──> unit-test-canary (*, non-blocking)
 #         (*)     └──> functional-test-canary (*, non-blocking)
 #
 # build-release *is* the musl-static release artifact (build-static.yml),
-# not a separate glibc verification build: cup's real Release output builds
-# and passes the exact same test matrix as Debug, and release.yml (the
-# tag-triggered publisher) and release-main both consume this same job's
-# output rather than a redundant fourth build.
+# not a separate glibc verification build: cup's real Release output runs
+# its own full test suite in-container (see build-static.yml's Test step --
+# a `container:` job mounts the workspace at /__w/... rather than the usual
+# /home/runner/work/..., so a downstream non-containerized test job
+# downloading this artifact would find every absolute path
+# CTestTestfile.cmake baked in broken; unlike Debug/Canary, this one can't
+# split into parallel unit-test-*/functional-test-* jobs the normal way).
+# release.yml (the tag-triggered publisher) and release-main both consume
+# this same job's output rather than a redundant fourth build.
 #
 # (*) gated on the PR not being a draft — draft PRs only run build-debug and
 # coverage, for the fastest possible signal while iterating. Everything else
@@ -110,30 +113,13 @@ jobs:
   # The release artifact itself: a musl-static binary built in alpine (see
   # build-static.yml for why musl and why alpine:3.23). This *is*
   # build-release, not a separate verification build alongside it -- cup's
-  # actual shippable Release output is what gets tested and packaged.
+  # actual shippable Release output is what gets tested and packaged. It
+  # runs its own full test suite in-container (build-static.yml's Test
+  # step) rather than splitting into unit-test-release/functional-test-
+  # release jobs the way Debug/Canary do -- see the header comment above.
   build-release:
     if: ${{ !github.event.pull_request.draft }}
     uses: ./.github/workflows/build-static.yml
-    permissions:
-      contents: read
-
-  unit-test-release:
-    needs: build-release
-    if: ${{ !github.event.pull_request.draft }}
-    uses: ./.github/workflows/job-unit-test.yml
-    with:
-      mode: Release
-      artifact-name: ${{ needs.build-release.outputs.artifact-name }}
-    permissions:
-      contents: read
-
-  functional-test-release:
-    needs: build-release
-    if: ${{ !github.event.pull_request.draft }}
-    uses: ./.github/workflows/job-functional-test.yml
-    with:
-      mode: Release
-      artifact-name: ${{ needs.build-release.outputs.artifact-name }}
     permissions:
       contents: read
 
