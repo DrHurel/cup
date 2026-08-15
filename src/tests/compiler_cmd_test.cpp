@@ -363,6 +363,22 @@ TEST_CASE("set_compiler onto a marker-less CMakeLists restores cup.toml", "[cmd]
     REQUIRE(read_whole_file(dir.path() / "cup.toml") == before);
 }
 
+TEST_CASE("set_compiler on a CMake project with no CMakeLists.txt fails before touching cup.toml",
+          "[cmd][compiler]") {
+    const TempDir dir;
+    Config cfg{.name = "demo", .cpp_standard = 20, .build_tool = "cmake"};
+    REQUIRE(cup::project::write_config(dir.path(), cfg).has_value());
+    // No CMakeLists.txt written: commit_compiler_floor's CMake snapshot read
+    // fails, distinct from the marker-less case above (file present, no
+    // guard markers) -- this is the file missing entirely.
+    const Project proj{dir.path(), cfg};
+    const auto before = read_whole_file(dir.path() / "cup.toml");
+
+    REQUIRE_FALSE(
+        cup::cmd::set_compiler(proj, std::vector<std::string>{"gcc", "12", "--no-verify"}).has_value());
+    REQUIRE(read_whole_file(dir.path() / "cup.toml") == before);
+}
+
 TEST_CASE("set_compiler (no-verify) rewrites cup.toml on a Make project", "[cmd][compiler][make]") {
     const TempDir dir;
     const Project proj = make_project_make(dir);
