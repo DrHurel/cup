@@ -92,12 +92,27 @@ std::expected<void, error::Error> build(const project::Project& proj, std::strin
     return run_shell(proj.root, "cmake", args);
 }
 
+// Neither run_configure/run_build/run_test nor rebuild/retest have any
+// legitimate use for a leftover token after the mode — unlike run_run, whose
+// `rest` carries the app name / `--`-separated program args. Silently
+// dropping it would let a mistyped flag pass as if it were accepted.
+std::expected<void, error::Error> reject_trailing_args(std::span<const std::string> rest) {
+    if (!rest.empty()) {
+        return std::unexpected(
+            error::Error(std::format("unexpected argument(s): {}", join(rest))));
+    }
+    return {};
+}
+
 std::expected<void, error::Error> run_configure(std::span<const std::string> args) {
     auto proj = project::find();
     if (!proj.has_value()) {
         return std::unexpected(std::move(proj).error());
     }
-    const auto mode = parse_mode(args).first;
+    const auto [mode, rest] = parse_mode(args);
+    if (auto checked = reject_trailing_args(rest); !checked.has_value()) {
+        return checked;
+    }
     return configure(*proj, mode);
 }
 
@@ -106,7 +121,10 @@ std::expected<void, error::Error> run_build(std::span<const std::string> args) {
     if (!proj.has_value()) {
         return std::unexpected(std::move(proj).error());
     }
-    const auto mode = parse_mode(args).first;
+    const auto [mode, rest] = parse_mode(args);
+    if (auto checked = reject_trailing_args(rest); !checked.has_value()) {
+        return checked;
+    }
     return build(*proj, mode);
 }
 
@@ -115,7 +133,10 @@ std::expected<void, error::Error> run_test(std::span<const std::string> args) {
     if (!proj.has_value()) {
         return std::unexpected(std::move(proj).error());
     }
-    const auto mode = parse_mode(args).first;
+    const auto [mode, rest] = parse_mode(args);
+    if (auto checked = reject_trailing_args(rest); !checked.has_value()) {
+        return checked;
+    }
     if (proj->uses_make()) {
         return make_test(*proj, mode);
     }

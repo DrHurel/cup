@@ -269,6 +269,40 @@ TEST_CASE("run_configure, run_build, run_test and run_run all report project::fi
     REQUIRE_FALSE(cup::cmd::run_run({}).has_value());
 }
 
+TEST_CASE("run_build/run_configure/run_test/run_rebuild/run_retest reject unexpected "
+          "trailing arguments",
+          "[cmd][build][configure][test][rebuild][retest]") {
+    const TempDir dir;
+    make_project(dir);
+    const ScopedCwd cwd(dir.path());
+    StubRunCommand stub;
+
+    const std::vector<std::string> args{"Debug", "--bogus-flag"};
+
+    const auto configured = cup::cmd::run_configure(args);
+    REQUIRE_FALSE(configured.has_value());
+    REQUIRE(configured.error().message() == "unexpected argument(s): --bogus-flag");
+
+    const auto built = cup::cmd::run_build(args);
+    REQUIRE_FALSE(built.has_value());
+    REQUIRE(built.error().message() == "unexpected argument(s): --bogus-flag");
+
+    const auto tested = cup::cmd::run_test(args);
+    REQUIRE_FALSE(tested.has_value());
+    REQUIRE(tested.error().message() == "unexpected argument(s): --bogus-flag");
+
+    const auto rebuilt = cup::cmd::run_rebuild(args);
+    REQUIRE_FALSE(rebuilt.has_value());
+    REQUIRE(rebuilt.error().message() == "unexpected argument(s): --bogus-flag");
+
+    const auto retested = cup::cmd::run_retest(args);
+    REQUIRE_FALSE(retested.has_value());
+    REQUIRE(retested.error().message() == "unexpected argument(s): --bogus-flag");
+
+    // None of the rejected calls should have reached the shell.
+    REQUIRE(stub.calls().empty());
+}
+
 TEST_CASE("run_rebuild and run_retest propagate a real clean failure instead of building",
           "[cmd][rebuild][retest]") {
     const TempDir dir;
