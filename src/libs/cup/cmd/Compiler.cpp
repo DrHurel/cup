@@ -177,6 +177,9 @@ std::expected<void, error::Error> apply_compiler_floor(const std::filesystem::pa
         return wrote;
     }
     ui::updated(std::string(project::kMarker) + "  (compiler floor)");
+    if (cfg.uses_make()) {
+        return {};
+    }
     return scaffold::replace_compiler_guard(root, root / "CMakeLists.txt", cfg.compiler.gcc_floor(),
                                             cfg.compiler.clang_floor());
 }
@@ -185,15 +188,24 @@ std::expected<void, error::Error> commit_compiler_floor(const project::Project& 
                                                          const project::Config& cfg,
                                                          std::string_view image, bool no_verify) {
     const std::filesystem::path toml_path = proj.path(project::kMarker);
-    const std::filesystem::path cmake_path = proj.path("CMakeLists.txt");
     const auto old_toml = read_whole_file(toml_path);
-    const auto old_cmake = read_whole_file(cmake_path);
-    if (!old_toml.has_value() || !old_cmake.has_value()) {
+    if (!old_toml.has_value()) {
         return std::unexpected(error::Error("cannot snapshot project files before changing the compiler floor"));
+    }
+    std::optional<std::string> old_cmake;
+    std::filesystem::path cmake_path;
+    if (!proj.uses_make()) {
+        cmake_path = proj.path("CMakeLists.txt");
+        old_cmake = read_whole_file(cmake_path);
+        if (!old_cmake.has_value()) {
+            return std::unexpected(error::Error("cannot snapshot project files before changing the compiler floor"));
+        }
     }
     const auto restore = [&] {
         static_cast<void>(write_whole_file(toml_path, *old_toml));
-        static_cast<void>(write_whole_file(cmake_path, *old_cmake));
+        if (old_cmake.has_value()) {
+            static_cast<void>(write_whole_file(cmake_path, *old_cmake));
+        }
     };
 
     // A partial write (e.g. cup.toml updated but the CMakeLists has no guard

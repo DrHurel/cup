@@ -109,6 +109,14 @@ Project make_project(const TempDir& dir, int gcc, int clang, const DockerConfig&
     return Project{dir.path(), cfg};
 }
 
+// Same as make_project, but for a Make-tooled project: no CMakeLists.txt is
+// ever written, mirroring what `cup new` produces when build_tool = "make".
+Project make_project_make(const TempDir& dir) {
+    Config cfg{.name = "demo", .cpp_standard = 20, .build_tool = "make"};
+    REQUIRE(cup::project::write_config(dir.path(), cfg).has_value());
+    return Project{dir.path(), cfg};
+}
+
 }
 
 TEST_CASE("effective_compilers falls back to per-standard defaults with no floor",
@@ -353,6 +361,34 @@ TEST_CASE("set_compiler onto a marker-less CMakeLists restores cup.toml", "[cmd]
     REQUIRE_FALSE(
         cup::cmd::set_compiler(proj, std::vector<std::string>{"gcc", "12", "--no-verify"}).has_value());
     REQUIRE(read_whole_file(dir.path() / "cup.toml") == before);
+}
+
+TEST_CASE("set_compiler on a CMake project with no CMakeLists.txt fails before touching cup.toml",
+          "[cmd][compiler]") {
+    const TempDir dir;
+    Config cfg{.name = "demo", .cpp_standard = 20, .build_tool = "cmake"};
+    REQUIRE(cup::project::write_config(dir.path(), cfg).has_value());
+    // No CMakeLists.txt written: commit_compiler_floor's CMake snapshot read
+    // fails, distinct from the marker-less case above (file present, no
+    // guard markers) -- this is the file missing entirely.
+    const Project proj{dir.path(), cfg};
+    const auto before = read_whole_file(dir.path() / "cup.toml");
+
+    REQUIRE_FALSE(
+        cup::cmd::set_compiler(proj, std::vector<std::string>{"gcc", "12", "--no-verify"}).has_value());
+    REQUIRE(read_whole_file(dir.path() / "cup.toml") == before);
+}
+
+TEST_CASE("set_compiler (no-verify) rewrites cup.toml on a Make project", "[cmd][compiler][make]") {
+    const TempDir dir;
+    const Project proj = make_project_make(dir);
+
+    REQUIRE(cup::cmd::set_compiler(proj, std::vector<std::string>{"gcc", "12", "--no-verify"})
+                .has_value());
+
+    const auto toml = read_whole_file(dir.path() / "cup.toml");
+    REQUIRE(toml.has_value());
+    REQUIRE(toml->find("gcc = 12") != std::string::npos);
 }
 
 TEST_CASE("run_compiler dispatches show/bogus and resolves the project from cwd",
