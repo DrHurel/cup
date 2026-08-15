@@ -190,6 +190,9 @@ std::expected<void, error::Error> register_submodule(const project::Project& pro
         git_args.emplace_back("--branch");
         git_args.push_back(*ref);
     }
+    // A dash-leading URL or ref could otherwise be reinterpreted as a git
+    // flag; "--" pins everything after it as positional.
+    git_args.emplace_back("--");
     git_args.push_back(*url);
     git_args.push_back(std::string(kThirdPartyPath) + *name);
     if (auto added = run_shell(proj.root, "git", git_args); !added.has_value()) {
@@ -223,8 +226,11 @@ std::expected<void, error::Error> register_download(const project::Project& proj
     // sources now with a shallow clone and expose their headers via
     // third_party.mk.
     if (proj.uses_make()) {
-        const std::vector<std::string> clone_args{"clone", "--depth", "1", "--branch", *tag, *url,
-                                                   std::string(kThirdPartyPath) + *name};
+        // See register_submodule's matching comment: "--" pins the URL and
+        // path as positional regardless of a leading dash.
+        const std::vector<std::string> clone_args{
+            "clone", "--depth", "1", "--branch", *tag, "--", *url,
+            std::string(kThirdPartyPath) + *name};
         if (auto cloned = run_shell(proj.root, "git", clone_args); !cloned.has_value()) {
             return cloned;
         }
