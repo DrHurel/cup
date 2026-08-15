@@ -1,0 +1,11 @@
+name = "fixture-make"
+cup_version = "0.1.0"
+cpp_standard = 17
+std_module = false
+build_tool = "make"
+
+[compiler]
+  gcc = 15
+  clang = 18
+
+[docker]
