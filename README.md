@@ -225,6 +225,17 @@ graph TD
     tmpl --> error
 ```
 
+| Module | Partitions | Purpose |
+| --- | --- | --- |
+| `cup.error` | `:error`, `:monad` | Error type and monadic `Result`/`Expected`-style helpers used everywhere else. |
+| `cup.log` | `:log` | Structured logging (`cup.log`) backed by spdlog. |
+| `cup.platform` | `:terminal`, `:net`, `:process` | OS-facing primitives: terminal I/O, HTTP, and subprocess execution. |
+| `cup.project` | `:config`, `:io` | Reads/writes a project's `cup.toml` and derives on-disk paths from it. |
+| `cup.tmpl` | `:corpus`, `:resolve` | Built-in template corpus and template-path resolution for `cup add`/`cup template`. |
+| `cup.ui` | `:io`, `:color`, `:prompt`, `:select` | Terminal UI toolkit: colored output, prompts, and interactive selection. |
+| `cup.scaffold` | `:naming`, `:std`, `:render`, `:cmake`, `:compiler`, `:releases`, `:dockerhub` | Generates project/component files — naming conventions, CMake, Dockerfiles, compiler/toolchain setup, and GitHub release lookups. |
+| `cup.cmd` | `:build`, `:docker`, `:new_project`, `:add`, `:template_cmd`, `:completion`, `:compiler`, `:thirdparty`, `:dispatch` | One partition per CLI subcommand (`cup build`, `cup new`, `cup add`, ...), plus `:dispatch` which routes parsed arguments to them. |
+
 ## Templates
 
 `cup` ships built-in templates for the component kinds `class`, `interface`,
