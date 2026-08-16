@@ -46,13 +46,25 @@ no rebase/merge conflicts in a shared build file. Objects land under
 `build/<mode>/bin` — the same `build/<mode>` layout as the CMake backend, so
 `cup build|run|test|clean [Debug|Release|Coverage]` work identically either way.
 
+## Supported platforms
+
+- **Precompiled binary** (musl-static, x86-64): works on any Linux distro —
+  static linking means no libc/version to match, glibc or musl alike.
+- **Building from source**: CI-verified on **Ubuntu 24.04** (the GCC 15
+  floor, plus a non-blocking GCC 16 canary), **Fedora 42**, and **Debian
+  (sid)** — one job each in `.github/workflows/`, so "supports Fedora" is a
+  real CI run, not untested prose. Any distro shipping GCC 15+ / CMake 3.28+
+  / Ninja should work the same way even if it isn't in that CI matrix.
+- **Architecture**: x86-64 only, precompiled or from source. No ARM64 build
+  yet.
+
 ## Install
 
-Most people never need a compiler at all: grab the precompiled
-**musl-static** binary from the [latest
-release](https://github.com/DrHurel/cup/releases/latest) (built in
-`alpine:3.23`, so it runs on any x86-64 Linux — static means no libc version
-to match) and put it on `PATH`:
+Most people never need a compiler at all — three ways to get a build, all
+produced by the same CI (see `.github/workflows/cpp.yml`) and attached to
+every [tagged release](https://github.com/DrHurel/cup/releases/latest):
+
+**musl-static binary** (any Linux, x86-64):
 
 ```sh
 cp cup-linux-x86_64-musl ~/.local/bin/cup
@@ -60,8 +72,15 @@ chmod +x ~/.local/bin/cup      # any dir on PATH works
 cup completion install         # detects your shell and wires it in (optional)
 ```
 
-Every push also builds the same binary as a CI artifact (see the `alpine
-musl-static` job), for testing a specific commit ahead of a tagged release.
+**`.deb` package** (Debian/Ubuntu — apt manages install/upgrade/removal):
+
+```sh
+sudo apt install ./cup_*.deb
+cup completion install         # optional
+```
+
+Every push also builds both as CI artifacts (the `alpine musl-static` and
+`build .deb` jobs), for testing a specific commit ahead of a tagged release.
 
 ### Building from source
 
