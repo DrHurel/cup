@@ -435,7 +435,8 @@ TEST_CASE("import_std_gate_uuid resolves known CMake releases and rejects the re
 TEST_CASE("run_configure supplies the installed CMake's import-std gate for a std_module project",
           "[cmd][configure][cmake][import_std]") {
     const TempDir dir;
-    make_project(dir);
+    const Config cfg{.name = "demo", .cpp_standard = 23, .std_module = true};
+    REQUIRE(cup::project::write_config(dir.path(), cfg).has_value());
     const ScopedCwd cwd(dir.path());
     StubRunCommand stub;
     stub.set_capture_version("cmake version 4.4.1\n");
@@ -450,7 +451,8 @@ TEST_CASE("run_configure supplies the installed CMake's import-std gate for a st
 TEST_CASE("run_configure fails clearly for a CMake release cup doesn't recognise",
           "[cmd][configure][cmake][import_std]") {
     const TempDir dir;
-    make_project(dir);
+    const Config cfg{.name = "demo", .cpp_standard = 23, .std_module = true};
+    REQUIRE(cup::project::write_config(dir.path(), cfg).has_value());
     const ScopedCwd cwd(dir.path());
     StubRunCommand stub;
     stub.set_capture_version("cmake version 99.9.9\n");
