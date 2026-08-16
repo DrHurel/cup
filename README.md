@@ -236,6 +236,55 @@ graph TD
 | `cup.scaffold` | `:naming`, `:std`, `:render`, `:cmake`, `:compiler`, `:releases`, `:dockerhub` | Generates project/component files — naming conventions, CMake, Dockerfiles, compiler/toolchain setup, and GitHub release lookups. |
 | `cup.cmd` | `:build`, `:docker`, `:new_project`, `:add`, `:template_cmd`, `:completion`, `:compiler`, `:thirdparty`, `:dispatch` | One partition per CLI subcommand (`cup build`, `cup new`, `cup add`, ...), plus `:dispatch` which routes parsed arguments to them. |
 
+### Runtime flow: `cup new`
+
+Every invocation follows the same shape: `main` hands the raw args to
+`cup.cmd`, which logs, dispatches to a subcommand partition, and calls back
+into the lower-level modules to do the actual work. `cup new` is the most
+representative example since it touches nearly every module in one run:
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant main as main (cup.cmd:dispatch)
+    participant ui as cup.ui
+    participant scaffold as cup.scaffold
+    participant tmpl as cup.tmpl
+    participant project as cup.project
+    participant platform as cup.platform
+    participant log as cup.log
+
+    User->>main: cup new myproj
+    main->>log: init()
+    log-->>main: ok (or a swallowed warning)
+    main->>main: dispatch "new" -> run_new()
+
+    main->>scaffold: validate_ident(name)
+    scaffold-->>main: ok
+
+    main->>ui: select_one("build system?")
+    main->>ui: select_one("c++ standard?")
+    main->>ui: select_one("compiler floors / base image")
+    ui-->>main: choices
+
+    main->>project: write_config(root, config)
+    project-->>main: cup.toml written
+    main->>ui: wrote("cup.toml")
+
+    main->>scaffold: render(root, family, "project", "CMakeLists.txt.tmpl", vars)
+    scaffold->>tmpl: resolve("project", "CMakeLists.txt.tmpl")
+    tmpl-->>scaffold: template contents
+    scaffold-->>main: rendered CMakeLists.txt / .gitignore
+    main->>scaffold: write_file(...)
+
+    main->>platform: run_command(root, "git", ["init", "-q"])
+    platform-->>main: exit status
+    main->>ui: success("done."), next("cd myproj"), ...
+
+    main->>log: user::info(command=new status=ok duration_ms=...)
+    main-->>User: exit code
+```
+
 ## Templates
 
 `cup` ships built-in templates for the component kinds `class`, `interface`,
