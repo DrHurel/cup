@@ -429,6 +429,14 @@ TEST_CASE("import_std_gate_uuid resolves known CMake releases and rejects the re
     SECTION("unparsable text") {
         REQUIRE_FALSE(import_std_gate_uuid("").has_value());
         REQUIRE_FALSE(import_std_gate_uuid("not cmake output").has_value());
+        // The marker is present but the version that follows doesn't parse:
+        // no major digits, and major digits with no "." separator.
+        REQUIRE_FALSE(import_std_gate_uuid("cmake version abc").has_value());
+        REQUIRE_FALSE(import_std_gate_uuid("cmake version 4").has_value());
+        REQUIRE_FALSE(import_std_gate_uuid("cmake version 4\n").has_value());
+        // A "." with no minor digits after it.
+        REQUIRE_FALSE(import_std_gate_uuid("cmake version 4.").has_value());
+        REQUIRE_FALSE(import_std_gate_uuid("cmake version 4.abc").has_value());
     }
 }
 
@@ -462,6 +470,19 @@ TEST_CASE("run_configure fails clearly for a CMake release cup doesn't recognise
     REQUIRE(result.error().message().find("import std") != std::string::npos);
     // Failed before ever invoking cmake for the real configure.
     REQUIRE(stub.calls().empty());
+}
+
+TEST_CASE("run_configure propagates a failure to probe cmake --version itself",
+          "[cmd][configure][cmake][import_std]") {
+    const TempDir dir;
+    const Config cfg{.name = "demo", .cpp_standard = 23, .std_module = true};
+    REQUIRE(cup::project::write_config(dir.path(), cfg).has_value());
+    const ScopedCwd cwd(dir.path());
+    StubRunCommand stub(/*fail=*/true);
+
+    const auto result = cup::cmd::run_configure(std::vector<std::string>{"Release"});
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message() == "stubbed failure");
 }
 
 TEST_CASE("run_configure never probes CMake's version for a std_module = false project",
