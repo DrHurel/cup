@@ -1,0 +1,102 @@
+name: Build .deb package
+
+# Reusable: packages cup as a .deb for Debian/Ubuntu via CPack (see the
+# CPACK_* config at the end of the root CMakeLists.txt), alongside the
+# musl-static release binary (build-static.yml) for anyone who'd rather
+# `apt install ./cup.deb` and get it managed/removed the normal way. Called
+# from cpp.yml (continuous verification, every push/PR) and from
+# release.yml (tag-triggered publishing), same split as build-static.yml.
+#
+# -static-libgcc -static-libstdc++, not a fully static binary the way
+# build-static.yml is: a .deb targets apt's normal dependency resolution
+# (libc6, libcurl4/libcurl4t64 stay dynamic, auto-detected by
+# dpkg-shlibdeps -- see the CMakeLists.txt comment on
+# CPACK_DEBIAN_PACKAGE_SHLIBDEPS), but g++-15 from the ubuntu-toolchain-r
+# PPA links against a newer libstdc++6 than stock Debian/Ubuntu ship (the
+# same GLIBCXX_3.4.35 version gap job-unit-test.yml's canary variant hit).
+# Statically linking just libstdc++/libgcc avoids the package depending on
+# a PPA-only runtime version real users don't have, without the DNS/NSS
+# resolver problem README's musl explanation describes -- that only bites a
+# *fully* static glibc binary.
+
+on:
+  workflow_call:
+    outputs:
+      artifact-name:
+        description: Name of the uploaded .deb artifact
+        value: cup-deb
+
+env:
+  CMAKE_GENERATOR: Ninja
+
+jobs:
+  build:
+    name: build .deb (Debian/Ubuntu)
+    runs-on: ubuntu-24.04
+
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # This job never pushes back to the repo; no reason to leave the
+          # checkout token persisted in .git/config.
+          persist-credentials: false
+
+      # dpkg-dev provides dpkg-shlibdeps, and `file` is a hard dependency of
+      # CPack's own shlibdeps analysis (fails outright without it) -- both
+      # needed for CPACK_DEBIAN_PACKAGE_SHLIBDEPS to compute the package's
+      # real runtime Depends:. git is needed too -- FetchContent clones
+      # toml++/Catch2 at configure time.
+      - name: Install toolchain
+        run: |
+          sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            g++-15 ninja-build cmake libcurl4-openssl-dev dpkg-dev file git
+
+      - name: Configure (Release, packaged)
+        env:
+          CC: gcc-15
+          CXX: g++-15
+        run: |
+          # CMAKE_INSTALL_PREFIX=/usr, not CMake's default /usr/local: a
+          # .deb is expected to land its binary at /usr/bin, the same
+          # convention `apt`-installed packages already follow.
+          #
+          # CUP_BUILD_SHA matches build-static.yml's own reasoning -- baked
+          # into the binary, surfaced by `cup --version`, set only by the CI
+          # paths that actually build a distributed artifact.
+          cmake -B build/Release \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=/usr \
+            -DCMAKE_EXE_LINKER_FLAGS="-static-libgcc -static-libstdc++" \
+            -DCUP_BUILD_SHA="${GITHUB_SHA::7}"
+
+      - name: Build
+        run: cmake --build build/Release
+
+      - name: Package (cpack -G DEB)
+        run: cd build/Release && cpack -G DEB
+
+      # Installs the just-built package for real (not just `dpkg -c`
+      # listing contents) so a broken Depends: or a missing file surfaces
+      # here, not after someone downloads it.
+      - name: Verify the package installs and runs
+        run: |
+          DEB_FILE="$(find build/Release -maxdepth 1 -name '*.deb')"
+          echo "package: $DEB_FILE"
+          dpkg-deb --info "$DEB_FILE"
+          dpkg-deb --contents "$DEB_FILE"
+          sudo apt-get install -y --no-install-recommends "$(realpath "$DEB_FILE")"
+          command -v cup
+          cup --help
+          cup --version | grep -q "cup .* (${GITHUB_SHA::7})"
+
+      - name: Upload .deb
+        uses: actions/upload-artifact@v4
+        with:
+          name: cup-deb
+          path: build/Release/*.deb
+          retention-days: 1

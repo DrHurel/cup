@@ -121,3 +121,26 @@ add_subdirectory(third_party)
 add_subdirectory(src/libs)
 add_subdirectory(src/apps)
 add_subdirectory(src/tests)
+
+# --- Packaging: a .deb for Debian/Ubuntu, alongside the musl-static release
+# binary (build-static.yml/README's Install section) for anyone who'd rather
+# `apt install ./cup.deb` and get it managed/removed the normal way. Only
+# takes effect when something actually runs `cpack` (job-build-deb.yml) --
+# a plain `cup build`/ninja build never touches this.
+set(CPACK_PACKAGE_NAME "cup")
+set(CPACK_PACKAGE_VERSION "${CUP_VERSION}")
+set(CPACK_PACKAGE_VENDOR "DrHurel")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Scaffolds and manages C++ projects from a single binary")
+set(CPACK_PACKAGE_HOMEPAGE_URL "https://github.com/DrHurel/cup")
+set(CPACK_GENERATOR "DEB")
+set(CPACK_DEBIAN_PACKAGE_SECTION "devel")
+set(CPACK_DEBIAN_PACKAGE_MAINTAINER "https://github.com/DrHurel/cup/issues")
+# Auto-computed from the binary's actual linked libraries (needs dpkg-dev's
+# dpkg-shlibdeps on the builder), not hand-listed: Ubuntu 24.04+'s 64-bit
+# time_t transition renamed libcurl4 to libcurl4t64, and hand-picking one
+# name would make the package uninstallable on whichever distro didn't use
+# it. job-build-deb.yml statically links libstdc++/libgcc precisely so this
+# doesn't also pick up a PPA-only libstdc++6 version real users don't have.
+set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
+set(CPACK_DEBIAN_FILE_NAME "DEB-DEFAULT")
+include(CPack)

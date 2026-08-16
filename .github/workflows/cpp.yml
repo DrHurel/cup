@@ -18,6 +18,7 @@ name: C++ CI
 #                 └──> functional-test-debug│
 #   build-release ┬──> unit-test-release    │
 #         (*)     └──> functional-test-release ──> release-main (main push only)
+#   build-deb (*) ──────────────────────────> release-main (main push only)
 #   build-canary ─┬──> unit-test-canary (*, non-blocking)
 #         (*)     └──> functional-test-canary (*, non-blocking)
 #   build-fedora (*, non-blocking)
@@ -155,6 +156,18 @@ jobs:
     permissions:
       contents: read
 
+  # The .deb release artifact, alongside build-release's musl-static
+  # binary: apt-installable for anyone who'd rather have Debian/Ubuntu
+  # manage and remove it the normal way. See job-build-deb.yml for why it
+  # links libstdc++/libgcc statically -- the same GLIBCXX version gap
+  # unit-test-canary hit, just for package Depends: this time instead of a
+  # missing runtime .so.
+  build-deb:
+    if: ${{ !github.event.pull_request.draft }}
+    uses: ./.github/workflows/job-build-deb.yml
+    permissions:
+      contents: read
+
   # Early warning against a newer GCC: the exact same build -> parallel
   # unit-test/functional-test shape as Debug/Release, just gcc-16 and
   # continue-on-error: true instead of a bespoke combined job. Non-blocking
@@ -227,17 +240,18 @@ jobs:
       pages: write
       id-token: write
 
-  # Packages build-release's musl-static binary into a downloadable artifact
-  # for the latest main build — not a GitHub Release (that stays reserved
-  # for version tags; see release.yml, which consumes the same build-release
-  # output independently on its own tag-triggered pipeline). Waits on the
-  # test jobs too, not just the build, so main only ever offers a binary
-  # that's actually passed its suite.
+  # Packages build-release's musl-static binary and build-deb's .deb into one
+  # downloadable bundle for the latest main build — not a GitHub Release
+  # (that stays reserved for version tags; see release.yml, which consumes
+  # the same build-release/build-deb outputs independently on its own
+  # tag-triggered pipeline). Waits on the test jobs too, not just the
+  # builds, so main only ever offers artifacts that actually passed suite.
   release-main:
-    needs: [build-release, unit-test-release, functional-test-release]
+    needs: [build-release, unit-test-release, functional-test-release, build-deb]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     uses: ./.github/workflows/job-release-main.yml
     with:
       artifact-name: ${{ needs.build-release.outputs.artifact-name }}
+      deb-artifact-name: ${{ needs.build-deb.outputs.artifact-name }}
     permissions:
       contents: read
