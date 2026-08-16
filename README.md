@@ -194,6 +194,97 @@ Libraries scaffold differently per standard. On C++20/23 a lib is a module: a
 primary interface (`<name>.cppm`) re-exports partition files (one per symbol). On
 C++11/14/17 a lib is a header/source pair driven by a `<name>.hpp` aggregator.
 
+## Module diagram
+
+`cup` itself is organized as a layered set of C++20 modules. Each box is a
+primary module interface under `src/libs/cup/*`; arrows point from a module to
+the modules it imports.
+
+```mermaid
+graph TD
+    main["cup (executable)"] --> cmd[cup.cmd]
+    cmd --> error[cup.error]
+    cmd --> project[cup.project]
+    cmd --> ui[cup.ui]
+    cmd --> scaffold[cup.scaffold]
+    cmd --> tmpl[cup.tmpl]
+    cmd --> platform[cup.platform]
+    cmd --> log[cup.log]
+
+    scaffold --> error
+    scaffold --> ui
+    scaffold --> platform
+    scaffold --> tmpl
+
+    ui --> error
+    ui --> platform
+
+    log --> error
+    platform --> error
+    project --> error
+    tmpl --> error
+```
+
+| Module | Partitions | Purpose |
+| --- | --- | --- |
+| `cup.error` | `:error`, `:monad` | Error type and monadic `Result`/`Expected`-style helpers used everywhere else. |
+| `cup.log` | `:log` | Structured logging (`cup.log`) backed by spdlog. |
+| `cup.platform` | `:terminal`, `:net`, `:process` | OS-facing primitives: terminal I/O, HTTP, and subprocess execution. |
+| `cup.project` | `:config`, `:io` | Reads/writes a project's `cup.toml` and derives on-disk paths from it. |
+| `cup.tmpl` | `:corpus`, `:resolve` | Built-in template corpus and template-path resolution for `cup add`/`cup template`. |
+| `cup.ui` | `:io`, `:color`, `:prompt`, `:select` | Terminal UI toolkit: colored output, prompts, and interactive selection. |
+| `cup.scaffold` | `:naming`, `:std`, `:render`, `:cmake`, `:compiler`, `:releases`, `:dockerhub` | Generates project/component files — naming conventions, CMake, Dockerfiles, compiler/toolchain setup, and GitHub release lookups. |
+| `cup.cmd` | `:build`, `:docker`, `:new_project`, `:add`, `:template_cmd`, `:completion`, `:compiler`, `:thirdparty`, `:dispatch` | One partition per CLI subcommand (`cup build`, `cup new`, `cup add`, ...), plus `:dispatch` which routes parsed arguments to them. |
+
+### Runtime flow: `cup new`
+
+Every invocation follows the same shape: `main` hands the raw args to
+`cup.cmd`, which logs, dispatches to a subcommand partition, and calls back
+into the lower-level modules to do the actual work. `cup new` is the most
+representative example since it touches nearly every module in one run:
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant main as main (cup.cmd:dispatch)
+    participant ui as cup.ui
+    participant scaffold as cup.scaffold
+    participant tmpl as cup.tmpl
+    participant project as cup.project
+    participant platform as cup.platform
+    participant log as cup.log
+
+    User->>main: cup new myproj
+    main->>log: init()
+    log-->>main: ok (or a swallowed warning)
+    main->>main: dispatch "new" -> run_new()
+
+    main->>scaffold: validate_ident(name)
+    scaffold-->>main: ok
+
+    main->>ui: select_one("build system?")
+    main->>ui: select_one("c++ standard?")
+    main->>ui: select_one("compiler floors / base image")
+    ui-->>main: choices
+
+    main->>project: write_config(root, config)
+    project-->>main: cup.toml written
+    main->>ui: wrote("cup.toml")
+
+    main->>scaffold: render(root, family, "project", "CMakeLists.txt.tmpl", vars)
+    scaffold->>tmpl: resolve("project", "CMakeLists.txt.tmpl")
+    tmpl-->>scaffold: template contents
+    scaffold-->>main: rendered CMakeLists.txt / .gitignore
+    main->>scaffold: write_file(...)
+
+    main->>platform: run_command(root, "git", ["init", "-q"])
+    platform-->>main: exit status
+    main->>ui: success("done."), next("cd myproj"), ...
+
+    main->>log: user::info(command=new status=ok duration_ms=...)
+    main-->>User: exit code
+```
+
 ## Templates
 
 `cup` ships built-in templates for the component kinds `class`, `interface`,
