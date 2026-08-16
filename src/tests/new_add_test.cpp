@@ -235,8 +235,11 @@ TEST_CASE("module_std_setup", "[cmd][new]") {
         const Config cfg{.cpp_standard = 23, .std_module = true};
         const auto out = cup::cmd::module_std_setup(cfg);
         REQUIRE(out.find("cmake_minimum_required(VERSION 3.30)") != std::string::npos);
-        REQUIRE(out.find("f35a9ac6-8463-4d38-8eec-5d6008153e7d") != std::string::npos);
         REQUIRE(out.find("CMAKE_CXX_MODULE_STD ON") != std::string::npos);
+        // The gate UUID is supplied by `cup configure`/`cup build` at run time
+        // (it must match the installed CMake, which the generated file can't
+        // know), not baked into the committed CMakeLists.txt as a set().
+        REQUIRE(out.find("set(CMAKE_EXPERIMENTAL_CXX_IMPORT_STD") == std::string::npos);
     }
     SECTION("no std module: bare version floor") {
         const Config cfg{.cpp_standard = 23, .std_module = false};

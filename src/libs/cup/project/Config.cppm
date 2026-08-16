@@ -106,7 +106,10 @@ struct Config {
 
     [[nodiscard]] int standard() const { return cpp_standard == 0 ? 23 : cpp_standard; }
 
-    [[nodiscard]] bool uses_std_module() const { return std_module.value_or(standard() >= 23); }
+    // `import std;` sits behind CMake's still-shifting CMAKE_EXPERIMENTAL_CXX_IMPORT_STD
+    // gate (see cup.cmd's import_std_gate_uuid), so it is opt-in rather than the
+    // default for C++23: a project gets it only by setting std_module = true.
+    [[nodiscard]] bool uses_std_module() const { return std_module.value_or(false); }
 
     [[nodiscard]] std::string_view tool() const {
         return build_tool.empty() ? kToolCMake : std::string_view(build_tool);

@@ -1,9 +1,11 @@
 module;
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <expected>
 #include <filesystem>
 #include <format>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -17,6 +19,66 @@ import cup.platform;
 
 namespace cup::cmd {
 namespace {
+
+struct ImportStdGate {
+    int major;
+    int minor;
+    std::string_view uuid;
+};
+
+// CMake rotates CMAKE_EXPERIMENTAL_CXX_IMPORT_STD's expected value on almost
+// every release, by design (Help/dev/experimental.rst: it forces a fresh read
+// of the experimental-feature docs each time), and exposes no command to
+// query it. cup carries the versions it has confirmed against that file;
+// resolve_import_std_gate reports a clear error for anything outside it
+// rather than letting the CMake configure fail deep inside CXX_MODULE_STD
+// with a cryptic message.
+const std::array kImportStdGates{
+    ImportStdGate{3, 30, "0e5b6991-d74f-4b3d-a41c-cf096e0b2508"},
+    ImportStdGate{3, 31, "0e5b6991-d74f-4b3d-a41c-cf096e0b2508"},
+    ImportStdGate{4, 0, "a9e1cf81-9932-4810-974b-6eccaf14e457"},
+    ImportStdGate{4, 1, "d0edc3af-4c50-42ea-a356-e2862fe7a444"},
+    ImportStdGate{4, 2, "d0edc3af-4c50-42ea-a356-e2862fe7a444"},
+    ImportStdGate{4, 3, "451f2fe2-a8a2-47c3-bc32-94786d8fc91b"},
+    ImportStdGate{4, 4, "f35a9ac6-8463-4d38-8eec-5d6008153e7d"},
+};
+
+// Parses the "cmake version X.Y[.Z]" line `cmake --version` prints first.
+std::optional<std::pair<int, int>> parse_cmake_major_minor(std::string_view text) {
+    constexpr std::string_view kMarker = "cmake version ";
+    const auto pos = text.find(kMarker);
+    if (pos == std::string_view::npos) {
+        return std::nullopt;
+    }
+    std::string_view rest = text.substr(pos + kMarker.size());
+
+    std::size_t i = 0;
+    int major = 0;
+    while (i < rest.size() && rest[i] >= '0' && rest[i] <= '9') {
+        major = major * 10 + (rest[i] - '0');
+        ++i;
+    }
+    if (i == 0 || i >= rest.size() || rest[i] != '.') {
+        return std::nullopt;
+    }
+    ++i;
+
+    const std::size_t minor_start = i;
+    int minor = 0;
+    while (i < rest.size() && rest[i] >= '0' && rest[i] <= '9') {
+        minor = minor * 10 + (rest[i] - '0');
+        ++i;
+    }
+    if (i == minor_start) {
+        return std::nullopt;
+    }
+    return std::pair{major, minor};
+}
+
+// The first line of `cmake --version`'s output, for a readable error message.
+std::string_view first_line(std::string_view text) {
+    return text.substr(0, text.find('\n'));
+}
 
 std::string join(std::span<const std::string> args) {
     std::string out;
@@ -53,6 +115,36 @@ std::expected<void, error::Error> run_shell(const std::filesystem::path& dir, st
     return platform::run_command(dir, name, args);
 }
 
+std::optional<std::string> import_std_gate_uuid(std::string_view cmake_version_output) {
+    const auto parsed = parse_cmake_major_minor(cmake_version_output);
+    if (!parsed.has_value()) {
+        return std::nullopt;
+    }
+    const auto [major, minor] = *parsed;
+    for (const auto& gate : kImportStdGates) {
+        if (gate.major == major && gate.minor == minor) {
+            return std::string(gate.uuid);
+        }
+    }
+    return std::nullopt;
+}
+
+std::expected<std::string, error::Error> resolve_import_std_gate(const std::filesystem::path& dir) {
+    const std::vector<std::string> version_args{"--version"};
+    auto version_output = platform::capture_command(dir, "cmake", version_args);
+    if (!version_output.has_value()) {
+        return std::unexpected(std::move(version_output).error());
+    }
+    if (auto uuid = import_std_gate_uuid(*version_output); uuid.has_value()) {
+        return *std::move(uuid);
+    }
+    return std::unexpected(error::Error(std::format(
+        "{}: cup doesn't recognise this CMake release's `import std` gate value yet "
+        "(CMAKE_EXPERIMENTAL_CXX_IMPORT_STD, which CMake rotates almost every release). "
+        "Set std_module = false in cup.toml to build without `import std;`, or update cup.",
+        first_line(*version_output))));
+}
+
 std::pair<std::string, std::span<const std::string>> parse_mode(std::span<const std::string> args) {
     if (!args.empty()) {
         for (const auto& mode : kBuildModes) {
@@ -73,12 +165,25 @@ std::expected<void, error::Error> configure(const project::Project& proj, std::s
         ui::skipped("make needs no configure step");
         return {};
     }
-    const std::vector<std::string> args{
+    std::vector<std::string> args{
         "-G", "Ninja",
         std::format("-DCMAKE_BUILD_TYPE={}", mode),
-        "-S", proj.root.string(),
-        "-B", build_dir(proj, mode).string(),
     };
+    // The gate must be set before CMakeLists.txt's project() call, so it goes
+    // in as a -D rather than a committed `set()` — that also lets it track
+    // whichever CMake is actually installed instead of going stale the moment
+    // it differs from the one cup last hardcoded a value for.
+    if (proj.config.uses_std_module()) {
+        auto uuid = resolve_import_std_gate(proj.root);
+        if (!uuid.has_value()) {
+            return std::unexpected(std::move(uuid).error());
+        }
+        args.push_back(std::format("-DCMAKE_EXPERIMENTAL_CXX_IMPORT_STD={}", *uuid));
+    }
+    args.emplace_back("-S");
+    args.push_back(proj.root.string());
+    args.emplace_back("-B");
+    args.push_back(build_dir(proj, mode).string());
     return run_shell(proj.root, "cmake", args);
 }
 

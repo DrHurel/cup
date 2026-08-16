@@ -86,7 +86,10 @@ private:
 
 // Records every run_command call as "name arg1 arg2 ..." and, unless told to
 // fail, reports success -- the C++ analogue of helpers_test.go's
-// stubRunCommand.
+// stubRunCommand. Also stubs capture_command (cmake --version, which
+// configure() shells out to for a std_module project's import-std gate) with
+// a version cup's table recognises, so tests don't depend on the host's real
+// CMake.
 class StubRunCommand {
 public:
     explicit StubRunCommand(bool fail = false)
@@ -106,14 +109,31 @@ public:
                                 return std::unexpected(cup::error::Error("stubbed failure"));
                             }
                             return {};
-                        }}) {}
+                        }}),
+          capture_override_(cup::platform::capture_command_func(),
+                             cup::platform::CaptureCommandFunc{
+                                 [this](const std::filesystem::path&, std::string_view,
+                                       std::span<const std::string>)
+                                     -> std::expected<std::string, cup::error::Error> {
+                                     if (fail_) {
+                                         return std::unexpected(cup::error::Error("stubbed failure"));
+                                     }
+                                     return std::string(capture_version_);
+                                 }}) {}
 
     [[nodiscard]] const std::vector<std::string>& calls() const { return calls_; }
+
+    // Lets a test point capture_command (i.e. `cmake --version`) at a
+    // specific release, to exercise resolve_import_std_gate's unknown-version
+    // path.
+    void set_capture_version(std::string_view version) { capture_version_ = version; }
 
 private:
     bool fail_;
     std::vector<std::string> calls_;
+    std::string capture_version_ = "cmake version 4.2.3\n";
     ScopedOverride<cup::platform::RunCommandFunc> override_;
+    ScopedOverride<cup::platform::CaptureCommandFunc> capture_override_;
 };
 
 // Writes a minimal cup.toml under dir so project::find() (cwd-based, exactly
@@ -389,6 +409,95 @@ TEST_CASE("run_configure generates the CMake build system directly, without buil
     REQUIRE(result.has_value());
     REQUIRE(stub.calls().size() == 1);
     REQUIRE(stub.calls()[0].starts_with("cmake -G Ninja -DCMAKE_BUILD_TYPE=Release"));
+}
+
+TEST_CASE("import_std_gate_uuid resolves known CMake releases and rejects the rest",
+          "[cmd][configure][cmake][import_std]") {
+    using cup::cmd::import_std_gate_uuid;
+
+    SECTION("versions cup's table carries") {
+        REQUIRE(import_std_gate_uuid("cmake version 3.30.0\n...") ==
+                "0e5b6991-d74f-4b3d-a41c-cf096e0b2508");
+        REQUIRE(import_std_gate_uuid("cmake version 4.2.3\n...") ==
+                "d0edc3af-4c50-42ea-a356-e2862fe7a444");
+        REQUIRE(import_std_gate_uuid("cmake version 4.4.0\n...") ==
+                "f35a9ac6-8463-4d38-8eec-5d6008153e7d");
+    }
+    SECTION("a release cup hasn't been updated for") {
+        REQUIRE_FALSE(import_std_gate_uuid("cmake version 99.9.9\n...").has_value());
+    }
+    SECTION("unparsable text") {
+        REQUIRE_FALSE(import_std_gate_uuid("").has_value());
+        REQUIRE_FALSE(import_std_gate_uuid("not cmake output").has_value());
+        // The marker is present but the version that follows doesn't parse:
+        // no major digits, and major digits with no "." separator.
+        REQUIRE_FALSE(import_std_gate_uuid("cmake version abc").has_value());
+        REQUIRE_FALSE(import_std_gate_uuid("cmake version 4").has_value());
+        REQUIRE_FALSE(import_std_gate_uuid("cmake version 4\n").has_value());
+        // A "." with no minor digits after it.
+        REQUIRE_FALSE(import_std_gate_uuid("cmake version 4.").has_value());
+        REQUIRE_FALSE(import_std_gate_uuid("cmake version 4.abc").has_value());
+    }
+}
+
+TEST_CASE("run_configure supplies the installed CMake's import-std gate for a std_module project",
+          "[cmd][configure][cmake][import_std]") {
+    const TempDir dir;
+    const Config cfg{.name = "demo", .cpp_standard = 23, .std_module = true};
+    REQUIRE(cup::project::write_config(dir.path(), cfg).has_value());
+    const ScopedCwd cwd(dir.path());
+    StubRunCommand stub;
+    stub.set_capture_version("cmake version 4.4.1\n");
+
+    const auto result = cup::cmd::run_configure(std::vector<std::string>{"Release"});
+    REQUIRE(result.has_value());
+    REQUIRE(stub.calls().size() == 1);
+    REQUIRE(stub.calls()[0].find("-DCMAKE_EXPERIMENTAL_CXX_IMPORT_STD=f35a9ac6-8463-4d38-8eec-"
+                                  "5d6008153e7d") != std::string::npos);
+}
+
+TEST_CASE("run_configure fails clearly for a CMake release cup doesn't recognise",
+          "[cmd][configure][cmake][import_std]") {
+    const TempDir dir;
+    const Config cfg{.name = "demo", .cpp_standard = 23, .std_module = true};
+    REQUIRE(cup::project::write_config(dir.path(), cfg).has_value());
+    const ScopedCwd cwd(dir.path());
+    StubRunCommand stub;
+    stub.set_capture_version("cmake version 99.9.9\n");
+
+    const auto result = cup::cmd::run_configure(std::vector<std::string>{"Release"});
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message().find("import std") != std::string::npos);
+    // Failed before ever invoking cmake for the real configure.
+    REQUIRE(stub.calls().empty());
+}
+
+TEST_CASE("run_configure propagates a failure to probe cmake --version itself",
+          "[cmd][configure][cmake][import_std]") {
+    const TempDir dir;
+    const Config cfg{.name = "demo", .cpp_standard = 23, .std_module = true};
+    REQUIRE(cup::project::write_config(dir.path(), cfg).has_value());
+    const ScopedCwd cwd(dir.path());
+    StubRunCommand stub(/*fail=*/true);
+
+    const auto result = cup::cmd::run_configure(std::vector<std::string>{"Release"});
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message() == "stubbed failure");
+}
+
+TEST_CASE("run_configure never probes CMake's version for a std_module = false project",
+          "[cmd][configure][cmake][import_std]") {
+    const TempDir dir;
+    const Config cfg{.name = "demo", .cpp_standard = 23, .std_module = false};
+    REQUIRE(cup::project::write_config(dir.path(), cfg).has_value());
+    const ScopedCwd cwd(dir.path());
+    StubRunCommand stub;
+    stub.set_capture_version("cmake version 99.9.9\n");  // would fail resolution if ever probed
+
+    const auto result = cup::cmd::run_configure(std::vector<std::string>{"Release"});
+    REQUIRE(result.has_value());
+    REQUIRE(stub.calls().size() == 1);
+    REQUIRE(stub.calls()[0].find("CMAKE_EXPERIMENTAL_CXX_IMPORT_STD") == std::string::npos);
 }
 
 TEST_CASE("run_configure is a no-op for a make project", "[cmd][configure][make]") {

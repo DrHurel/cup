@@ -17,8 +17,8 @@
 `cup` scaffolds and manages C++ projects from a single binary — itself written
 in C++23. Pick a standard when you create a project and `cup` scaffolds to
 match it: **C++20/23**
-projects are built from C++ modules (`import std;` on C++23 unless you opt out —
-see [Toolchain requirements](#toolchain-requirements)), while
+projects are built from C++ modules (opt into `import std;` on C++23 — see
+[Toolchain requirements](#toolchain-requirements)), while
 **C++11/14/17** projects use classic headers. Either way the projects it creates
 are *thin* — just source, a build file, and a `cup.toml` marker. All build and
 scaffolding logic lives in `cup` itself, so one installed binary manages every
@@ -181,7 +181,7 @@ cup --version, -v                  print cup's version (and build SHA, for a Git
 ```
 myproj/
   cup.toml                 project marker (name, cup version, cpp_standard, std_module, [compiler])
-  CMakeLists.txt           per-mode build tree, coverage; import std on C++23
+  CMakeLists.txt           per-mode build tree, coverage; import std on C++23 if opted in
   .gitignore
   src/apps/<name>/         executables (one file per app dir)
   src/libs/<name>/         libraries — C++ modules or classic headers per standard
@@ -301,29 +301,37 @@ copies a built-in there to start from. A modules library kind needs a
 
 Requirements scale with the standard you pick:
 
-- **C++23** (`import std;`) needs **CMake ≥ 3.30** (the root `CMakeLists.txt`
-  pins an experimental-support UUID for CMake 4.4) and a compiler shipping the
-  std-module manifest (**GCC 15+**).
-- **C++20** named modules need **CMake ≥ 3.28**.
+- **C++20/23** named modules need **CMake ≥ 3.28**, using a `module;` +
+  `#include <...>` global module fragment for standard-library facilities —
+  this is what `cup new`/`cup add` scaffold by default, including for C++23.
+- **C++23 with `import std;`** additionally needs **CMake ≥ 3.30** and a
+  compiler shipping the std-module manifest (**GCC 15+**), and is opt-in (see
+  below) rather than the default: CMake's `import std` support is gated behind
+  a version-specific UUID (`CMAKE_EXPERIMENTAL_CXX_IMPORT_STD`) that it
+  rotates almost every release and exposes no way to query. When opted in,
+  `cup configure`/`cup build` detects the installed CMake and supplies the
+  matching value itself, so the committed `CMakeLists.txt` doesn't go stale
+  against whichever CMake actually builds it. A CMake release outside cup's
+  known table (see `import_std_gate_uuid` in `src/libs/cup/cmd/Build.cpp`)
+  fails with a clear error instead of CMake's cryptic `CXX_MODULE_STD` one.
 - **C++11/14/17** have no special requirements beyond a conforming compiler.
 
-Named modules and `import std;` are separate capabilities, so C++23 does not have
-to cost you GCC 15: setting
+`import std;` is opt-in, set explicitly per project:
 
 ```toml
 cpp_standard = 23
-std_module = false
+std_module = true
 ```
 
-in `cup.toml` keeps the **CMake 3.28 / GCC 14** requirements of C++20 modules while
-`cup add` scaffolds C++23 sources — a `module;` + `#include <print>` global module
-fragment instead of `import std;`, with `std::println` and `std::expected`
-available as ordinary standard-library features. Leave `std_module` out and the
-standard decides (C++23 uses the std module, C++20 cannot). `cup new` has no
-prompt for it yet, so set it by hand; cup's own `cup.toml` sets
-`std_module = false` this way, though it separately pins a GCC 15 floor of its
-own — an unrelated GCC 14 modules limitation, not a `std_module` requirement;
-see `docs/migration-cpp23.md`'s Phase 4 note.
+in `cup.toml` switches `cup add`'s C++23 sources from the default `module;` +
+`#include <print>` global module fragment to `import std;`, and raises the
+project's requirements to CMake ≥ 3.30 / GCC 15 as above. Leave `std_module`
+out (or set it `false`) and every standard, C++23 included, scaffolds without
+`import std;` — the same **CMake 3.28 / GCC 14** requirements C++20 modules
+have. `cup new` has no prompt for it yet, so opt in by hand; cup's own
+`cup.toml` leaves it out (the default), though it separately pins a GCC 15
+floor of its own — an unrelated GCC 14 modules limitation, not a `std_module`
+requirement; see `docs/migration-cpp23.md`'s Phase 4 note.
 
 On an older toolchain `cup build` stops at CMake's version check — scaffolding
 still works everywhere.

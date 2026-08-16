@@ -67,12 +67,13 @@ TEST_CASE("uses_modules is true from C++20 up", "[project][modules]") {
     }
 }
 
-TEST_CASE("uses_std_module follows the standard until std_module overrides it",
+TEST_CASE("uses_std_module is opt-in via std_module, regardless of standard",
           "[project][stdmodule]") {
-    SECTION("unset: the standard decides, and C++23 is the first with a std module") {
+    SECTION("unset: always false -- `import std;` sits behind CMake's shifting "
+            "experimental gate, so it is never on by default, C++23 included") {
         const std::vector<std::pair<int, bool>> cases{
-            {0, true},
-            {23, true},
+            {0, false},
+            {23, false},
             {20, false},
             {17, false},
         };
@@ -83,8 +84,8 @@ TEST_CASE("uses_std_module follows the standard until std_module overrides it",
     }
 
     SECTION("std_module overrides in both directions") {
-        REQUIRE_FALSE(Config{.cpp_standard = 23, .std_module = false}.uses_std_module());
-        REQUIRE(Config{.cpp_standard = 26, .std_module = true}.uses_std_module());
+        REQUIRE(Config{.cpp_standard = 23, .std_module = true}.uses_std_module());
+        REQUIRE_FALSE(Config{.cpp_standard = 26, .std_module = false}.uses_std_module());
     }
 }
 

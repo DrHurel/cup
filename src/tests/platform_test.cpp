@@ -1,8 +1,10 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <csignal>
 #include <fcntl.h>
 #include <stdlib.h>
+#include <sys/resource.h>
 #include <termios.h>
 #include <unistd.h>
 
@@ -102,6 +104,40 @@ private:
     return (settings.c_lflag & static_cast<tcflag_t>(ECHO | ICANON)) != 0 &&
            (settings.c_oflag & static_cast<tcflag_t>(OPOST)) != 0;
 }
+
+// Lowers an rlimit for the test's lifetime, to force the syscalls
+// capture_command relies on into failing deterministically (pipe()/fork()
+// exhaustion) rather than mocking them.
+class ScopedRlimit {
+public:
+    ScopedRlimit(int resource, rlim_t cur) : resource_(resource) {
+        REQUIRE(::getrlimit(resource_, &original_) == 0);
+        struct rlimit lim = original_;
+        lim.rlim_cur = cur;
+        REQUIRE(::setrlimit(resource_, &lim) == 0);
+    }
+    ~ScopedRlimit() { ::setrlimit(resource_, &original_); }
+    ScopedRlimit(const ScopedRlimit&) = delete;
+    ScopedRlimit& operator=(const ScopedRlimit&) = delete;
+
+private:
+    int resource_;
+    struct rlimit original_ {};
+};
+
+// Ignoring SIGCHLD makes the kernel auto-reap children (POSIX.1-2001), so a
+// subsequent waitpid() on one fails with ECHILD -- the only way to exercise
+// that failure branch without mocking the syscall.
+class ScopedAutoReapChildren {
+public:
+    ScopedAutoReapChildren() { previous_ = ::signal(SIGCHLD, SIG_IGN); }
+    ~ScopedAutoReapChildren() { ::signal(SIGCHLD, previous_); }
+    ScopedAutoReapChildren(const ScopedAutoReapChildren&) = delete;
+    ScopedAutoReapChildren& operator=(const ScopedAutoReapChildren&) = delete;
+
+private:
+    void (*previous_)(int) = nullptr;
+};
 
 }
 
@@ -298,6 +334,19 @@ TEST_CASE("run_command reports a signal-terminated child as an error", "[platfor
     REQUIRE(result.error().message().ends_with("signal 15"));
 }
 
+TEST_CASE("run_command reports pipe() failing as an error", "[platform][process]") {
+    const TempDir dir;
+    // 0, not a value derived from the current fd count: a gap left by an
+    // already-closed low-numbered descriptor (observed in CI, not locally)
+    // lets the kernel satisfy a pipe() out of that gap even under a
+    // count-based ceiling. 0 leaves no valid descriptor index at all, so a
+    // new pipe() fails regardless of any such gaps.
+    const ScopedRlimit no_fds(RLIMIT_NOFILE, 0);
+    const auto result = cup::platform::run_command(dir.path(), "true", {});
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message().starts_with("pipe:"));
+}
+
 TEST_CASE("run_command_func is the override point for run_command", "[platform][process]") {
     ScopedOverride override_func(
         cup::platform::run_command_func(),
@@ -308,6 +357,93 @@ TEST_CASE("run_command_func is the override point for run_command", "[platform][
         }});
     const TempDir dir;
     const auto result = cup::platform::run_command(dir.path(), "true", {});
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message() == "stubbed");
+}
+
+TEST_CASE("capture_command returns a zero-exit program's stdout", "[platform][process]") {
+    const TempDir dir;
+    const std::vector<std::string> args{"-c", "printf hello"};
+    const auto result = cup::platform::capture_command(dir.path(), "sh", args);
+    REQUIRE(result.has_value());
+    REQUIRE(*result == "hello");
+}
+
+TEST_CASE("capture_command reports a non-zero exit as an error", "[platform][process]") {
+    const TempDir dir;
+    const auto result = cup::platform::capture_command(dir.path(), "false", {});
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message() == "command failed: false : exit status 1");
+}
+
+TEST_CASE("capture_command reports a missing binary as an error", "[platform][process]") {
+    const TempDir dir;
+    const auto result = cup::platform::capture_command(dir.path(), "cup-test-does-not-exist", {});
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message().starts_with("command failed: cup-test-does-not-exist"));
+}
+
+TEST_CASE("capture_command reports pipe() failing as an error", "[platform][process]") {
+    const TempDir dir;
+    // See run_command's identical test above for why this is 0 rather than a
+    // count-based ceiling.
+    const ScopedRlimit no_fds(RLIMIT_NOFILE, 0);
+    const auto result = cup::platform::capture_command(dir.path(), "true", {});
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message().starts_with("pipe:"));
+}
+
+TEST_CASE("capture_command reports fork() failing as an error", "[platform][process]") {
+    const TempDir dir;
+    const ScopedRlimit no_procs(RLIMIT_NPROC, 0);
+    const auto result = cup::platform::capture_command(dir.path(), "true", {});
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message().starts_with("fork:"));
+}
+
+TEST_CASE("capture_command reports waitpid() failing as an error", "[platform][process]") {
+    const TempDir dir;
+    const ScopedAutoReapChildren auto_reap;
+    const auto result = cup::platform::capture_command(dir.path(), "true", {});
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message().starts_with("waitpid:"));
+}
+
+TEST_CASE("capture_command runs the program with dir as its working directory",
+          "[platform][process]") {
+    const TempDir dir;
+    const std::vector<std::string> args{"-c", "pwd"};
+    const auto result = cup::platform::capture_command(dir.path(), "sh", args);
+    REQUIRE(result.has_value());
+    REQUIRE(*result == std::filesystem::canonical(dir.path()).string() + "\n");
+}
+
+TEST_CASE("capture_command reports a signal-terminated child as an error", "[platform][process]") {
+    const TempDir dir;
+    const std::vector<std::string> args{"-c", "kill -TERM $$"};
+    const auto result = cup::platform::capture_command(dir.path(), "sh", args);
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message().ends_with("signal 15"));
+}
+
+TEST_CASE("capture_command passes args through to the child", "[platform][process]") {
+    const TempDir dir;
+    const std::vector<std::string> args{"-c", "exit $1", "_", "7"};
+    const auto result = cup::platform::capture_command(dir.path(), "sh", args);
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message().ends_with("exit status 7"));
+}
+
+TEST_CASE("capture_command_func is the override point for capture_command", "[platform][process]") {
+    ScopedOverride override_func(
+        cup::platform::capture_command_func(),
+        cup::platform::CaptureCommandFunc{[](const std::filesystem::path&, std::string_view,
+                                             std::span<const std::string>)
+                                              -> std::expected<std::string, Error> {
+            return std::unexpected(Error("stubbed"));
+        }});
+    const TempDir dir;
+    const auto result = cup::platform::capture_command(dir.path(), "true", {});
     REQUIRE_FALSE(result.has_value());
     REQUIRE(result.error().message() == "stubbed");
 }
