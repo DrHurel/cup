@@ -194,6 +194,37 @@ Libraries scaffold differently per standard. On C++20/23 a lib is a module: a
 primary interface (`<name>.cppm`) re-exports partition files (one per symbol). On
 C++11/14/17 a lib is a header/source pair driven by a `<name>.hpp` aggregator.
 
+## Module diagram
+
+`cup` itself is organized as a layered set of C++20 modules. Each box is a
+primary module interface under `src/libs/cup/*`; arrows point from a module to
+the modules it imports.
+
+```mermaid
+graph TD
+    main["cup (executable)"] --> cmd[cup.cmd]
+    cmd --> error[cup.error]
+    cmd --> project[cup.project]
+    cmd --> ui[cup.ui]
+    cmd --> scaffold[cup.scaffold]
+    cmd --> tmpl[cup.tmpl]
+    cmd --> platform[cup.platform]
+    cmd --> log[cup.log]
+
+    scaffold --> error
+    scaffold --> ui
+    scaffold --> platform
+    scaffold --> tmpl
+
+    ui --> error
+    ui --> platform
+
+    log --> error
+    platform --> error
+    project --> error
+    tmpl --> error
+```
+
 ## Templates
 
 `cup` ships built-in templates for the component kinds `class`, `interface`,
