@@ -16,20 +16,22 @@ name: C++ CI
 #   coverage ──────────────────────────────┬──> sonarcloud ──> deploy-pages (main push only)
 #   build-debug ──┬──> unit-test-debug      │
 #                 └──> functional-test-debug│
-#   build-release (*, tests itself) ──────────> release-main (main push only)
+#   build-release ┬──> unit-test-release    │
+#         (*)     └──> functional-test-release ──> release-main (main push only)
 #   build-canary ─┬──> unit-test-canary (*, non-blocking)
 #         (*)     └──> functional-test-canary (*, non-blocking)
 #
 # build-release *is* the musl-static release artifact (build-static.yml),
-# not a separate glibc verification build: cup's real Release output runs
-# its own full test suite in-container (see build-static.yml's Test step --
-# a `container:` job mounts the workspace at /__w/... rather than the usual
-# /home/runner/work/..., so a downstream non-containerized test job
-# downloading this artifact would find every absolute path
-# CTestTestfile.cmake baked in broken; unlike Debug/Canary, this one can't
-# split into parallel unit-test-*/functional-test-* jobs the normal way).
+# not a separate glibc verification build: cup's real Release output gets
+# the exact same unit-test/functional-test coverage Debug does, and
 # release.yml (the tag-triggered publisher) and release-main both consume
-# this same job's output rather than a redundant fourth build.
+# this same job's output rather than a redundant fourth build. Its test jobs
+# pass container: alpine:3.23 + pm: apk (job-unit-test.yml/
+# job-functional-test.yml both accept this) so they run in the same
+# container build-release did — a `container:` job mounts the workspace at
+# /__w/... rather than the usual /home/runner/work/..., so a plain
+# (non-containerized) test job downloading this artifact would find every
+# absolute path CTestTestfile.cmake baked in pointing nowhere.
 #
 # (*) gated on the PR not being a draft — draft PRs only run build-debug and
 # coverage, for the fastest possible signal while iterating. Everything else
@@ -113,13 +115,34 @@ jobs:
   # The release artifact itself: a musl-static binary built in alpine (see
   # build-static.yml for why musl and why alpine:3.23). This *is*
   # build-release, not a separate verification build alongside it -- cup's
-  # actual shippable Release output is what gets tested and packaged. It
-  # runs its own full test suite in-container (build-static.yml's Test
-  # step) rather than splitting into unit-test-release/functional-test-
-  # release jobs the way Debug/Canary do -- see the header comment above.
+  # actual shippable Release output is what gets tested and packaged.
   build-release:
     if: ${{ !github.event.pull_request.draft }}
     uses: ./.github/workflows/build-static.yml
+    permissions:
+      contents: read
+
+  unit-test-release:
+    needs: build-release
+    if: ${{ !github.event.pull_request.draft }}
+    uses: ./.github/workflows/job-unit-test.yml
+    with:
+      mode: Release
+      artifact-name: ${{ needs.build-release.outputs.artifact-name }}
+      container: alpine:3.23
+      pm: apk
+    permissions:
+      contents: read
+
+  functional-test-release:
+    needs: build-release
+    if: ${{ !github.event.pull_request.draft }}
+    uses: ./.github/workflows/job-functional-test.yml
+    with:
+      mode: Release
+      artifact-name: ${{ needs.build-release.outputs.artifact-name }}
+      container: alpine:3.23
+      pm: apk
     permissions:
       contents: read
 
@@ -180,9 +203,11 @@ jobs:
   # Packages build-release's musl-static binary into a downloadable artifact
   # for the latest main build — not a GitHub Release (that stays reserved
   # for version tags; see release.yml, which consumes the same build-release
-  # output independently on its own tag-triggered pipeline).
+  # output independently on its own tag-triggered pipeline). Waits on the
+  # test jobs too, not just the build, so main only ever offers a binary
+  # that's actually passed its suite.
   release-main:
-    needs: build-release
+    needs: [build-release, unit-test-release, functional-test-release]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     uses: ./.github/workflows/job-release-main.yml
     with:

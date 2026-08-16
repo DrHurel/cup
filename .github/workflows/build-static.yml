@@ -69,32 +69,6 @@ jobs:
           # Must be >= 1.11, or module scanning is unavailable.
           ninja --version
 
-      # cmd_test.cpp and build_run.bats each have a scenario that chmod's a
-      # directory to 0000 to simulate a permission-denied error and expects
-      # the resulting cup operation to fail -- root bypasses permission
-      # checks entirely, so those scenarios only mean anything running as an
-      # ordinary user, same as every other job in this pipeline (GitHub's own
-      # `runner` account on the non-containerized jobs). alpine:3.23 has no
-      # such user by default and a `container:` job otherwise runs as root,
-      # so this adds one and hands it the checked-out workspace; every step
-      # below runs as that user.
-      #
-      # Deliberately `su runner -c '...'`, not `su -p`: -p (preserve-
-      # environment) keeps root's HOME=/root instead of switching to
-      # /home/runner, and running as runner-but-HOME=/root is worse than
-      # either pure choice -- `cup` then can't write ~/.cache/cup/cup.log
-      # (owned by root, not runner) and prints a warning on every invocation,
-      # ahead of the real output, breaking anything matching stdout from the
-      # first line (e.g. dispatch.bats' `cup --version` format check). A
-      # plain `su runner -c` resets HOME correctly; GITHUB_SHA is computed
-      # into a plain var first and CMAKE_GENERATOR is passed as an explicit
-      # `-G Ninja` flag instead, since neither is guaranteed to survive a
-      # non-preserving su into busybox's minimal environment.
-      - name: Create a non-root build user
-        run: |
-          adduser -D runner
-          chown -R runner:runner "$GITHUB_WORKSPACE"
-
       - name: Configure (Release, static)
         run: |
           # CURL_USE_STATIC_LIBS switches third_party/CMakeLists.txt onto
@@ -107,27 +81,23 @@ jobs:
           # verification and actual releases) that sets it, which is what lets
           # `cup --version` distinguish a GitHub-built binary from a local
           # `cup build`/devtools/build.sh, where it's left empty.
-          SHORT_SHA="${GITHUB_SHA::7}"
-          su runner -c "cmake -B build/Release -G Ninja \
+          #
+          # bats must be installed (see "Install toolchain" above) even
+          # though this job never runs it: find_program(BATS_EXECUTABLE bats)
+          # in functional/CMakeLists.txt runs at *this* configure step, and
+          # the functional_* ctest entries are only registered when it
+          # succeeds -- job-unit-test.yml/job-functional-test.yml's Release
+          # variant (container: alpine:3.23, matching this job's mount path)
+          # need them present in the artifact they download.
+          cmake -B build/Release -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_EXE_LINKER_FLAGS='-static' \
+            -DCMAKE_EXE_LINKER_FLAGS="-static" \
             -DBUILD_SHARED_LIBS=OFF \
             -DCURL_USE_STATIC_LIBS=ON \
-            -DCUP_BUILD_SHA='$SHORT_SHA'"
+            -DCUP_BUILD_SHA="${GITHUB_SHA::7}"
 
       - name: Build
-        run: su runner -c 'cmake --build build/Release'
-
-      # Runs here, in-container, rather than in a separate downstream job
-      # like Debug/Canary's unit-test-*/functional-test-* split: CTestTestfile.
-      # cmake and friends bake in absolute paths from *this* configure, and a
-      # `container:` job mounts the workspace at /__w/... instead of the
-      # usual /home/runner/work/... -- a plain (non-containerized) test job
-      # downloading this artifact would find every baked-in path broken.
-      # Running the whole suite here, where the paths that were configured
-      # are the paths that exist, sidesteps that entirely.
-      - name: Test
-        run: su runner -c 'ctest --test-dir build/Release --output-on-failure'
+        run: cmake --build build/Release
 
       # Checked via `file`, not `ldd`: musl/Alpine's toolchain defaults to
       # static-*pie* (position-independent) executables, and a PIE binary
@@ -147,13 +117,12 @@ jobs:
           ./build/Release/bin/cup --help
           ./build/Release/bin/cup --version | grep -q "cup .* (${GITHUB_SHA::7})"
 
-      # The full tree, not just the binary: release-main (cpp.yml) and
-      # release.yml (tag-triggered publishing) both consume this same
-      # artifact and only want the bare binary, picking it out at
-      # dist/bin/cup after downloading -- uploading the whole tree here
-      # rather than a separate minimal one keeps this job's output uniform
-      # regardless of caller, even though only `bin/cup` actually gets used
-      # downstream (Test, above, already ran against this same build).
+      # The full tree, not just the binary: job-unit-test.yml/job-functional-
+      # test.yml's Release variant run ctest against this build (see cpp.yml),
+      # so they need every test binary and CTestTestfile.cmake too, not only
+      # `cup` -- which is all release-main (cpp.yml) and release.yml
+      # (tag-triggered publishing) want, picked out at dist/bin/cup after
+      # downloading this same artifact.
       - name: Upload build tree
         uses: actions/upload-artifact@v4
         with:
