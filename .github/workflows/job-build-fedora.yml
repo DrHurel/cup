@@ -1,0 +1,66 @@
+name: Fedora build
+
+# Reusable, non-blocking: proves cup builds and passes its full test suite
+# on Fedora, a second officially-supported "build from source" distro
+# alongside the ubuntu-24.04 floor (job-coverage.yml/job-build.yml) --
+# backing the README's platform claims with an actual CI run instead of
+# untested prose. One self-contained job (configure+build+test), matching
+# job-coverage.yml's/the gcc-16 canary's shape, rather than a separate
+# build/test split: this exists as a compatibility signal, not the primary
+# release pipeline, so there's no artifact to share downstream.
+#
+# fedora:42 ships GCC 15.2 and CMake 3.31 by default -- no PPA-equivalent
+# extra repo needed, unlike ubuntu-24.04.
+
+on:
+  workflow_call: {}
+
+env:
+  CMAKE_GENERATOR: Ninja
+
+jobs:
+  build-and-test:
+    name: fedora 42 — build + test
+    runs-on: ubuntu-24.04
+    container: fedora:42
+    continue-on-error: true
+
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # This job never pushes back to the repo; no reason to leave the
+          # checkout token persisted in .git/config.
+          persist-credentials: false
+
+      - name: Install toolchain
+        run: dnf install -y gcc-c++ cmake ninja-build git bats libcurl-devel
+
+      - name: Show toolchain versions
+        run: |
+          g++ --version | head -1
+          cmake --version | head -1
+          ninja --version
+
+      # cmd_test.cpp and build_run.bats each have a scenario that chmod's a
+      # directory to 0000 to simulate a permission-denied error and expects
+      # the resulting cup operation to fail -- root bypasses permission
+      # checks entirely, so those scenarios only mean anything running as an
+      # ordinary user, same as every non-containerized job in this pipeline
+      # (GitHub's own `runner` account). A `container:` job otherwise runs
+      # as root, so this adds one and hands it the checked-out workspace.
+      - name: Create a non-root build user
+        run: |
+          useradd -m runner
+          chown -R runner:runner "$GITHUB_WORKSPACE"
+
+      - name: Configure
+        run: su runner -c 'cmake -B build/Debug -G Ninja -DCMAKE_BUILD_TYPE=Debug'
+
+      - name: Build
+        run: su runner -c 'cmake --build build/Debug'
+
+      - name: Test
+        run: su runner -c 'ctest --test-dir build/Debug --output-on-failure'

@@ -20,6 +20,15 @@ name: C++ CI
 #         (*)     └──> functional-test-release ──> release-main (main push only)
 #   build-canary ─┬──> unit-test-canary (*, non-blocking)
 #         (*)     └──> functional-test-canary (*, non-blocking)
+#   build-fedora (*, non-blocking)
+#   build-debian (*, non-blocking)
+#
+# build-fedora/build-debian back the README's "officially supported build-
+# from-source distros" claims with a real CI run each, alongside the
+# ubuntu-24.04 floor -- non-blocking for the same reason canary is: they
+# exist to tell us something, not to gate merges. Each is one self-
+# contained job (configure+build+test, no artifact-sharing split), since
+# they're a compatibility signal rather than the primary pipeline.
 #
 # build-release *is* the musl-static release artifact (build-static.yml),
 # not a separate glibc verification build: cup's real Release output gets
@@ -180,6 +189,24 @@ jobs:
       artifact-name: ${{ needs.build-canary.outputs.artifact-name }}
       gcc-version: '16'
       continue-on-error: true
+    permissions:
+      contents: read
+
+  # Officially-supported "build from source" distros beyond the ubuntu-24.04
+  # floor -- each its own self-contained job (see job-build-fedora.yml/
+  # job-build-debian.yml for why they don't split into build/test like
+  # Debug/Release/Canary), non-blocking for the same reason canary is: these
+  # back the README's platform claims with a real CI run, but exist to tell
+  # us something, not to gate merges.
+  build-fedora:
+    if: ${{ !github.event.pull_request.draft }}
+    uses: ./.github/workflows/job-build-fedora.yml
+    permissions:
+      contents: read
+
+  build-debian:
+    if: ${{ !github.event.pull_request.draft }}
+    uses: ./.github/workflows/job-build-debian.yml
     permissions:
       contents: read
 
