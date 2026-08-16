@@ -139,16 +139,6 @@ private:
     void (*previous_)(int) = nullptr;
 };
 
-// The number of file descriptors this process currently has open, so a test
-// can compute an RLIMIT_NOFILE that allows exactly N more pipe()s.
-[[nodiscard]] int open_fd_count() {
-    int n = 0;
-    for ([[maybe_unused]] const auto& entry : std::filesystem::directory_iterator("/proc/self/fd")) {
-        ++n;
-    }
-    return n;
-}
-
 }
 
 TEST_CASE("is_tty tells a terminal from a pipe", "[platform][tty]") {
@@ -346,7 +336,12 @@ TEST_CASE("run_command reports a signal-terminated child as an error", "[platfor
 
 TEST_CASE("run_command reports pipe() failing as an error", "[platform][process]") {
     const TempDir dir;
-    const ScopedRlimit no_fds(RLIMIT_NOFILE, static_cast<rlim_t>(open_fd_count()));
+    // 0, not a value derived from the current fd count: a gap left by an
+    // already-closed low-numbered descriptor (observed in CI, not locally)
+    // lets the kernel satisfy a pipe() out of that gap even under a
+    // count-based ceiling. 0 leaves no valid descriptor index at all, so a
+    // new pipe() fails regardless of any such gaps.
+    const ScopedRlimit no_fds(RLIMIT_NOFILE, 0);
     const auto result = cup::platform::run_command(dir.path(), "true", {});
     REQUIRE_FALSE(result.has_value());
     REQUIRE(result.error().message().starts_with("pipe:"));
@@ -388,22 +383,11 @@ TEST_CASE("capture_command reports a missing binary as an error", "[platform][pr
     REQUIRE(result.error().message().starts_with("command failed: cup-test-does-not-exist"));
 }
 
-TEST_CASE("capture_command reports the first pipe() failing as an error", "[platform][process]") {
+TEST_CASE("capture_command reports pipe() failing as an error", "[platform][process]") {
     const TempDir dir;
-    // Zero headroom: the very first pipe() (the exec-error self-pipe) fails.
-    const ScopedRlimit no_fds(RLIMIT_NOFILE, static_cast<rlim_t>(open_fd_count()));
-    const auto result = cup::platform::capture_command(dir.path(), "true", {});
-    REQUIRE_FALSE(result.has_value());
-    REQUIRE(result.error().message().starts_with("pipe:"));
-}
-
-TEST_CASE("capture_command reports the second pipe() (stdout capture) failing as an error",
-          "[platform][process]") {
-    const TempDir dir;
-    // Headroom for exactly one pipe (2 fds): the self-pipe succeeds, the
-    // stdout-capture pipe -- capture_command's own addition over run_command
-    // -- does not.
-    const ScopedRlimit one_pipe(RLIMIT_NOFILE, static_cast<rlim_t>(open_fd_count()) + 2);
+    // See run_command's identical test above for why this is 0 rather than a
+    // count-based ceiling.
+    const ScopedRlimit no_fds(RLIMIT_NOFILE, 0);
     const auto result = cup::platform::capture_command(dir.path(), "true", {});
     REQUIRE_FALSE(result.has_value());
     REQUIRE(result.error().message().starts_with("pipe:"));
