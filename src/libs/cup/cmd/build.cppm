@@ -2,6 +2,7 @@ module;
 #include <array>
 #include <expected>
 #include <filesystem>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -35,6 +36,24 @@ inline constexpr std::array<std::string_view, 3> kBuildModes = {"Debug", "Releas
 // build time), so it is a no-op there.
 [[nodiscard]] std::expected<void, error::Error> configure(const project::Project& proj,
                                                            std::string_view mode);
+
+// import_std_gate_uuid parses the major.minor version out of
+// cmake_version_output (the full stdout of `cmake --version`, e.g. "cmake
+// version 4.2.3\n...") and looks up the CMAKE_EXPERIMENTAL_CXX_IMPORT_STD
+// value that release of CMake expects, or nullopt if either the text doesn't
+// parse or the version isn't one cup has been updated for yet. Exposed for
+// testing, same reasoning as resolve_app.
+[[nodiscard]] std::optional<std::string> import_std_gate_uuid(std::string_view cmake_version_output);
+
+// resolve_import_std_gate runs `cmake --version` in dir and resolves its
+// import-std gate UUID via import_std_gate_uuid, turning either failure (the
+// command failing, or an unrecognised version) into an actionable error —
+// cup needs this to configure a std_module project (see project::Config's
+// uses_std_module), since the value must be supplied before CMakeLists.txt's
+// project() call and CMake exposes no other way to query it. Exposed for
+// testing, same reasoning as resolve_app.
+[[nodiscard]] std::expected<std::string, error::Error> resolve_import_std_gate(
+    const std::filesystem::path& dir);
 
 // build configures (if needed) then compiles mode.
 [[nodiscard]] std::expected<void, error::Error> build(const project::Project& proj,

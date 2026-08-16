@@ -311,3 +311,48 @@ TEST_CASE("run_command_func is the override point for run_command", "[platform][
     REQUIRE_FALSE(result.has_value());
     REQUIRE(result.error().message() == "stubbed");
 }
+
+TEST_CASE("capture_command returns a zero-exit program's stdout", "[platform][process]") {
+    const TempDir dir;
+    const std::vector<std::string> args{"-c", "printf hello"};
+    const auto result = cup::platform::capture_command(dir.path(), "sh", args);
+    REQUIRE(result.has_value());
+    REQUIRE(*result == "hello");
+}
+
+TEST_CASE("capture_command reports a non-zero exit as an error", "[platform][process]") {
+    const TempDir dir;
+    const auto result = cup::platform::capture_command(dir.path(), "false", {});
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message() == "command failed: false : exit status 1");
+}
+
+TEST_CASE("capture_command reports a missing binary as an error", "[platform][process]") {
+    const TempDir dir;
+    const auto result = cup::platform::capture_command(dir.path(), "cup-test-does-not-exist", {});
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message().starts_with("command failed: cup-test-does-not-exist"));
+}
+
+TEST_CASE("capture_command runs the program with dir as its working directory",
+          "[platform][process]") {
+    const TempDir dir;
+    const std::vector<std::string> args{"-c", "pwd"};
+    const auto result = cup::platform::capture_command(dir.path(), "sh", args);
+    REQUIRE(result.has_value());
+    REQUIRE(*result == std::filesystem::canonical(dir.path()).string() + "\n");
+}
+
+TEST_CASE("capture_command_func is the override point for capture_command", "[platform][process]") {
+    ScopedOverride override_func(
+        cup::platform::capture_command_func(),
+        cup::platform::CaptureCommandFunc{[](const std::filesystem::path&, std::string_view,
+                                             std::span<const std::string>)
+                                              -> std::expected<std::string, Error> {
+            return std::unexpected(Error("stubbed"));
+        }});
+    const TempDir dir;
+    const auto result = cup::platform::capture_command(dir.path(), "true", {});
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message() == "stubbed");
+}

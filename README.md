@@ -301,9 +301,15 @@ copies a built-in there to start from. A modules library kind needs a
 
 Requirements scale with the standard you pick:
 
-- **C++23** (`import std;`) needs **CMake ≥ 3.30** (the root `CMakeLists.txt`
-  pins an experimental-support UUID for CMake 4.4) and a compiler shipping the
-  std-module manifest (**GCC 15+**).
+- **C++23** (`import std;`) needs **CMake ≥ 3.30** and a compiler shipping the
+  std-module manifest (**GCC 15+**). CMake's `import std` support is gated
+  behind a version-specific UUID (`CMAKE_EXPERIMENTAL_CXX_IMPORT_STD`) that it
+  rotates almost every release and exposes no way to query; `cup configure`/
+  `cup build` detects the installed CMake and supplies the matching value
+  itself, so the committed `CMakeLists.txt` doesn't go stale against whichever
+  CMake actually builds it. A CMake release outside cup's known table (see
+  `import_std_gate_uuid` in `src/libs/cup/cmd/Build.cpp`) fails with a clear
+  error instead of CMake's cryptic `CXX_MODULE_STD` one.
 - **C++20** named modules need **CMake ≥ 3.28**.
 - **C++11/14/17** have no special requirements beyond a conforming compiler.
 

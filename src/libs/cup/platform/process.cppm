@@ -38,4 +38,29 @@ using RunCommandFunc = std::function<std::expected<void, error::Error>(
     return run_command_func()(dir, name, args);
 }
 
+// capture_command_impl is declared here, defined in Process.cpp alongside
+// run_command_impl: same fork/exec reasoning, plus a second pipe carrying the
+// child's stdout back to the parent instead of leaving it inherited.
+[[nodiscard]] std::expected<std::string, error::Error> capture_command_impl(
+    const std::filesystem::path& dir, std::string_view name, std::span<const std::string> args);
+
+using CaptureCommandFunc = std::function<std::expected<std::string, error::Error>(
+    const std::filesystem::path&, std::string_view, std::span<const std::string>)>;
+
+// capture_command_func is capture_command's seam, overridable in tests the
+// same way run_command_func is.
+[[nodiscard]] CaptureCommandFunc& capture_command_func() {
+    static CaptureCommandFunc f = &capture_command_impl;
+    return f;
+}
+
+// capture_command runs an external program from dir and returns its stdout,
+// for callers that need the output (e.g. parsing `cmake --version`) rather
+// than a pass-through terminal. Unlike run_command, stdin/stderr are not
+// forwarded, so it is not a fit for anything interactive.
+[[nodiscard]] std::expected<std::string, error::Error> capture_command(
+    const std::filesystem::path& dir, std::string_view name, std::span<const std::string> args) {
+    return capture_command_func()(dir, name, args);
+}
+
 }
