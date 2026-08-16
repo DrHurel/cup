@@ -343,6 +343,22 @@ TEST_CASE("capture_command runs the program with dir as its working directory",
     REQUIRE(*result == std::filesystem::canonical(dir.path()).string() + "\n");
 }
 
+TEST_CASE("capture_command reports a signal-terminated child as an error", "[platform][process]") {
+    const TempDir dir;
+    const std::vector<std::string> args{"-c", "kill -TERM $$"};
+    const auto result = cup::platform::capture_command(dir.path(), "sh", args);
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message().ends_with("signal 15"));
+}
+
+TEST_CASE("capture_command passes args through to the child", "[platform][process]") {
+    const TempDir dir;
+    const std::vector<std::string> args{"-c", "exit $1", "_", "7"};
+    const auto result = cup::platform::capture_command(dir.path(), "sh", args);
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message().ends_with("exit status 7"));
+}
+
 TEST_CASE("capture_command_func is the override point for capture_command", "[platform][process]") {
     ScopedOverride override_func(
         cup::platform::capture_command_func(),
