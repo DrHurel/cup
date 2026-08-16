@@ -8,6 +8,47 @@ name: C++ CI
 # Everything is built with plain `cmake -G Ninja`, not with cup. That is not an
 # oversight — the first C++ cup has no cup to build it, and that bootstrap path is
 # the one contributors follow, so CI must exercise it.
+#
+# This is an orchestrator: every job below (other than the trivial `uses:`
+# wiring) lives in its own job-*.yml reusable workflow, one file per job, so
+# each can be read/changed in isolation. The graph:
+#
+#   coverage ──────────────────────────────┬──> sonarcloud ──> deploy-pages (main push only)
+#   build-debug ──┬──> unit-test-debug      │
+#                 └──> functional-test-debug│
+#   build-release ┬──> unit-test-release    │
+#         (*)     └──> functional-test-release ──> release-main (main push only)
+#   build-deb (*) ──────────────────────────> release-main (main push only)
+#   build-canary ─┬──> unit-test-canary (*, non-blocking)
+#         (*)     └──> functional-test-canary (*, non-blocking)
+#   build-fedora (main push only, non-blocking)
+#   build-debian (main push only, non-blocking)
+#
+# build-fedora/build-debian back the README's "officially supported build-
+# from-source distros" claims with a real CI run each, alongside the
+# ubuntu-24.04 floor. Main-push only, not gated like (*) below: they're a
+# packaging/distribution compatibility signal, not part of the core PR
+# feedback loop, so they only need to run once code actually lands on main
+# -- also non-blocking (continue-on-error, same as canary) as a second,
+# now mostly-redundant layer of caution. Each is one self-contained job
+# (configure+build+test, no artifact-sharing split).
+#
+# build-release *is* the musl-static release artifact (build-static.yml),
+# not a separate glibc verification build: cup's real Release output gets
+# the exact same unit-test/functional-test coverage Debug does, and
+# release.yml (the tag-triggered publisher) and release-main both consume
+# this same job's output rather than a redundant fourth build. Its test jobs
+# pass container: alpine:3.23 + pm: apk (job-unit-test.yml/
+# job-functional-test.yml both accept this) so they run in the same
+# container build-release did — a `container:` job mounts the workspace at
+# /__w/... rather than the usual /home/runner/work/..., so a plain
+# (non-containerized) test job downloading this artifact would find every
+# absolute path CTestTestfile.cmake baked in pointing nowhere.
+#
+# (*) gated on the PR not being a draft — draft PRs only run build-debug and
+# coverage, for the fastest possible signal while iterating. Everything else
+# starts once the PR is marked ready for review (or unconditionally for a
+# plain push/workflow_dispatch, which never carry a `draft` flag).
 
 on:
   push:
@@ -20,6 +61,7 @@ on:
       - 'CMakeLists.txt'
       - 'cup.toml'
       - '.github/workflows/cpp.yml'
+      - '.github/workflows/job-*.yml'
       - '.github/workflows/build-static.yml'
   pull_request:
     paths:
@@ -30,154 +72,189 @@ on:
       - 'CMakeLists.txt'
       - 'cup.toml'
       - '.github/workflows/cpp.yml'
+      - '.github/workflows/job-*.yml'
       - '.github/workflows/build-static.yml'
   workflow_dispatch:
 
 concurrency:
   group: cpp-${{ github.ref }}
   cancel-in-progress: true
-
-env:
-  # Named modules require Ninja: CMake's Makefile generator does not implement the
-  # dyndep scanning protocol modules need, and never will.
-  CMAKE_GENERATOR: Ninja
+  # Trade-off from folding the old ci.yml's sonar/pages pipeline in here: it
+  # previously used a separate `pages-${{ github.ref }}` group with
+  # cancel-in-progress: false specifically so a rapid second push to main
+  # couldn't interrupt an in-flight Pages deploy. A job that calls a
+  # reusable workflow via `uses:` cannot set its own job-level
+  # `concurrency:` to restore that split (actionlint rejects it), so a fast
+  # double-push to main can now cancel a deploy-pages run mid-flight. Rare
+  # in practice (main pushes are infrequent compared to PR iteration), and a
+  # cancelled deploy is harmless — the next successful run republishes.
 
 jobs:
-  # The compiler floor. cup pins GCC >= 15 / Clang >= 18 (raised from GCC 14 in
-  # Phase 4 — see docs/migration-cpp23.md's Phase 4 note: cup.cmd is the first
-  # module needing cup.project + cup.scaffold + cup.tmpl + cup.ui + cup.platform
-  # all reachable at once, and GCC 14's modules implementation hits a hard,
-  # unfixable-in-source limit at that breadth — write_location ICEs and
-  # "incomplete type" corruption merging cup.ui's and cup.scaffold's BMIs, not
-  # a bug restructuring can route around). Ubuntu 24.04 has no official g++-15
-  # package, so this needs the same ubuntu-toolchain-r PPA the canary job below
-  # already trusts.
-  build-gcc15:
-    name: gcc-15 (floor) — build + test + coverage
-    runs-on: ubuntu-24.04
-
+  # --- always on, even for a draft PR -----------------------------------
+  coverage:
+    uses: ./.github/workflows/job-coverage.yml
     permissions:
       contents: read
 
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install toolchain
-        run: |
-          sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            g++-15 ninja-build cmake libcurl4-openssl-dev lcov bats
-
-      - name: Show toolchain versions
-        run: |
-          g++-15 --version | head -1
-          cmake --version | head -1
-          ninja --version
-
-      # FetchContent clones toml++ and Catch2 on every configure; cache the
-      # populated _deps tree so PRs do not re-clone them each run.
-      #
-      # Keyed on the compiler too, not just third_party/CMakeLists.txt: _deps
-      # holds compiled .gcno/.gcda coverage artifacts, and restoring a cache
-      # built by a different GCC (e.g. across the GCC 14 -> 15 floor bump)
-      # mixes gcov note/data format versions — geninfo then fails with
-      # "stamp mismatch with notes file" / "version 'B42*', prefer 'B52*'"
-      # instead of silently reusing a compatible cache. The restore-keys
-      # prefix carries the same suffix, or a floor bump would still fall back
-      # to the stale entry as a "partial match".
-      - name: Cache FetchContent dependencies
-        uses: actions/cache@v4
-        with:
-          path: build/Coverage/_deps
-          key: ${{ runner.os }}-deps-gcc15-${{ hashFiles('third_party/CMakeLists.txt') }}
-          restore-keys: ${{ runner.os }}-deps-gcc15-
-
-      # Coverage is a first-class build mode in a cup project, so the gcov run is
-      # the same build the tests run against — no second configure.
-      - name: Configure (Coverage)
-        env:
-          CC: gcc-15
-          CXX: g++-15
-        run: cmake -B build/Coverage -DCMAKE_BUILD_TYPE=Coverage
-
-      - name: Build
-        run: cmake --build build/Coverage
-
-      # No --no-tests=ignore: Phase 2 landed the ui, tmpl and project suites, so a
-      # run that discovers no tests means the wiring broke and must fail loudly.
-      - name: Test
-        run: ctest --test-dir build/Coverage --output-on-failure
-
-      - name: Collect coverage
-        run: |
-          # `source` is not optional: some .gcda name Catch2 headers by a path that
-          # does not resolve in the build tree (build/Coverage/src/catch2/reporters/
-          # catch_reporter_sonarqube.hpp), and geninfo treats an unopenable source as a
-          # hard error. Excluding _deps at capture also skips ~100 Catch2 objects that
-          # the --remove below would drop anyway.
-          #
-          # `negative` and `inconsistent` cover the same class of GCC 15 +
-          # named-modules gcov note-file quirk as gcovr's --gcov-ignore-errors
-          # all in the sonarcloud job (see ci.yml): heavily-instantiated STL
-          # headers (<charconv>, <unicode.h>, ...), pulled in from dozens of
-          # translation units, occasionally produce a negative merged count or
-          # a hit/not-hit mismatch that lcov 2.x's stricter consistency checks
-          # now treat as fatal by default where lcov 1.x only warned.
-          lcov --capture --directory build/Coverage --output-file coverage.info \
-               --gcov-tool gcov-15 --exclude '*/_deps/*' \
-               --ignore-errors empty,mismatch,source,negative,inconsistent
-          # Third-party and generated sources are not ours to cover.
-          lcov --remove coverage.info \
-               '/usr/*' '*/build/*/_deps/*' '*/build/*/generated/*' \
-               --output-file coverage.info --ignore-errors empty,unused,inconsistent
-          lcov --list coverage.info --ignore-errors inconsistent
-
-      - name: Upload coverage
-        uses: actions/upload-artifact@v4
-        with:
-          name: cpp-coverage
-          path: |
-            coverage.info
-            build/Coverage/compile_commands.json
-
-  # Early warning against a newer GCC. Module support moves fast, and an ICE or a
-  # stale-BMI bug should surface here rather than in a contributor's first PR.
-  # Non-blocking on purpose: this job exists to tell us something, not to gate.
-  build-gcc-latest:
-    name: gcc-16 (canary) — build + test
-    runs-on: ubuntu-24.04
-    continue-on-error: true
-
+  build-debug:
+    uses: ./.github/workflows/job-build.yml
+    with:
+      mode: Debug
     permissions:
       contents: read
 
-    steps:
-      - uses: actions/checkout@v4
+  unit-test-debug:
+    needs: build-debug
+    if: ${{ !github.event.pull_request.draft }}
+    uses: ./.github/workflows/job-unit-test.yml
+    with:
+      mode: Debug
+      artifact-name: ${{ needs.build-debug.outputs.artifact-name }}
+    permissions:
+      contents: read
 
-      - name: Install toolchain
-        run: |
-          sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            g++-16 ninja-build cmake libcurl4-openssl-dev bats
+  functional-test-debug:
+    needs: build-debug
+    if: ${{ !github.event.pull_request.draft }}
+    uses: ./.github/workflows/job-functional-test.yml
+    with:
+      mode: Debug
+      artifact-name: ${{ needs.build-debug.outputs.artifact-name }}
+    permissions:
+      contents: read
 
-      - name: Configure
-        env:
-          CC: gcc-16
-          CXX: g++-16
-        run: cmake -B build/Debug -DCMAKE_BUILD_TYPE=Debug
-
-      - name: Build
-        run: cmake --build build/Debug
-
-      - name: Test
-        run: ctest --test-dir build/Debug --output-on-failure
-
-  # The release artifact: a musl-static binary built in alpine. Steps live in
-  # build-static.yml, a reusable workflow release.yml also calls (tag-triggered
-  # publishing) — see there for why musl and why alpine:3.23.
-  release-musl-static:
+  # --- gated: skipped on a draft PR ---------------------------------------
+  # The release artifact itself: a musl-static binary built in alpine (see
+  # build-static.yml for why musl and why alpine:3.23). This *is*
+  # build-release, not a separate verification build alongside it -- cup's
+  # actual shippable Release output is what gets tested and packaged.
+  build-release:
+    if: ${{ !github.event.pull_request.draft }}
     uses: ./.github/workflows/build-static.yml
+    permissions:
+      contents: read
+
+  unit-test-release:
+    needs: build-release
+    if: ${{ !github.event.pull_request.draft }}
+    uses: ./.github/workflows/job-unit-test.yml
+    with:
+      mode: Release
+      artifact-name: ${{ needs.build-release.outputs.artifact-name }}
+      container: alpine:3.23
+      pm: apk
+    permissions:
+      contents: read
+
+  functional-test-release:
+    needs: build-release
+    if: ${{ !github.event.pull_request.draft }}
+    uses: ./.github/workflows/job-functional-test.yml
+    with:
+      mode: Release
+      artifact-name: ${{ needs.build-release.outputs.artifact-name }}
+      container: alpine:3.23
+      pm: apk
+    permissions:
+      contents: read
+
+  # The .deb release artifact, alongside build-release's musl-static
+  # binary: apt-installable for anyone who'd rather have Debian/Ubuntu
+  # manage and remove it the normal way. See job-build-deb.yml for why it
+  # links libstdc++/libgcc statically -- the same GLIBCXX version gap
+  # unit-test-canary hit, just for package Depends: this time instead of a
+  # missing runtime .so.
+  build-deb:
+    if: ${{ !github.event.pull_request.draft }}
+    uses: ./.github/workflows/job-build-deb.yml
+    permissions:
+      contents: read
+
+  # Early warning against a newer GCC: the exact same build -> parallel
+  # unit-test/functional-test shape as Debug/Release, just gcc-16 and
+  # continue-on-error: true instead of a bespoke combined job. Non-blocking
+  # on purpose: this exists to tell us something, not to gate.
+  build-canary:
+    if: ${{ !github.event.pull_request.draft }}
+    uses: ./.github/workflows/job-build.yml
+    with:
+      mode: Debug
+      gcc-version: '16'
+      continue-on-error: true
+    permissions:
+      contents: read
+
+  unit-test-canary:
+    needs: build-canary
+    if: ${{ !github.event.pull_request.draft }}
+    uses: ./.github/workflows/job-unit-test.yml
+    with:
+      mode: Debug
+      artifact-name: ${{ needs.build-canary.outputs.artifact-name }}
+      continue-on-error: true
+    permissions:
+      contents: read
+
+  functional-test-canary:
+    needs: build-canary
+    if: ${{ !github.event.pull_request.draft }}
+    uses: ./.github/workflows/job-functional-test.yml
+    with:
+      mode: Debug
+      artifact-name: ${{ needs.build-canary.outputs.artifact-name }}
+      gcc-version: '16'
+      continue-on-error: true
+    permissions:
+      contents: read
+
+  # Officially-supported "build from source" distros beyond the ubuntu-24.04
+  # floor -- each its own self-contained job (see job-build-fedora.yml/
+  # job-build-debian.yml for why they don't split into build/test like
+  # Debug/Release/Canary). Main-push only, not every PR: these are packaging/
+  # distribution compatibility checks, not part of the core PR feedback
+  # loop -- back the README's platform claims with a real CI run, but only
+  # need to run when code actually lands on main.
+  build-fedora:
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    uses: ./.github/workflows/job-build-fedora.yml
+    permissions:
+      contents: read
+
+  build-debian:
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    uses: ./.github/workflows/job-build-debian.yml
+    permissions:
+      contents: read
+
+  sonarcloud:
+    needs: coverage
+    if: ${{ !github.event.pull_request.draft }}
+    uses: ./.github/workflows/job-sonarcloud.yml
+    permissions:
+      contents: read
+    secrets: inherit
+
+  # --- main-push only, regardless of draft (drafts don't merge to main) --
+  deploy-pages:
+    needs: sonarcloud
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    uses: ./.github/workflows/job-deploy-pages.yml
+    permissions:
+      pages: write
+      id-token: write
+
+  # Packages build-release's musl-static binary and build-deb's .deb into one
+  # downloadable bundle for the latest main build — not a GitHub Release
+  # (that stays reserved for version tags; see release.yml, which consumes
+  # the same build-release/build-deb outputs independently on its own
+  # tag-triggered pipeline). Waits on the test jobs too, not just the
+  # builds, so main only ever offers artifacts that actually passed suite.
+  release-main:
+    needs: [build-release, unit-test-release, functional-test-release, build-deb]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    uses: ./.github/workflows/job-release-main.yml
+    with:
+      artifact-name: ${{ needs.build-release.outputs.artifact-name }}
+      deb-artifact-name: ${{ needs.build-deb.outputs.artifact-name }}
     permissions:
       contents: read

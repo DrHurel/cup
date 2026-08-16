@@ -1,0 +1,103 @@
+name: Build
+
+# Reusable: configures and compiles one build MODE (Debug or Release) with
+# one GCC version, then uploads build/<mode> so the matching unit-test/
+# functional-test jobs can run ctest against the already-compiled tree
+# instead of recompiling per job. Coverage has its own job (job-coverage.yml)
+# since it also runs the tests and collects lcov data in the same step,
+# rather than splitting build/test.
+#
+# gcc-version defaults to the floor (15); cpp.yml also calls this at 16 for
+# the canary build, structured identically to the Debug/Release pipeline
+# (build -> parallel unit-test/functional-test) rather than as a bespoke
+# combined job -- continue-on-error is threaded through as an input so the
+# canary variant can be non-blocking without a separate job definition.
+
+on:
+  workflow_call:
+    inputs:
+      mode:
+        description: 'CMAKE_BUILD_TYPE to configure/build (Debug or Release)'
+        required: true
+        type: string
+      gcc-version:
+        description: 'GCC major version to build with'
+        required: false
+        type: string
+        default: '15'
+      continue-on-error:
+        description: 'Report failure without failing the overall run (for the gcc-16 canary)'
+        required: false
+        type: boolean
+        default: false
+    outputs:
+      artifact-name:
+        description: Name of the uploaded build-tree artifact
+        value: build-${{ inputs.mode }}-gcc${{ inputs.gcc-version }}
+
+env:
+  # Named modules require Ninja: CMake's Makefile generator does not implement
+  # the dyndep scanning protocol modules need, and never will.
+  CMAKE_GENERATOR: Ninja
+
+jobs:
+  build:
+    name: build (${{ inputs.mode }}, gcc-${{ inputs.gcc-version }})
+    runs-on: ubuntu-24.04
+    continue-on-error: ${{ inputs.continue-on-error }}
+
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # This job never pushes back to the repo; leaving the checkout
+          # token persisted in .git/config is an avoidable credential-
+          # exposure surface (flagged by SonarCloud's githubactions:S8262 --
+          # a broad artifact upload downstream, even one scoped to build/,
+          # is exactly the kind of step that rule exists to catch).
+          persist-credentials: false
+
+      # bats is needed here, not just in job-functional-test.yml: the
+      # functional/CMakeLists.txt find_program(BATS_EXECUTABLE bats) call
+      # happens at *configure* time, and the functional_* ctest entries are
+      # only registered when it succeeds. If bats were missing here, the
+      # later functional-test job would find zero functional_* tests to run,
+      # no matter how it's provisioned itself.
+      - name: Install toolchain
+        run: |
+          sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            g++-${{ inputs.gcc-version }} ninja-build cmake libcurl4-openssl-dev bats
+
+      - name: Cache FetchContent dependencies
+        uses: actions/cache@v4
+        with:
+          path: build/${{ inputs.mode }}/_deps
+          key: ${{ runner.os }}-deps-gcc${{ inputs.gcc-version }}-${{ inputs.mode }}-${{ hashFiles('third_party/CMakeLists.txt') }}
+          restore-keys: ${{ runner.os }}-deps-gcc${{ inputs.gcc-version }}-${{ inputs.mode }}-
+
+      - name: Configure
+        env:
+          CC: gcc-${{ inputs.gcc-version }}
+          CXX: g++-${{ inputs.gcc-version }}
+        run: cmake -B build/${{ inputs.mode }} -DCMAKE_BUILD_TYPE=${{ inputs.mode }}
+
+      - name: Build
+        run: cmake --build build/${{ inputs.mode }}
+
+      # _deps is excluded: it's third-party sources plus their compiled
+      # objects, already restored/rebuilt by the FetchContent cache above --
+      # re-uploading and re-downloading them on every test job would balloon
+      # artifact transfer for no benefit (the test jobs never touch _deps).
+      - name: Upload build tree
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-${{ inputs.mode }}-gcc${{ inputs.gcc-version }}
+          path: |
+            build/${{ inputs.mode }}
+            !build/${{ inputs.mode }}/_deps
+          include-hidden-files: true
+          retention-days: 1

@@ -1,0 +1,74 @@
+name: Package main binary
+
+# Reusable: packages build-release's musl-static binary and build-deb's .deb
+# (both already built and tested -- see cpp.yml) into one downloadable,
+# checksummed bundle representing the latest main build. The call site
+# (cpp.yml) restricts this to pushes on main.
+#
+# Deliberately does not create or update a GitHub Release: that stays
+# reserved for version tags (release.yml), so merging to main never floods
+# the Releases page. This is a workflow artifact only — grab it from the
+# run's Summary page, or promote it to a real tagged release by hand when
+# ready.
+
+on:
+  workflow_call:
+    inputs:
+      artifact-name:
+        description: Name of the already-built static-binary artifact to package
+        required: true
+        type: string
+      deb-artifact-name:
+        description: Name of the already-built .deb artifact to bundle alongside it
+        required: true
+        type: string
+
+jobs:
+  package:
+    name: package main build
+    runs-on: ubuntu-24.04
+
+    permissions:
+      contents: read
+
+    steps:
+      # The artifact is the whole build tree (see build-static.yml), not
+      # just the binary; the rest (test binaries, CTestTestfile.cmake, ...)
+      # is simply unused here.
+      - name: Download the static binary
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: dist
+
+      - name: Download the .deb package
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.deb-artifact-name }}
+          path: dist
+
+      # Same rename release.yml uses for the tagged release, so a build
+      # picked up from either place looks the same. Packaged as a tarball +
+      # checksum, not the bare binary, so "package" means something beyond
+      # what the upstream build job already uploads. The .deb is already a
+      # complete distributable unit, so it's just checksummed, not
+      # re-archived.
+      - name: Package
+        run: |
+          chmod +x dist/bin/cup
+          mv dist/bin/cup dist/cup-linux-x86_64-musl
+          cd dist
+          tar czf cup-linux-x86_64-musl.tar.gz cup-linux-x86_64-musl
+          sha256sum cup-linux-x86_64-musl.tar.gz > cup-linux-x86_64-musl.tar.gz.sha256
+          sha256sum ./*.deb > cup.deb.sha256
+
+      - name: Upload packaged binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: cup-main-latest
+          path: |
+            dist/cup-linux-x86_64-musl.tar.gz
+            dist/cup-linux-x86_64-musl.tar.gz.sha256
+            dist/*.deb
+            dist/cup.deb.sha256
+          retention-days: 30

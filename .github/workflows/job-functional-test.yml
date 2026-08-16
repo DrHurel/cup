@@ -1,0 +1,135 @@
+name: Functional tests
+
+# Reusable: downloads a build/<mode> tree (from job-build.yml or
+# build-static.yml) and runs only the functional_* bats suites
+# (src/tests/functional/*.bats), which drive the real compiled `cup` binary
+# as a subprocess. Unlike the Catch2 suites job-unit-test.yml runs, several
+# of these scenarios have `cup` itself orchestrate a *real* nested
+# cmake+ninja(+bats) build of a scratch fixture project (see
+# build_run.bats/modules_build_run.bats/make_build_run.bats) -- so, unlike
+# unit tests, this job needs the full toolchain installed. gcc-version picks
+# which g++ *this job* installs to run those nested builds -- independent of
+# how the artifact's own `cup` binary was compiled.
+#
+# container/pm exist for build-release: build-static.yml runs in
+# `container: alpine:3.23`, which mounts the workspace at /__w/... instead
+# of the usual /home/runner/work/... -- a plain (non-containerized) test job
+# downloading that artifact would find every absolute path baked into
+# CTestTestfile.cmake pointing at a directory that doesn't exist. Running
+# this job in the *same* container puts the configured paths and the actual
+# paths back in agreement; alpine's own toolchain builds the fixture
+# projects there instead of a versioned g++-<N> package, which doesn't
+# exist in apk. Debug/Canary leave both at their apt/'' defaults.
+
+on:
+  workflow_call:
+    inputs:
+      mode:
+        description: 'Build MODE whose artifact to test (Debug or Release) -- decides the download/ctest path, not which artifact'
+        required: true
+        type: string
+      artifact-name:
+        description: 'Name of the build-tree artifact to download and test (e.g. a job-build.yml or build-static.yml output)'
+        required: true
+        type: string
+      container:
+        description: 'Container image to run in, matching the build job (e.g. alpine:3.23 for Release); empty runs directly on the runner'
+        required: false
+        type: string
+        default: ''
+      pm:
+        description: 'Package manager to provision this job with: apt (default, ubuntu runner) or apk (alpine container)'
+        required: false
+        type: string
+        default: 'apt'
+      gcc-version:
+        description: 'GCC major version this job installs to compile fixture projects during the bats suites (apt only -- apk has one unversioned toolchain)'
+        required: false
+        type: string
+        default: '15'
+      continue-on-error:
+        description: 'Report failure without failing the overall run (for the gcc-16 canary)'
+        required: false
+        type: boolean
+        default: false
+
+env:
+  CMAKE_GENERATOR: Ninja
+
+jobs:
+  test:
+    name: functional tests (${{ inputs.mode }})
+    runs-on: ubuntu-24.04
+    container: ${{ inputs.container != '' && inputs.container || null }}
+    continue-on-error: ${{ inputs.continue-on-error }}
+
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # This job never pushes back to the repo; no reason to leave the
+          # checkout token persisted in .git/config.
+          persist-credentials: false
+
+      - name: Download build tree
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: build/${{ inputs.mode }}
+
+      # CC/CXX go to $GITHUB_ENV, not a job-level `env:` block: the
+      # "Run functional tests" step has the already-built `cup` binary
+      # orchestrate *nested* cmake configures of scratch fixture projects
+      # (see build_run.bats/modules_build_run.bats/make_build_run.bats).
+      # Without CC/CXX reaching that nested invocation too, it falls back to
+      # whatever `cc`/`c++` resolve to by default -- Ubuntu 24.04's system
+      # GCC 13, too old for the fixture's named-modules code path even
+      # though g++-${{ inputs.gcc-version }} is right there on PATH. A
+      # job-level block can't be apt-only, either -- alpine has no
+      # "gcc-<N>" binary at all, only a bare unversioned `gcc`.
+      - name: Install toolchain (apt)
+        if: inputs.pm == 'apt'
+        run: |
+          sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            g++-${{ inputs.gcc-version }} ninja-build cmake libcurl4-openssl-dev bats
+          echo "CC=gcc-${{ inputs.gcc-version }}" >> "$GITHUB_ENV"
+          echo "CXX=g++-${{ inputs.gcc-version }}" >> "$GITHUB_ENV"
+
+      # No CC/CXX needed: alpine's build-base provides one unambiguous
+      # gcc/g++, unlike ubuntu where the system default (GCC 13) and the PPA
+      # package coexist. Real ninja, not alpine's default samurai -- see
+      # build-static.yml's matching comment on ninja-is-really-ninja.
+      - name: Install toolchain (apk)
+        if: inputs.pm == 'apk'
+        run: apk add --no-cache build-base cmake ninja-build ninja-is-really-ninja git pkgconf bats
+
+      # build_run.bats has a scenario that chmod's a directory to 0000 to
+      # simulate a permission-denied error and expects the resulting cup
+      # operation to fail -- root bypasses permission checks entirely, so it
+      # only means anything running as an ordinary user, same as every
+      # non-containerized job here (GitHub's own `runner` account). A
+      # `container:` job otherwise runs as root and alpine has no such user
+      # by default, so this adds one and hands it the checked-out workspace;
+      # the actual test run below executes as that user instead of root.
+      - name: Create a non-root build user (apk)
+        if: inputs.pm == 'apk'
+        run: |
+          adduser -D runner
+          chown -R runner:runner "$GITHUB_WORKSPACE"
+
+      # actions/download-artifact does not restore the executable bit on its
+      # own; the cup binary the bats suites exec needs it back.
+      - name: Restore executable permissions
+        run: chmod -R +x build/${{ inputs.mode }}/bin
+
+      - name: Run functional tests (apt)
+        if: inputs.pm == 'apt'
+        run: ctest --test-dir build/${{ inputs.mode }} -R '^functional_' --output-on-failure
+
+      - name: Run functional tests (apk)
+        if: inputs.pm == 'apk'
+        run: su runner -c "ctest --test-dir build/${{ inputs.mode }} -R '^functional_' --output-on-failure"

@@ -1,0 +1,120 @@
+name: Unit tests
+
+# Reusable: downloads a build/<mode> tree (job-build.yml or build-static.yml)
+# and runs every ctest entry *except* the functional_* bats suites (see
+# job-functional-test.yml) -- the self-contained Catch2 executables, which
+# need no ninja/bats to run, just cmake's ctest CLI and the binaries
+# themselves. Kept split from functional so a bats-only failure doesn't hide
+# among -- or block re-running -- the much larger/faster Catch2 set.
+#
+# container/pm exist for build-release: build-static.yml runs in
+# `container: alpine:3.23`, which mounts the workspace at /__w/... instead
+# of the usual /home/runner/work/... -- a plain (non-containerized) test job
+# downloading that artifact would find every absolute path baked into
+# CTestTestfile.cmake pointing at a directory that doesn't exist. Running
+# this job in the *same* container puts the configured paths and the actual
+# paths back in agreement. Debug/Canary leave both at their apt/'' defaults.
+
+on:
+  workflow_call:
+    inputs:
+      mode:
+        description: 'Build MODE whose artifact to test (Debug or Release) -- decides the download/ctest path, not which artifact'
+        required: true
+        type: string
+      artifact-name:
+        description: 'Name of the build-tree artifact to download and test (e.g. a job-build.yml or build-static.yml output)'
+        required: true
+        type: string
+      container:
+        description: 'Container image to run in, matching the build job (e.g. alpine:3.23 for Release); empty runs directly on the runner'
+        required: false
+        type: string
+        default: ''
+      pm:
+        description: 'Package manager to provision this job with: apt (default, ubuntu runner) or apk (alpine container)'
+        required: false
+        type: string
+        default: 'apt'
+      continue-on-error:
+        description: 'Report failure without failing the overall run (for the gcc-16 canary)'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  test:
+    name: unit tests (${{ inputs.mode }})
+    runs-on: ubuntu-24.04
+    container: ${{ inputs.container != '' && inputs.container || null }}
+    continue-on-error: ${{ inputs.continue-on-error }}
+
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # This job never pushes back to the repo; no reason to leave the
+          # checkout token persisted in .git/config.
+          persist-credentials: false
+
+      - name: Download build tree
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: build/${{ inputs.mode }}
+
+      # Just ctest's own CLI -- no g++/ninja/bats needed, the binaries under
+      # test are already built. libstdc++6 does need the toolchain PPA,
+      # though: these binaries are dynamically linked, and a newer PPA GCC
+      # (gcc-16 canary in particular) requires GLIBCXX symbol versions newer
+      # than what ships in the base ubuntu-24.04 image -- without this, every
+      # test binary (and `cup` itself, spawned as a child process by
+      # interactive_signal_test) fails to even load: "version `GLIBCXX_3.4.35'
+      # not found". job-functional-test.yml never hit this because it already
+      # installs the full g++-<version> package, which pulls in the matching
+      # runtime as a dependency.
+      - name: Install cmake and a matching libstdc++ runtime (apt)
+        if: inputs.pm == 'apt'
+        run: |
+          sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake libstdc++6
+
+      # alpine's own cmake/libstdc++ already match build-release's build
+      # exactly -- same image, no cross-toolchain runtime version to chase.
+      # git is needed too: unlike the ubuntu-24.04 *runner* image (which
+      # ships git as standard tooling), a bare alpine:3.23 *container* has
+      # nothing preinstalled -- new_add_test.cpp's `cup new` scenario runs a
+      # real `git init`.
+      - name: Install cmake and git (apk)
+        if: inputs.pm == 'apk'
+        run: apk add --no-cache cmake git
+
+      # cmd_test.cpp has a scenario that chmod's a directory to 0000 to
+      # simulate a permission-denied error and expects the resulting cup
+      # operation to fail -- root bypasses permission checks entirely, so it
+      # only means anything running as an ordinary user, same as every
+      # non-containerized job here (GitHub's own `runner` account). A
+      # `container:` job otherwise runs as root and alpine has no such user
+      # by default, so this adds one and hands it the checked-out workspace;
+      # the actual test run below executes as that user instead of root.
+      - name: Create a non-root build user (apk)
+        if: inputs.pm == 'apk'
+        run: |
+          adduser -D runner
+          chown -R runner:runner "$GITHUB_WORKSPACE"
+
+      # actions/download-artifact does not restore the executable bit on its
+      # own; every test binary and the cup app itself need it back.
+      - name: Restore executable permissions
+        run: chmod -R +x build/${{ inputs.mode }}/bin
+
+      - name: Run unit tests (apt)
+        if: inputs.pm == 'apt'
+        run: ctest --test-dir build/${{ inputs.mode }} -E '^functional_' --output-on-failure
+
+      - name: Run unit tests (apk)
+        if: inputs.pm == 'apk'
+        run: su runner -c "ctest --test-dir build/${{ inputs.mode }} -E '^functional_' --output-on-failure"

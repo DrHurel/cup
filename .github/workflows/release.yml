@@ -1,8 +1,9 @@
 name: Release
 
 # Tag-triggered publishing: push a `vX.Y.Z` tag and this builds the
-# musl-static binary (via build-static.yml, the same reusable workflow
-# cpp.yml calls on every push/PR) and attaches it to a GitHub Release.
+# musl-static binary and the .deb (via build-static.yml/job-build-deb.yml,
+# the same reusable workflows cpp.yml calls on every push/PR) and attaches
+# both to a GitHub Release.
 #
 # Deliberately no `paths:` filter — a release must build regardless of what
 # the tagged commit touches, and path filters are not well-defined for tag
@@ -18,8 +19,13 @@ jobs:
     permissions:
       contents: read
 
+  build-deb:
+    uses: ./.github/workflows/job-build-deb.yml
+    permissions:
+      contents: read
+
   publish:
-    needs: build
+    needs: [build, build-deb]
     runs-on: ubuntu-latest
 
     permissions:
@@ -32,11 +38,19 @@ jobs:
           name: ${{ needs.build.outputs.artifact-name }}
           path: dist
 
-      # The artifact is uploaded as a bare `cup` file (see build-static.yml);
-      # rename it so multiple platforms could one day sit in the same release
-      # without colliding.
+      - name: Download the .deb package
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.build-deb.outputs.artifact-name }}
+          path: dist
+
+      # The static-binary artifact is the whole build tree, not just the
+      # binary (see build-static.yml -- cpp.yml's test jobs need the rest of
+      # it); pull just the binary out and rename it so multiple platforms
+      # could one day sit in the same release without colliding. The .deb
+      # artifact is already a complete, correctly-named distributable unit.
       - name: Rename for release
-        run: mv dist/cup dist/cup-linux-x86_64-musl
+        run: mv dist/bin/cup dist/cup-linux-x86_64-musl
 
       - name: Create GitHub Release
         # SHA-pinned, not @v2: this step runs with contents:write and
@@ -45,5 +59,7 @@ jobs:
         # flags a floating tag on a step this sensitive as a vulnerability.
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
-          files: dist/cup-linux-x86_64-musl
+          files: |
+            dist/cup-linux-x86_64-musl
+            dist/*.deb
           generate_release_notes: true
