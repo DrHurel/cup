@@ -21,15 +21,17 @@ name: C++ CI
 #   build-deb (*) ──────────────────────────> release-main (main push only)
 #   build-canary ─┬──> unit-test-canary (*, non-blocking)
 #         (*)     └──> functional-test-canary (*, non-blocking)
-#   build-fedora (*, non-blocking)
-#   build-debian (*, non-blocking)
+#   build-fedora (main push only, non-blocking)
+#   build-debian (main push only, non-blocking)
 #
 # build-fedora/build-debian back the README's "officially supported build-
 # from-source distros" claims with a real CI run each, alongside the
-# ubuntu-24.04 floor -- non-blocking for the same reason canary is: they
-# exist to tell us something, not to gate merges. Each is one self-
-# contained job (configure+build+test, no artifact-sharing split), since
-# they're a compatibility signal rather than the primary pipeline.
+# ubuntu-24.04 floor. Main-push only, not gated like (*) below: they're a
+# packaging/distribution compatibility signal, not part of the core PR
+# feedback loop, so they only need to run once code actually lands on main
+# -- also non-blocking (continue-on-error, same as canary) as a second,
+# now mostly-redundant layer of caution. Each is one self-contained job
+# (configure+build+test, no artifact-sharing split).
 #
 # build-release *is* the musl-static release artifact (build-static.yml),
 # not a separate glibc verification build: cup's real Release output gets
@@ -208,17 +210,18 @@ jobs:
   # Officially-supported "build from source" distros beyond the ubuntu-24.04
   # floor -- each its own self-contained job (see job-build-fedora.yml/
   # job-build-debian.yml for why they don't split into build/test like
-  # Debug/Release/Canary), non-blocking for the same reason canary is: these
-  # back the README's platform claims with a real CI run, but exist to tell
-  # us something, not to gate merges.
+  # Debug/Release/Canary). Main-push only, not every PR: these are packaging/
+  # distribution compatibility checks, not part of the core PR feedback
+  # loop -- back the README's platform claims with a real CI run, but only
+  # need to run when code actually lands on main.
   build-fedora:
-    if: ${{ !github.event.pull_request.draft }}
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     uses: ./.github/workflows/job-build-fedora.yml
     permissions:
       contents: read
 
   build-debian:
-    if: ${{ !github.event.pull_request.draft }}
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     uses: ./.github/workflows/job-build-debian.yml
     permissions:
       contents: read
