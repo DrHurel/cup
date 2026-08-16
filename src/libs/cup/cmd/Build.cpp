@@ -180,9 +180,9 @@ std::expected<void, error::Error> configure(const project::Project& proj, std::s
         }
         args.push_back(std::format("-DCMAKE_EXPERIMENTAL_CXX_IMPORT_STD={}", *uuid));
     }
-    args.push_back("-S");
+    args.emplace_back("-S");
     args.push_back(proj.root.string());
-    args.push_back("-B");
+    args.emplace_back("-B");
     args.push_back(build_dir(proj, mode).string());
     return run_shell(proj.root, "cmake", args);
 }

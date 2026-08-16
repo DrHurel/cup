@@ -109,7 +109,12 @@ std::expected<SpawnOutcome, error::Error> spawn(const std::filesystem::path& dir
         ::close(err_pipe[0]);
         if (capture_output) {
             ::close(out_pipe[0]);
-            ::dup2(out_pipe[1], STDOUT_FILENO);
+            // out_pipe[1] is always a real fd here: capture_output true with
+            // an unfilled/failed out_pipe returns before fork() (line 89's
+            // check), so this child only exists once that succeeded.
+            if (out_pipe[1] >= 0) {
+                ::dup2(out_pipe[1], STDOUT_FILENO);
+            }
             ::close(out_pipe[1]);
         }
         if (::chdir(dir.c_str()) != 0) {
