@@ -10,11 +10,12 @@ name: Windows build
 # What Windows runs: every Catch2 suite except ui_test, platform_test and
 # interactive_signal_test, which need a POSIX pseudo-terminal, and the bats
 # functional suite (see src/tests/CMakeLists.txt). process_test covers the
-# CreateProcessW path those POSIX-only suites would otherwise exercise.
+# CreateProcessW path those POSIX-only suites would otherwise exercise, and
+# windows_platform_test the Windows backend (cup.platform.windows) itself.
 #
 # -static links libstdc++/libgcc/winpthread into cup.exe, and cup talks HTTP
-# through WinHTTP rather than libcurl (src/libs/cup/platform/Http.cpp), so the
-# uploaded cup.exe is a single file with no DLLs beside it.
+# through WinHTTP rather than libcurl (src/libs/cup/platform/windows/Http.cpp),
+# so the uploaded cup.exe is a single file with no DLLs beside it.
 
 on:
   workflow_call: {}

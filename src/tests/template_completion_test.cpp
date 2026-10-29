@@ -20,6 +20,7 @@
 
 import cup.cmd;
 import cup.project;
+import cup.platform;
 import cup.tmpl;
 import cup.ui;
 
@@ -290,13 +291,10 @@ TEST_CASE("detect_shell reads $SHELL, defaulting to bash", "[cmd][completion]") 
         REQUIRE(cup::cmd::detect_shell() == "bash");
     }
     {
-        // No $SHELL: a native Windows shell there, else bash.
+        // No $SHELL: the platform's default (bash on POSIX, powershell on
+        // Windows — see the services files).
         const ScopedUnsetEnv shell("SHELL");
-#ifdef _WIN32
-        REQUIRE(cup::cmd::detect_shell() == "powershell");
-#else
-        REQUIRE(cup::cmd::detect_shell() == "bash");
-#endif
+        REQUIRE(cup::cmd::detect_shell() == cup::platform::default_shell());
     }
 }
 

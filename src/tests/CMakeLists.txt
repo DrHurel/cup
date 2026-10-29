@@ -125,7 +125,7 @@ add_test(NAME cmd_docker_test COMMAND cmd_docker_test)
 add_executable(template_completion_test template_completion_test.cpp)
 target_compile_features(template_completion_test PRIVATE cxx_std_23)
 target_include_directories(template_completion_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
-target_link_libraries(template_completion_test PRIVATE cmd project tmpl ui error
+target_link_libraries(template_completion_test PRIVATE cmd project tmpl ui platform error
                                                        Catch2::Catch2WithMain)
 add_test(NAME template_completion_test COMMAND template_completion_test)
 
@@ -163,6 +163,18 @@ target_compile_definitions(process_test PRIVATE CUP_CHILD_HELPER="$<TARGET_FILE:
 target_link_libraries(process_test PRIVATE platform error Catch2::Catch2WithMain)
 add_dependencies(process_test child_helper)
 add_test(NAME process_test COMMAND process_test)
+
+# Each platform backend's own suite, built only where that backend is: the
+# services file wiring (exe suffix, default shell, home/cache fallbacks) and
+# the pieces with no counterpart on the other OS. platform_test (above) is the
+# POSIX one.
+if(WIN32)
+  add_executable(windows_platform_test windows_platform_test.cpp)
+  target_compile_features(windows_platform_test PRIVATE cxx_std_23)
+  target_include_directories(windows_platform_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+  target_link_libraries(windows_platform_test PRIVATE platform error Catch2::Catch2WithMain)
+  add_test(NAME windows_platform_test COMMAND windows_platform_test)
+endif()
 
 add_executable(init_test init_test.cpp)
 target_compile_features(init_test PRIVATE cxx_std_23)

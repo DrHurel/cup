@@ -133,23 +133,24 @@ TEST_CASE("home_dir and cache_dir fall back to HOME", "[env]") {
     REQUIRE(cup::platform::cache_dir() == dir.path() / ".cache" / "cup");
 }
 
-#ifdef _WIN32
-TEST_CASE("on Windows, home_dir falls back to USERPROFILE and cache_dir to LOCALAPPDATA",
-          "[env][windows]") {
-    const TempDir dir;
-    const ScopedEnv xdg("XDG_CACHE_HOME", std::nullopt);
-    const ScopedEnv home("HOME", std::nullopt);
-    const ScopedEnv profile("USERPROFILE", dir.path().string());
-    const ScopedEnv local("LOCALAPPDATA", (dir.path() / "AppData").string());
-    REQUIRE(cup::platform::home_dir() == dir.path());
-    REQUIRE(cup::platform::cache_dir() == dir.path() / "AppData" / "cup");
+TEST_CASE("the platform's services file injects every service", "[services]") {
+    // Whichever of services/PosixServices.cpp or WindowsServices.cpp CMake
+    // built: an entry it forgot would only surface as a bad_function_call at
+    // the first use, so check them all up front.
+    const auto& s = cup::platform::services();
+    REQUIRE(static_cast<bool>(s.run_command));
+    REQUIRE(static_cast<bool>(s.capture_command));
+    REQUIRE(static_cast<bool>(s.http_get));
+    REQUIRE(static_cast<bool>(s.is_tty));
+    REQUIRE(static_cast<bool>(s.enter_raw_mode));
+    REQUIRE(static_cast<bool>(s.init_console));
+    REQUIRE(static_cast<bool>(s.read_input));
+    REQUIRE(static_cast<bool>(s.home_dir));
+    REQUIRE(static_cast<bool>(s.native_cache_dir));
+    REQUIRE_FALSE(s.default_shell.empty());
 }
 
-TEST_CASE("on Windows, executables carry .exe", "[env][windows]") {
-    REQUIRE(cup::platform::kExeSuffix == ".exe");
+TEST_CASE("init_console is safe to call off a console", "[services]") {
+    cup::platform::init_console();
+    SUCCEED();
 }
-#else
-TEST_CASE("on POSIX, executables carry no suffix", "[env]") {
-    REQUIRE(cup::platform::kExeSuffix.empty());
-}
-#endif

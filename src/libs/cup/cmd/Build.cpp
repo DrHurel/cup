@@ -310,8 +310,8 @@ std::expected<void, error::Error> run_run(std::span<const std::string> args) {
 
 std::filesystem::path app_binary(const project::Project& proj, std::string_view mode,
                                  std::string_view app) {
-    // kExeSuffix: the toolchain names the binary hello.exe on Windows.
-    const std::string file = std::string(app) + std::string(platform::kExeSuffix);
+    // exe_suffix: the toolchain names the binary hello.exe on Windows.
+    const std::string file = std::string(app) + std::string(platform::exe_suffix());
     const std::filesystem::path bin = build_dir(proj, mode) / "bin" / file;
     if (std::error_code ec; std::filesystem::exists(bin, ec)) {
         return bin;

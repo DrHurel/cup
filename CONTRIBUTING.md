@@ -74,10 +74,14 @@ through cup itself — that's the self-hosting loop cup's own CI exercises (see
 - `./devtools/test.sh` passes
 - New behavior has Catch2 coverage; a new command or user-visible flow gets a
   `src/tests/functional/*.bats` case too
-- Platform-specific code goes behind `#ifdef _WIN32` in `cup.platform` (or
-  the `TestCompat.hpp` shims, for tests) rather than spreading through
-  the other modules; `process_test` and the Windows CI job
-  (`job-build-windows.yml`) are what exercise the Windows side
+- OS-specific code lives only in cup.platform's backend libraries
+  (`src/libs/cup/platform/posix/`, `src/libs/cup/platform/windows/`), never
+  behind an `#ifdef _WIN32` elsewhere: add the capability to the `Services`
+  table (`services.cppm`), implement it in both backends, and wire it in both
+  services files (`services/PosixServices.cpp`, `services/WindowsServices.cpp`).
+  CMake builds one backend and one services file per platform. Test-only
+  shims go in `TestCompat.hpp`. `process_test`, `windows_platform_test` and
+  the Windows CI job (`job-build-windows.yml`) exercise the Windows side
 - No two files in one directory may differ only by case (`Error.cppm` next
   to `error.cppm`): a Windows or macOS checkout keeps just one of them
 - SonarCloud's quality gate runs on every PR (new-code coverage ≥ 80%, no new

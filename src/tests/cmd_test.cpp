@@ -1,6 +1,5 @@
 #include <catch2/catch_test_macros.hpp>
 
-#include <sys/stat.h>
 #include "TestCompat.hpp"
 
 #include <expected>
@@ -268,28 +267,27 @@ TEST_CASE("run_clean outside a project reports project::find's error", "[cmd][cl
     REQUIRE_FALSE(result.has_value());
 }
 
-// POSIX permission bits only: Windows has no read-only *directory* that stops
-// its children being deleted, so these two cases have nothing to exercise
-// there.
-#ifndef _WIN32
 // A read-only build/ blocks remove_all from unlinking its children, giving
 // run_clean a real (not simulated) filesystem error to propagate. Permissions
 // are restored before the TempDir's own destructor runs, or its best-effort
-// remove_all silently leaves the directory behind under /tmp.
+// remove_all silently leaves the directory behind under /tmp. Root ignores
+// the bits, and Windows has no read-only directory that stops its children
+// being deleted, so neither has anything to exercise here.
 TEST_CASE("run_clean reports a real filesystem removal failure", "[cmd][clean]") {
+    if (!cup::test::permission_bits_enforced()) {
+        SKIP("permission bits don't stop removal here (root, or Windows)");
+    }
     const TempDir dir;
     make_project(dir);
     dir.write("build/Debug/marker", "x");
     const ScopedCwd cwd(dir.path());
 
-    REQUIRE(::chmod((dir.path() / "build").c_str(), 0555) == 0);
+    std::filesystem::permissions(dir.path() / "build", std::filesystem::perms{0555});
     const auto result = cup::cmd::run_clean({});
-    REQUIRE(::chmod((dir.path() / "build").c_str(), 0755) == 0);
+    std::filesystem::permissions(dir.path() / "build", std::filesystem::perms{0755});
 
     REQUIRE_FALSE(result.has_value());
 }
-
-#endif
 
 TEST_CASE("run_configure, run_build, run_test and run_run all report project::find's error "
           "outside a project",
@@ -337,26 +335,27 @@ TEST_CASE("run_build/run_configure/run_test/run_rebuild/run_retest reject unexpe
     REQUIRE(stub.calls().empty());
 }
 
-#ifndef _WIN32
 TEST_CASE("run_rebuild and run_retest propagate a real clean failure instead of building",
           "[cmd][rebuild][retest]") {
+    if (!cup::test::permission_bits_enforced()) {
+        SKIP("permission bits don't stop removal here (root, or Windows)");
+    }
     const TempDir dir;
     make_project(dir, "make");
     dir.write("build/Debug/marker", "x");
     const ScopedCwd cwd(dir.path());
     StubRunCommand stub;
 
-    REQUIRE(::chmod((dir.path() / "build").c_str(), 0555) == 0);
+    std::filesystem::permissions(dir.path() / "build", std::filesystem::perms{0555});
     const auto rebuilt = cup::cmd::run_rebuild({});
     const auto retested = cup::cmd::run_retest({});
-    REQUIRE(::chmod((dir.path() / "build").c_str(), 0755) == 0);
+    std::filesystem::permissions(dir.path() / "build", std::filesystem::perms{0755});
 
     REQUIRE_FALSE(rebuilt.has_value());
     REQUIRE_FALSE(retested.has_value());
     // Neither reached make: the clean failure short-circuited both.
     REQUIRE(stub.calls().empty());
 }
-#endif
 
 TEST_CASE("run_build, run_test and run_run propagate a real cmake configure failure",
           "[cmd][build][test][run]") {
@@ -574,7 +573,7 @@ TEST_CASE("run_run resolves the app, builds, then runs the binary", "[cmd][run]"
     REQUIRE(stub.calls()[0] == "make MODE=Debug");
     REQUIRE(stub.calls()[1] ==
             (dir.path() / "build" / "Debug" / "bin" /
-                              ("greeter" + std::string(cup::platform::kExeSuffix)))
+                              ("greeter" + std::string(cup::platform::exe_suffix())))
                                      .string() +
                                  " -v");
 }
@@ -583,7 +582,7 @@ TEST_CASE("app_binary finds an adopted CMake project's app in its default locati
           "[cmd][run]") {
     const TempDir dir;
     const Project proj = make_project(dir);
-    const std::string file = "greeter" + std::string(cup::platform::kExeSuffix);
+    const std::string file = "greeter" + std::string(cup::platform::exe_suffix());
     const auto bin = dir.path() / "build" / "Debug" / "bin" / file;
     const auto in_tree = dir.path() / "build" / "Debug" / "src" / "apps" / "greeter" / file;
 

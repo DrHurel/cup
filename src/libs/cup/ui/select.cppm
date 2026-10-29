@@ -33,7 +33,7 @@ namespace detail {
 
 // select_interactive_impl is declared here, defined in Interactive.cpp: it
 // drives an FTXUI ftxui::Menu, which stays out of this interface partition
-// for the same reason curl stays out of :net (see platform/Http.cpp) — a
+// for the same reason curl stays out of :net (see platform/posix/Http.cpp) — a
 // heavy third-party header would otherwise enter every importer's BMI.
 [[nodiscard]] std::expected<std::string, error::Error> select_interactive_impl(
     std::string_view question, std::span<const std::string> options, std::size_t initial_cursor);

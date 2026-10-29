@@ -196,13 +196,11 @@ std::string detect_shell() {
     if (base == "fish") {
         return "fish";
     }
-#ifdef _WIN32
-    // A native Windows shell (cmd, PowerShell) sets no $SHELL; MSYS2 and Git
-    // Bash do, and were handled above.
+    // No $SHELL at all: the platform's own default (powershell on Windows,
+    // where cmd and PowerShell set none; bash elsewhere).
     if (base.empty()) {
-        return "powershell";
+        return std::string(platform::default_shell());
     }
-#endif
     return "bash";
 }
 

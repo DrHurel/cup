@@ -24,7 +24,7 @@ FetchContent_MakeAvailable(Catch2)
 # the target is invisible there.
 if(WIN32)
   # Nothing to find: cup.platform talks HTTP through the OS's WinHTTP on
-  # Windows (src/libs/cup/platform/Http.cpp), not libcurl.
+  # Windows (src/libs/cup/platform/windows/Http.cpp), not libcurl.
 elseif(CURL_USE_STATIC_LIBS)
   # The musl-static release build (release-musl-static CI job) needs libcurl.a
   # plus its own static transitive deps (openssl, zlib, nghttp2, brotli — apk

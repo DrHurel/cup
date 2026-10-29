@@ -20,6 +20,7 @@
 #include "TestHttpServer.hpp"
 
 import cup.platform;
+import cup.platform.posix;
 
 namespace {
 
@@ -446,4 +447,10 @@ TEST_CASE("capture_command_func is the override point for capture_command", "[pl
     const auto result = cup::platform::capture_command(dir.path(), "true", {});
     REQUIRE_FALSE(result.has_value());
     REQUIRE(result.error().message() == "stubbed");
+}
+
+TEST_CASE("the POSIX services file injects the POSIX backend", "[platform][services]") {
+    REQUIRE(cup::platform::exe_suffix().empty());
+    REQUIRE(cup::platform::default_shell() == "bash");
+    REQUIRE(cup::platform::home_dir() == cup::platform::posix::home_dir());
 }

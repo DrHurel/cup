@@ -154,7 +154,8 @@ CMake finds):
 Not covered on Windows: the pty-driven `ui_test`/`platform_test`/
 `interactive_signal_test` suites and the bats functional suite (see
 `src/tests/CMakeLists.txt`); every other Catch2 suite runs there, with
-`process_test` exercising the Windows process layer.
+`process_test` exercising the Windows process layer and
+`windows_platform_test` the Windows backend itself.
 
 ## Devtools scripts
 
@@ -313,15 +314,29 @@ graph TD
     log --> error
     log --> platform
     platform --> error
+    posix["cup.platform.posix"] -. "injected by<br/>PosixServices.cpp" .-> platform
+    windows["cup.platform.windows"] -. "injected by<br/>WindowsServices.cpp" .-> platform
     project --> error
     tmpl --> error
 ```
+
+The platform layer uses dependency injection. `cup.platform` declares what
+cup needs from the OS as a `Services` table (`services.cppm`). Each backend
+library implements it. A per-platform *services file*
+(`src/libs/cup/platform/services/PosixServices.cpp` or `WindowsServices.cpp`)
+injects one backend into the core by defining `make_platform_services()`.
+CMake compiles exactly one backend and its services file for the host
+(`if(WIN32)` in `src/libs/cup/platform/CMakeLists.txt`). Nothing else in cup
+imports a backend or tests `_WIN32`, and tests can swap any single service
+(`run_command_func()` etc.).
 
 | Module | Partitions | Purpose |
 | --- | --- | --- |
 | `cup.error` | `:error`, `:monad` | Error type and monadic `Result`/`Expected`-style helpers used everywhere else. |
 | `cup.log` | `:log` | Structured logging (`cup.log`) backed by spdlog. |
-| `cup.platform` | `:terminal`, `:net`, `:process`, `:env` | OS-facing primitives, POSIX and Windows: terminal I/O, HTTP (libcurl / WinHTTP), subprocess execution (fork+exec / CreateProcessW), and per-user directories. |
+| `cup.platform` | `:services`, `:raw_mode`, `:terminal`, `:net`, `:process`, `:env` | The portable OS-facing API: terminal I/O, HTTP, subprocess execution, and per-user directories. Free of OS headers: every call goes through the `Services` table that a platform backend fills in. |
+| `cup.platform.posix` | — | POSIX backend (fork+exec, termios, libcurl). Built only on non-Windows hosts. |
+| `cup.platform.windows` | — | Windows backend (CreateProcessW, the console API, WinHTTP). Built only on Windows. |
 | `cup.project` | `:config`, `:io` | Reads/writes a project's `cup.toml` and derives on-disk paths from it. |
 | `cup.tmpl` | `:corpus`, `:resolve` | Built-in template corpus and template-path resolution for `cup add`/`cup template`. |
 | `cup.ui` | `:io`, `:color`, `:prompt`, `:select` | Terminal UI toolkit: colored output, prompts, and interactive selection. |

@@ -86,7 +86,7 @@ namespace detail {
 
 // text_interactive_impl is declared here, defined in Interactive.cpp: it
 // drives an FTXUI ftxui::Input, which stays out of this interface partition
-// for the same reason curl stays out of :net (see platform/Http.cpp).
+// for the same reason curl stays out of :net (see platform/posix/Http.cpp).
 [[nodiscard]] std::expected<std::string, error::Error> text_interactive_impl(
     std::string_view question, std::string_view def, const Validator& validate);
 
