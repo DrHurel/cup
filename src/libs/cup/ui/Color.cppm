@@ -58,6 +58,7 @@ void updated(std::string_view msg) { detail::status(kOrange, "updated ", msg); }
 void skipped(std::string_view msg) { detail::status(kGrey, "skipped ", msg); }
 void removed(std::string_view msg) { detail::status(kSalmon, "removed ", msg); }
 void next(std::string_view msg) { detail::status(kCyan, "next    ", msg); }
+void detected(std::string_view msg) { detail::status(kCyan, "detected", msg); }
 
 void accent(std::string_view msg) { emit_line(color(bold(kCyan), msg)); }
 void success(std::string_view msg) { emit_line(color(bold(kGreen), msg)); }

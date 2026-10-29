@@ -1,0 +1,97 @@
+name: Windows build
+
+# Reusable, non-blocking: builds cup natively on Windows with MSYS2's UCRT64
+# toolchain (GCC 15+, the same compiler family as the Linux jobs, so cup's
+# GCC-specific modules workarounds hold), runs the unit suites, then drives
+# the freshly built cup.exe end to end against a real project. One
+# self-contained job, like job-build-fedora.yml, rather than a build/test
+# split: nothing downstream consumes its build tree.
+#
+# What Windows runs: every Catch2 suite except ui_test, platform_test and
+# interactive_signal_test, which need a POSIX pseudo-terminal, and the bats
+# functional suite (see src/tests/CMakeLists.txt). process_test covers the
+# CreateProcessW path those POSIX-only suites would otherwise exercise.
+#
+# -static links libstdc++/libgcc/winpthread into cup.exe, and cup talks HTTP
+# through WinHTTP rather than libcurl (src/libs/cup/platform/Http.cpp), so the
+# uploaded cup.exe is a single file with no DLLs beside it.
+
+on:
+  workflow_call: {}
+
+jobs:
+  build-and-test:
+    name: windows (msys2 ucrt64) — build + test
+    runs-on: windows-2025
+    continue-on-error: true
+
+    permissions:
+      contents: read
+
+    defaults:
+      run:
+        shell: msys2 {0}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # This job never pushes back to the repo; no reason to leave the
+          # checkout token persisted in .git/config.
+          persist-credentials: false
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            git
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+
+      - name: Show toolchain versions
+        run: |
+          g++ --version | head -1
+          cmake --version | head -1
+          ninja --version
+
+      - name: Configure
+        run: cmake -B build/Release -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXE_LINKER_FLAGS=-static
+
+      - name: Build
+        run: cmake --build build/Release
+
+      - name: Test
+        run: ctest --test-dir build/Release --output-on-failure
+
+      # The unit suites stub run_command; this runs the real thing: cup.exe
+      # adopting an existing CMake project with `cup init`, scaffolding into
+      # it, then compiling and running it through cmake/ninja/g++ — and a
+      # fresh C++23 modules project the same way, which also proves the
+      # std::println (libstdc++exp) wiring in the generated CMakeLists.
+      - name: End-to-end (cup init / add / build / run)
+        run: |
+          set -eux
+          cup="$PWD/build/Release/bin/cup.exe"
+          "$cup" --version
+
+          mkdir -p "$RUNNER_TEMP/legacy" && cd "$RUNNER_TEMP/legacy"
+          printf 'cmake_minimum_required(VERSION 3.20)\nproject(legacy CXX)\nset(CMAKE_CXX_STANDARD 17)\n' > CMakeLists.txt
+          "$cup" init
+          printf 'hello\n\n' | "$cup" add app
+          "$cup" build
+          "$cup" run hello | grep -q "Hello"
+
+          mkdir -p "$RUNNER_TEMP/fresh" && cd "$RUNNER_TEMP/fresh"
+          printf '1\n' | "$cup" init fresh --std 23
+          printf 'hello\n\n' | "$cup" add app
+          printf 'greeter\n\n\n' | "$cup" add lib
+          "$cup" build
+          "$cup" run hello | grep -q "Hello"
+
+      - name: Upload cup.exe
+        uses: actions/upload-artifact@v4
+        with:
+          name: cup-windows-x86_64
+          path: build/Release/bin/cup.exe
+          if-no-files-found: error

@@ -1,0 +1,6 @@
+# LF everywhere, on every platform. Git for Windows (and GitHub's Windows
+# runners) default to core.autocrlf=true, which would check the template
+# corpus out with CRLF — and cmake/EmbedTemplates.cmake embeds those bytes
+# verbatim, so every project a Windows-built cup scaffolds would carry them,
+# and the suites that compare rendered output exactly would fail.
+* text=auto eol=lf

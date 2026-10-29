@@ -9,6 +9,7 @@ module;
 #include <span>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <utility>
 #include <vector>
 module cup.cmd;
@@ -304,8 +305,22 @@ std::expected<void, error::Error> run_run(std::span<const std::string> args) {
         return built;
     }
 
-    const std::filesystem::path bin = build_dir(*proj, mode) / "bin" / app_name;
-    return run_shell(proj->root, bin.string(), prog_args);
+    return run_shell(proj->root, app_binary(*proj, mode, app_name).string(), prog_args);
+}
+
+std::filesystem::path app_binary(const project::Project& proj, std::string_view mode,
+                                 std::string_view app) {
+    // kExeSuffix: the toolchain names the binary hello.exe on Windows.
+    const std::string file = std::string(app) + std::string(platform::kExeSuffix);
+    const std::filesystem::path bin = build_dir(proj, mode) / "bin" / file;
+    if (std::error_code ec; std::filesystem::exists(bin, ec)) {
+        return bin;
+    }
+    const std::filesystem::path in_tree = build_dir(proj, mode) / "src" / "apps" / app / file;
+    if (std::error_code ec; std::filesystem::exists(in_tree, ec)) {
+        return in_tree;
+    }
+    return bin;
 }
 
 std::expected<void, error::Error> run_clean(std::span<const std::string> /*args*/) {

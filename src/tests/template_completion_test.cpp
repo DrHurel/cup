@@ -1,6 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 
-#include <unistd.h>
+#include "TestCompat.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -226,7 +226,8 @@ TEST_CASE("script_for returns each shell's script and rejects an unsupported one
     REQUIRE(cup::cmd::script_for("bash").has_value());
     REQUIRE(cup::cmd::script_for("zsh").has_value());
     REQUIRE(cup::cmd::script_for("fish").has_value());
-    auto bad = cup::cmd::script_for("powershell");
+    REQUIRE(cup::cmd::script_for("powershell").has_value());
+    auto bad = cup::cmd::script_for("tcsh");
     REQUIRE_FALSE(bad.has_value());
 }
 
@@ -246,6 +247,33 @@ TEST_CASE("bash/zsh/fish completions carry the dynamic command, category, and mo
     REQUIRE(bash.find("app lib test third-party") != std::string::npos);
     REQUIRE(fish.find("complete -c cup -f") != std::string::npos);
     REQUIRE(fish.find("__fish_seen_subcommand_from add") != std::string::npos);
+    REQUIRE(bash.find("init) COMPREPLY=( $(compgen -W \"--std --build-tool\"") != std::string::npos);
+    REQUIRE(zsh.find("init) compadd -- --std --build-tool;;") != std::string::npos);
+    REQUIRE(fish.find("__fish_seen_subcommand_from init' -a '--std --build-tool'") !=
+            std::string::npos);
+}
+
+TEST_CASE("the PowerShell completion carries the same lists as bash/zsh/fish",
+          "[cmd][completion][powershell]") {
+    const std::string ps = cup::cmd::powershell_completion();
+    REQUIRE(ps.find("Register-ArgumentCompleter -Native -CommandName cup, cup.exe") !=
+            std::string::npos);
+    for (const auto& name : cup::cmd::subcommand_names()) {
+        REQUIRE(ps.find("'" + name + "'") != std::string::npos);
+    }
+    REQUIRE(ps.find("'add' { @('app', 'lib', 'test', 'third-party') }") != std::string::npos);
+    REQUIRE(ps.find("'init' { @('--std', '--build-tool') }") != std::string::npos);
+    REQUIRE(ps.find("@('configure', 'build', 'rebuild', 'run', 'test', 'retest') } "
+                    "{ @('Debug', 'Release', 'Coverage') }") != std::string::npos);
+}
+
+TEST_CASE("run_completion install (powershell) explains the $PROFILE line instead",
+          "[cmd][completion][install][powershell]") {
+    const TempDir home;
+    const ScopedEnv home_env("HOME", home.path().string());
+    const auto result = cup::cmd::run_completion(std::vector<std::string>{"install", "powershell"});
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().message().contains("$PROFILE"));
 }
 
 TEST_CASE("detect_shell reads $SHELL, defaulting to bash", "[cmd][completion]") {
@@ -262,8 +290,13 @@ TEST_CASE("detect_shell reads $SHELL, defaulting to bash", "[cmd][completion]") 
         REQUIRE(cup::cmd::detect_shell() == "bash");
     }
     {
+        // No $SHELL: a native Windows shell there, else bash.
         const ScopedUnsetEnv shell("SHELL");
+#ifdef _WIN32
+        REQUIRE(cup::cmd::detect_shell() == "powershell");
+#else
         REQUIRE(cup::cmd::detect_shell() == "bash");
+#endif
     }
 }
 
@@ -272,7 +305,8 @@ TEST_CASE("run_completion prints a script for a supported shell and rejects garb
     REQUIRE(cup::cmd::run_completion(std::vector<std::string>{"bash"}).has_value());
     REQUIRE(cup::cmd::run_completion(std::vector<std::string>{"zsh"}).has_value());
     REQUIRE(cup::cmd::run_completion(std::vector<std::string>{"fish"}).has_value());
-    REQUIRE_FALSE(cup::cmd::run_completion(std::vector<std::string>{"powershell"}).has_value());
+    REQUIRE(cup::cmd::run_completion(std::vector<std::string>{"powershell"}).has_value());
+    REQUIRE_FALSE(cup::cmd::run_completion(std::vector<std::string>{"tcsh"}).has_value());
     REQUIRE_FALSE(cup::cmd::run_completion({}).has_value());
 }
 

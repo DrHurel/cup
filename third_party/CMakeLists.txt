@@ -22,7 +22,10 @@ FetchContent_MakeAvailable(Catch2)
 # directory (and its children) by default, but cup.platform needing
 # CURL::libcurl lives under src/libs, a sibling of third_party — without GLOBAL
 # the target is invisible there.
-if(CURL_USE_STATIC_LIBS)
+if(WIN32)
+  # Nothing to find: cup.platform talks HTTP through the OS's WinHTTP on
+  # Windows (src/libs/cup/platform/Http.cpp), not libcurl.
+elseif(CURL_USE_STATIC_LIBS)
   # The musl-static release build (release-musl-static CI job) needs libcurl.a
   # plus its own static transitive deps (openssl, zlib, nghttp2, brotli — apk
   # installs the matching *-static packages). find_package(CURL)'s own

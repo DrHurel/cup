@@ -12,11 +12,18 @@ target_sources(platform
             Terminal.cppm
             net.cppm
             process.cppm
+            env.cppm
 )
 target_compile_features(platform PUBLIC cxx_std_23)
 # cup scaffolds targets but does not wire dependencies between them, so module
 # imports are linked by hand. PUBLIC because cup.error types appear in
 # cup.platform's exported interface (std::expected<RawMode, Error>,
-# std::expected<std::string, Error>). CURL::libcurl is PRIVATE: it is included
-# in :net's implementation unit (Http.cpp) and appears in no exported signature.
-target_link_libraries(platform PUBLIC error PRIVATE CURL::libcurl)
+# std::expected<std::string, Error>). The HTTP backend is PRIVATE: it is
+# included in :net's implementation unit (Http.cpp) and appears in no exported
+# signature. Windows uses the OS's own WinHTTP rather than libcurl (see
+# Http.cpp), so a Windows cup.exe links no curl/OpenSSL at all.
+if(WIN32)
+  target_link_libraries(platform PUBLIC error PRIVATE winhttp)
+else()
+  target_link_libraries(platform PUBLIC error PRIVATE CURL::libcurl)
+endif()

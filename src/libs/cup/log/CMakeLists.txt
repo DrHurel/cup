@@ -9,8 +9,10 @@ target_sources(log
     PUBLIC
         FILE_SET CXX_MODULES FILES
             log.cppm
-            Log.cppm
+            log-Log.cppm  # not Log.cppm: see error/CMakeLists.txt
 )
 target_compile_features(log PUBLIC cxx_std_23)
-# cup.error supplies the E of init()'s std::expected result.
-target_link_libraries(log PUBLIC error PRIVATE spdlog::spdlog)
+# cup.error supplies the E of init()'s std::expected result. platform resolves
+# the log directory (platform::cache_dir) and appears in no exported
+# signature, so it is PRIVATE like spdlog.
+target_link_libraries(log PUBLIC error PRIVATE platform spdlog::spdlog)

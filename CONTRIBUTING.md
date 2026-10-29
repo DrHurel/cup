@@ -39,6 +39,10 @@ a `cup-dev` image with GCC 15 + CMake + Ninja already in it:
 docker run --rm -v "$PWD:/work" cup-dev ./devtools/build.sh
 ```
 
+On Windows, use MSYS2's UCRT64 environment (GCC 15+, CMake, Ninja) — see the
+README's [Windows](README.md#windows) section for the packages and the
+configure line. The bootstrap is the same plain `cmake`/`ninja` build.
+
 ## Running the tests
 
 ```sh
@@ -70,6 +74,12 @@ through cup itself — that's the self-hosting loop cup's own CI exercises (see
 - `./devtools/test.sh` passes
 - New behavior has Catch2 coverage; a new command or user-visible flow gets a
   `src/tests/functional/*.bats` case too
+- Platform-specific code goes behind `#ifdef _WIN32` in `cup.platform` (or
+  the `TestCompat.hpp` shims, for tests) rather than spreading through
+  the other modules; `process_test` and the Windows CI job
+  (`job-build-windows.yml`) are what exercise the Windows side
+- No two files in one directory may differ only by case (`Error.cppm` next
+  to `error.cppm`): a Windows or macOS checkout keeps just one of them
 - SonarCloud's quality gate runs on every PR (new-code coverage ≥ 80%, no new
   issues) — `sonar-project.properties` has the details if a finding needs a
   documented suppression rather than a fix

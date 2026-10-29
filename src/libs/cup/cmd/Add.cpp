@@ -32,6 +32,18 @@ std::string lower(std::string_view s) {
     return out;
 }
 
+// component_stem names the file a lib component lives in: stem itself,
+// unless that matches the lib's primary interface (<lib>.cppm / <lib>.hpp)
+// ignoring case — the default for a lib's first component, since lib "utils"
+// suggests symbol "Utils" — in which case it becomes "<lib>-<stem>" (MSVC's
+// partition-file convention, e.g. utils-Utils.cppm). Utils.cppm and
+// utils.cppm are one file on a case-insensitive filesystem (Windows, macOS),
+// so the rule holds on every host: a project scaffolded on Linux must still
+// check out on Windows.
+std::string component_stem(std::string_view lib, std::string_view stem) {
+    return lower(lib) == lower(stem) ? std::format("{}-{}", lib, stem) : std::string(stem);
+}
+
 // headers-family private helpers for C++11, C++14 and C++17, mirroring the
 // Go original's add_headers source file.
 
@@ -334,7 +346,8 @@ std::expected<void, error::Error> create_lib_at(const project::Project& proj, st
     if (!src.has_value()) {
         return std::unexpected(std::move(src).error());
     }
-    if (auto wrote = scaffold::write_file(proj.root, target_dir / (*symbol + ".cppm"), *src);
+    const std::string partition_file = component_stem(name, *symbol) + ".cppm";
+    if (auto wrote = scaffold::write_file(proj.root, target_dir / partition_file, *src);
         !wrote.has_value()) {
         return std::unexpected(std::move(wrote).error());
     }
@@ -351,7 +364,7 @@ std::expected<void, error::Error> create_lib_at(const project::Project& proj, st
     if (auto wrote = scaffold::write_file(proj.root, cmake, *cml); !wrote.has_value()) {
         return std::unexpected(std::move(wrote).error());
     }
-    if (auto added = scaffold::add_module_source(proj.root, cmake, *symbol + ".cppm"); !added.has_value()) {
+    if (auto added = scaffold::add_module_source(proj.root, cmake, partition_file); !added.has_value()) {
         return std::unexpected(std::move(added).error());
     }
     return scaffold::ensure_line(proj.root, parent_cmake, std::format("add_subdirectory({})", name));
@@ -393,7 +406,8 @@ std::expected<void, error::Error> add_file_to_lib(const project::Project& proj,
     if (!src.has_value()) {
         return std::unexpected(std::move(src).error());
     }
-    auto wrote = scaffold::write_file(proj.root, lib_dir / (*filename + ".cppm"), *src);
+    const std::string file = component_stem(lib_dir.filename().string(), *filename) + ".cppm";
+    auto wrote = scaffold::write_file(proj.root, lib_dir / file, *src);
     if (!wrote.has_value()) {
         return std::unexpected(std::move(wrote).error());
     }
@@ -401,7 +415,7 @@ std::expected<void, error::Error> add_file_to_lib(const project::Project& proj,
         return {};
     }
 
-    if (auto added = scaffold::add_module_source(proj.root, lib_dir / kCMakeLists, *filename + ".cppm");
+    if (auto added = scaffold::add_module_source(proj.root, lib_dir / kCMakeLists, file);
         !added.has_value()) {
         return std::unexpected(std::move(added).error());
     }
@@ -554,15 +568,18 @@ std::expected<void, error::Error> create_header_lib_at(const project::Project& p
         return std::unexpected(std::move(symbol).error());
     }
 
-    // A lib's first component is named after its primary symbol.
+    // A lib's first component is named after its primary symbol. A compiled
+    // kind's <symbol>.h can't collide with the <name>.hpp aggregator; a
+    // header-only kind's <symbol>.hpp can (see component_stem).
+    const bool compiled = tmpl::is_compiled(proj.root, "headers", *kind);
     HeaderComponent c{
         .kind = *kind,
         .lib_dir = target_dir,
         .lib = std::string(name),
-        .filename = *symbol,
+        .filename = compiled ? *symbol : component_stem(name, *symbol),
         .symbol = *symbol,
         .namespace_ = scaffold::path_to_namespace(proj.src().string(), target_dir.string()),
-        .compiled = tmpl::is_compiled(proj.root, "headers", *kind),
+        .compiled = compiled,
     };
     const std::filesystem::path primary = target_dir / (std::string(name) + ".hpp");
     const std::filesystem::path cmake = target_dir / kCMakeLists;
@@ -610,14 +627,15 @@ std::expected<void, error::Error> add_file_to_header_lib(const project::Project&
         return std::unexpected(std::move(symbol).error());
     }
 
+    const bool compiled = tmpl::is_compiled(proj.root, "headers", *kind);
     HeaderComponent c{
         .kind = *kind,
         .lib_dir = lib_dir,
         .lib = lib_dir.filename().string(),
-        .filename = *filename,
+        .filename = compiled ? *filename : component_stem(lib_dir.filename().string(), *filename),
         .symbol = *symbol,
         .namespace_ = scaffold::path_to_namespace(proj.src().string(), lib_dir.string()),
-        .compiled = tmpl::is_compiled(proj.root, "headers", *kind),
+        .compiled = compiled,
     };
 
     auto wrote = write_component_header(proj, c);

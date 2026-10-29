@@ -15,6 +15,8 @@ module;
 #include <utility>
 module cup.log;
 
+import cup.platform;
+
 namespace cup::log {
 namespace {
 
@@ -27,17 +29,10 @@ constexpr std::array<std::string_view, kCategoryCount> kCategoryNames{"user", "i
 constexpr std::array<const char*, kCategoryCount> kCategoryEnvVars{"CUP_LOG_USER", "CUP_LOG_INTERNAL",
                                                                    "CUP_LOG_EXTERNAL"};
 
-// log_dir mirrors scaffold::release_cache_dir()'s XDG_CACHE_HOME/HOME
-// resolution (src/libs/cup/scaffold/Releases.cpp) — duplicated rather than
-// shared, matching this port's established per-file convention for small
-// helpers (see Thirdparty.cpp's kAptMarker comment).
-std::filesystem::path log_dir() {
-    if (const char* xdg = std::getenv("XDG_CACHE_HOME"); xdg != nullptr && *xdg != '\0') {
-        return std::filesystem::path(xdg) / "cup";
-    }
-    const char* home = std::getenv("HOME");
-    return std::filesystem::path(home != nullptr ? home : "") / ".cache" / "cup";
-}
+// log_dir is the same per-user cache directory the release cache uses
+// (XDG_CACHE_HOME, %LOCALAPPDATA% on Windows, else ~/.cache), resolved by
+// cup.platform so the per-OS rules live in one place.
+std::filesystem::path log_dir() { return platform::cache_dir(); }
 
 spdlog::level::level_enum parse_level(std::string_view level) {
     if (level == "trace") return spdlog::level::trace;

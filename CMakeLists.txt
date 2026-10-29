@@ -39,6 +39,13 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)   # -std=c++23, not -std=gnu++23
 
+# MinGW's libstdc++ keeps std::print's Windows-console path (the half that
+# writes UTF-16 to a real console) in the separate libstdc++exp archive, not
+# libstdc++ itself — without it every std::println fails to link on Windows.
+if(MINGW)
+  link_libraries(stdc++exp)
+endif()
+
 # Emit compile_commands.json so external tooling (clangd, clang-tidy, sonar) can
 # see exactly how each translation unit is compiled.
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -132,7 +139,13 @@ set(CPACK_PACKAGE_VERSION "${CUP_VERSION}")
 set(CPACK_PACKAGE_VENDOR "DrHurel")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Scaffolds and manages C++ projects from a single binary")
 set(CPACK_PACKAGE_HOMEPAGE_URL "https://github.com/DrHurel/cup")
-set(CPACK_GENERATOR "DEB")
+# A Windows build packages as a plain .zip of cup.exe instead; the DEB
+# settings below are inert there.
+if(WIN32)
+  set(CPACK_GENERATOR "ZIP")
+else()
+  set(CPACK_GENERATOR "DEB")
+endif()
 set(CPACK_DEBIAN_PACKAGE_SECTION "devel")
 set(CPACK_DEBIAN_PACKAGE_MAINTAINER "https://github.com/DrHurel/cup/issues")
 # Auto-computed from the binary's actual linked libraries (needs dpkg-dev's

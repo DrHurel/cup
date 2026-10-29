@@ -16,6 +16,7 @@ module;
 #include <vector>
 module cup.cmd;
 
+import cup.platform;
 import cup.ui;
 
 namespace cup::cmd {
@@ -24,6 +25,27 @@ namespace {
 // modeCommands are the subcommands that take a leading build MODE argument.
 constexpr std::array<std::string_view, 6> kModeCommands{"configure", "build", "rebuild",
                                                         "run",       "test",  "retest"};
+
+// kInitFlags are `cup init`'s flags (see Init.cpp's parse_init_args).
+constexpr std::array<std::string_view, 2> kInitFlags{"--std", "--build-tool"};
+
+// ps_list renders strings as a PowerShell array literal: @('a', 'b').
+template <typename Range>
+std::string ps_list(const Range& parts) {
+    std::string out = "@(";
+    bool first = true;
+    for (const auto& p : parts) {
+        if (!first) {
+            out += ", ";
+        }
+        out += "'";
+        out += p;
+        out += "'";
+        first = false;
+    }
+    out += ")";
+    return out;
+}
 
 template <typename Range>
 std::string join(const Range& parts, std::string_view sep) {
@@ -104,12 +126,19 @@ std::expected<void, error::Error> install_completion(std::span<const std::string
     if (!script.has_value()) {
         return std::unexpected(std::move(script).error());
     }
+    // PowerShell has no per-user completion directory to drop a file into:
+    // completers live in the profile script, whose path only PowerShell
+    // itself knows ($PROFILE moves with a redirected Documents folder).
+    if (shell == "powershell") {
+        return std::unexpected(error::Error(
+            "PowerShell has no completion directory to install into — add this line to your "
+            "$PROFILE instead:  cup completion powershell | Out-String | Invoke-Expression"));
+    }
 
-    const char* home_env = std::getenv("HOME");
-    if (home_env == nullptr) {
+    const std::filesystem::path home = platform::home_dir();
+    if (home.empty()) {
         return std::unexpected(error::Error("$HOME is not set"));
     }
-    const std::filesystem::path home = home_env;
 
     // dest is a file each shell auto-loads on startup: the per-user
     // completion directory for bash and fish, and an fpath directory we
@@ -167,6 +196,13 @@ std::string detect_shell() {
     if (base == "fish") {
         return "fish";
     }
+#ifdef _WIN32
+    // A native Windows shell (cmd, PowerShell) sets no $SHELL; MSYS2 and Git
+    // Bash do, and were handled above.
+    if (base.empty()) {
+        return "powershell";
+    }
+#endif
     return "bash";
 }
 
@@ -187,10 +223,11 @@ std::string bash_completion() {
     out += "        add) COMPREPLY=( $(compgen -W \"" + join(kCategories, " ") + "\" -- \"$cur\") );;\n";
     out += "        " + join(kModeCommands, "|") + ") COMPREPLY=( $(compgen -W \"" +
            join(kBuildModes, " ") + "\" -- \"$cur\") );;\n";
+    out += "        init) COMPREPLY=( $(compgen -W \"" + join(kInitFlags, " ") + "\" -- \"$cur\") );;\n";
     out += "        compiler) COMPREPLY=( $(compgen -W \"show set verify\" -- \"$cur\") );;\n";
     out += "        docker) COMPREPLY=( $(compgen -W \"new build push\" -- \"$cur\") );;\n";
     out += "        template) COMPREPLY=( $(compgen -W \"list new\" -- \"$cur\") );;\n";
-    out += "        completion) COMPREPLY=( $(compgen -W \"bash zsh fish install\" -- \"$cur\") );;\n";
+    out += "        completion) COMPREPLY=( $(compgen -W \"bash zsh fish powershell install\" -- \"$cur\") );;\n";
     out += "    esac\n";
     out += "}\n";
     out += "complete -F _cup cup\n";
@@ -211,10 +248,11 @@ std::string zsh_completion() {
     out += "    case ${words[2]} in\n";
     out += "        add) compadd -- " + join(kCategories, " ") + ";;\n";
     out += "        " + join(kModeCommands, "|") + ") compadd -- " + join(kBuildModes, " ") + ";;\n";
+    out += "        init) compadd -- " + join(kInitFlags, " ") + ";;\n";
     out += "        compiler) compadd -- show set verify;;\n";
     out += "        docker) compadd -- new build push;;\n";
     out += "        template) compadd -- list new;;\n";
-    out += "        completion) compadd -- bash zsh fish install;;\n";
+    out += "        completion) compadd -- bash zsh fish powershell install;;\n";
     out += "    esac\n";
     out += "}\n";
     out += "compdef _cup cup\n";
@@ -233,10 +271,40 @@ std::string fish_completion() {
     out += "complete -c cup -n '__fish_seen_subcommand_from add' -a '" + join(kCategories, " ") + "'\n";
     out += "complete -c cup -n '__fish_seen_subcommand_from " + join(kModeCommands, " ") + "' -a '" +
            join(kBuildModes, " ") + "'\n";
+    out += "complete -c cup -n '__fish_seen_subcommand_from init' -a '" + join(kInitFlags, " ") + "'\n";
     out += "complete -c cup -n '__fish_seen_subcommand_from compiler' -a 'show set verify'\n";
     out += "complete -c cup -n '__fish_seen_subcommand_from docker' -a 'new build push'\n";
     out += "complete -c cup -n '__fish_seen_subcommand_from template' -a 'list new'\n";
-    out += "complete -c cup -n '__fish_seen_subcommand_from completion' -a 'bash zsh fish install'\n";
+    out += "complete -c cup -n '__fish_seen_subcommand_from completion' -a 'bash zsh fish powershell install'\n";
+    return out;
+}
+
+std::string powershell_completion() {
+    std::string out;
+    out += "# cup PowerShell completion.\n";
+    out += "# Load it for one session with:  cup completion powershell | Out-String | Invoke-Expression\n";
+    out += "# Add that same line to your $PROFILE to load it in every session.\n";
+    out += "Register-ArgumentCompleter -Native -CommandName cup, cup.exe -ScriptBlock {\n";
+    out += "    param($wordToComplete, $commandAst, $cursorPosition)\n";
+    out += "    $words = @($commandAst.CommandElements | ForEach-Object { $_.ToString() })\n";
+    out += "    if ($words.Count -lt 2 -or ($words.Count -eq 2 -and $wordToComplete -ne '')) {\n";
+    out += "        $candidates = " + ps_list(subcommand_names()) + "\n";
+    out += "    } else {\n";
+    out += "        $candidates = switch ($words[1]) {\n";
+    out += "            'add' { " + ps_list(kCategories) + " }\n";
+    out += "            'init' { " + ps_list(kInitFlags) + " }\n";
+    out += "            'compiler' { @('show', 'set', 'verify') }\n";
+    out += "            'docker' { @('new', 'build', 'push') }\n";
+    out += "            'template' { @('list', 'new') }\n";
+    out += "            'completion' { @('bash', 'zsh', 'fish', 'powershell', 'install') }\n";
+    out += "            { $_ -in " + ps_list(kModeCommands) + " } { " + ps_list(kBuildModes) + " }\n";
+    out += "            default { @() }\n";
+    out += "        }\n";
+    out += "    }\n";
+    out += "    $candidates | Where-Object { $_ -like \"$wordToComplete*\" } | ForEach-Object {\n";
+    out += "        [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)\n";
+    out += "    }\n";
+    out += "}\n";
     return out;
 }
 
@@ -250,8 +318,11 @@ std::expected<std::string, error::Error> script_for(std::string_view shell) {
     if (shell == "fish") {
         return fish_completion();
     }
-    return std::unexpected(
-        error::Error(std::format("unsupported shell \"{}\" (want bash, zsh, or fish)", shell)));
+    if (shell == "powershell") {
+        return powershell_completion();
+    }
+    return std::unexpected(error::Error(
+        std::format("unsupported shell \"{}\" (want bash, zsh, fish, or powershell)", shell)));
 }
 
 std::expected<void, error::Error> run_completion(std::span<const std::string> args) {
@@ -265,8 +336,11 @@ std::expected<void, error::Error> run_completion(std::span<const std::string> ar
         ui::emit(zsh_completion());
     } else if (shell == "fish") {
         ui::emit(fish_completion());
+    } else if (shell == "powershell") {
+        ui::emit(powershell_completion());
     } else {
-        return std::unexpected(error::Error("usage: cup completion <bash|zsh|fish|install [shell]>"));
+        return std::unexpected(
+            error::Error("usage: cup completion <bash|zsh|fish|powershell|install [shell]>"));
     }
     return {};
 }

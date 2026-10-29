@@ -1,6 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 
-#include <unistd.h>
+#include "TestCompat.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -446,9 +446,12 @@ TEST_CASE("add_lib (modules) creates a partitioned lib and registers it", "[cmd]
     REQUIRE(result.has_value());
 
     const auto lib_dir = proj.src() / "libs" / "utils";
-    REQUIRE(std::filesystem::exists(lib_dir / "Utils.cppm"));
+    // utils-Utils.cppm, not Utils.cppm: that and utils.cppm are one file on a
+    // case-insensitive filesystem (see Add.cpp's component_stem).
+    REQUIRE(std::filesystem::exists(lib_dir / "utils-Utils.cppm"));
     REQUIRE(std::filesystem::exists(lib_dir / "utils.cppm"));
     REQUIRE(std::filesystem::exists(lib_dir / "CMakeLists.txt"));
+    REQUIRE(file_contains(lib_dir / "CMakeLists.txt", "utils-Utils.cppm"));
     REQUIRE(file_contains(lib_dir / "utils.cppm", "export import :utils;"));
     REQUIRE(file_contains(proj.src() / "libs" / "CMakeLists.txt", "add_subdirectory(utils)"));
 }
@@ -471,6 +474,54 @@ TEST_CASE("create_header_lib_at (headers family) creates a lib with a primary ag
     REQUIRE(file_contains(lib_dir / "utils.hpp", "#pragma once"));
     REQUIRE(std::filesystem::exists(lib_dir / "CMakeLists.txt"));
     REQUIRE(file_contains(proj.src() / "libs" / "CMakeLists.txt", "add_subdirectory(utils)"));
+}
+
+TEST_CASE("create_header_lib_at keeps a header-only component apart from the aggregator",
+          "[cmd][add]") {
+    // templated-class is header-only: its component is a .hpp, like the
+    // utils.hpp aggregator, so Utils.hpp would be the same file on Windows.
+    const TempDir dir;
+    const Project proj = scaffold_project(dir, "1", 17, "1");
+    const std::size_t kind_index = index_of_kind(proj.root, "headers", "templated-class");
+
+    const ScopedStdin not_a_terminal("");
+    std::istringstream in(std::to_string(kind_index) + "\nUtils\n");
+    const cup::ui::ScopedInput scoped(in);
+
+    const auto lib_dir = proj.src() / "libs" / "utils";
+    REQUIRE(cup::cmd::create_header_lib_at(proj, "utils", lib_dir, proj.src() / "libs" / "CMakeLists.txt")
+                .has_value());
+
+    REQUIRE(std::filesystem::exists(lib_dir / "utils-Utils.hpp"));
+    REQUIRE(file_contains(lib_dir / "utils.hpp", "#include \"utils-Utils.hpp\""));
+    REQUIRE(file_contains(lib_dir / "CMakeLists.txt", "utils-Utils.hpp"));
+}
+
+TEST_CASE("add_file_to_lib never overwrites the primary interface with a same-named file",
+          "[cmd][add]") {
+    const TempDir dir;
+    const Project proj = scaffold_project(dir, "1", 23, "1");
+    const std::size_t class_index = index_of_kind(proj.root, "modules", "class");
+    const auto lib_dir = proj.src() / "libs" / "utils";
+    {
+        const ScopedStdin not_a_terminal("");
+        std::istringstream setup_in(std::to_string(class_index) + "\nCore\n");
+        const cup::ui::ScopedInput setup_scoped(setup_in);
+        REQUIRE(cup::cmd::create_lib_at(proj, "utils", lib_dir, proj.src() / "libs" / "CMakeLists.txt")
+                    .has_value());
+    }
+
+    // A file named after the lib itself: utils.cppm is the primary interface.
+    const ScopedStdin not_a_terminal("");
+    std::istringstream in("utils\n" + std::to_string(class_index) + "\nHelper\n");
+    const cup::ui::ScopedInput scoped(in);
+    REQUIRE(cup::cmd::add_file_to_lib(proj, lib_dir).has_value());
+
+    REQUIRE(std::filesystem::exists(lib_dir / "utils-utils.cppm"));
+    REQUIRE(file_contains(lib_dir / "utils.cppm", "export module utils;"));
+    REQUIRE(file_contains(lib_dir / "utils.cppm", "export import :core;"));
+    REQUIRE(file_contains(lib_dir / "utils.cppm", "export import :utils;"));
+    REQUIRE(file_contains(lib_dir / "CMakeLists.txt", "utils-utils.cppm"));
 }
 
 TEST_CASE("add_test (cmake) wires the test into src/tests/CMakeLists.txt and the root",
@@ -536,7 +587,7 @@ TEST_CASE("create_lib_at reports a write failure when the primary aggregator exi
     REQUIRE_FALSE(result.has_value());
     REQUIRE(cup::error::is_abort(result.error()));
     // The partition itself was written before the aggregator write failed.
-    REQUIRE(std::filesystem::exists(lib_dir / "Utils.cppm"));
+    REQUIRE(std::filesystem::exists(lib_dir / "utils-Utils.cppm"));
 }
 
 TEST_CASE("create_lib_at reports a write failure when the CMakeLists exists and the "
@@ -687,8 +738,7 @@ TEST_CASE("scaffold_project_tree reports a write failure when CMakeLists.txt exi
     REQUIRE(cup::error::is_abort(result.error()));
 }
 
-TEST_CASE("scaffold_project_tree reports a write failure when .gitignore exists and the "
-          "overwrite prompt hits EOF",
+TEST_CASE("scaffold_project_tree merges into an existing .gitignore instead of prompting",
           "[cmd][new]") {
     const TempDir dir;
     const Project proj{dir.path(),
@@ -703,10 +753,14 @@ TEST_CASE("scaffold_project_tree reports a write failure when .gitignore exists 
     std::istringstream in("");
     const cup::ui::ScopedInput scoped(in);
 
+    // No prompt is answered (the input is empty): merging never asks.
     auto result = cup::cmd::scaffold_project_tree(proj, 23, 15, 18);
-    REQUIRE_FALSE(result.has_value());
-    REQUIRE(cup::error::is_abort(result.error()));
+    REQUIRE(result.has_value());
     REQUIRE(std::filesystem::exists(proj.root / "CMakeLists.txt"));
+    std::ifstream gi(proj.root / ".gitignore");
+    const std::string merged{std::istreambuf_iterator<char>(gi), std::istreambuf_iterator<char>()};
+    REQUIRE(merged.starts_with("# stale\n"));
+    REQUIRE(merged.find("/build/\n") != std::string::npos);
 }
 
 TEST_CASE("scaffold_make_tree reports a write failure when the Makefile exists and the "
@@ -727,8 +781,7 @@ TEST_CASE("scaffold_make_tree reports a write failure when the Makefile exists a
     REQUIRE(cup::error::is_abort(result.error()));
 }
 
-TEST_CASE("scaffold_make_tree reports a write failure when .gitignore exists and the "
-          "overwrite prompt hits EOF",
+TEST_CASE("scaffold_make_tree merges into an existing .gitignore instead of prompting",
           "[cmd][new]") {
     const TempDir dir;
     const Project proj{
@@ -741,9 +794,10 @@ TEST_CASE("scaffold_make_tree reports a write failure when .gitignore exists and
     const cup::ui::ScopedInput scoped(in);
 
     auto result = cup::cmd::scaffold_make_tree(proj, 17);
-    REQUIRE_FALSE(result.has_value());
-    REQUIRE(cup::error::is_abort(result.error()));
+    REQUIRE(result.has_value());
     REQUIRE(std::filesystem::exists(proj.root / "Makefile"));
+    REQUIRE(file_contains(proj.root / ".gitignore", "# stale\n"));
+    REQUIRE(file_contains(proj.root / ".gitignore", "*.o\n"));
 }
 
 TEST_CASE("run_new (c++23, std_module = false) never writes import std;", "[cmd][add][end-to-end]") {
@@ -769,12 +823,12 @@ TEST_CASE("run_new (c++23, std_module = false) never writes import std;", "[cmd]
         REQUIRE(cup::cmd::add_lib(proj).has_value());
     }
 
-    for (const auto& file : {proj.src() / "apps" / "hello" / "hello.cpp", proj.src() / "libs" / "utils" / "Utils.cppm",
+    for (const auto& file : {proj.src() / "apps" / "hello" / "hello.cpp", proj.src() / "libs" / "utils" / "utils-Utils.cppm",
                              proj.src() / "libs" / "utils" / "utils.cppm"}) {
         REQUIRE_FALSE(file_contains(file, "import std;"));
     }
     REQUIRE(file_contains(proj.src() / "libs" / "utils" / "utils.cppm", "module;\n#include <string>\n"));
-    REQUIRE(file_contains(proj.src() / "libs" / "utils" / "Utils.cppm", "#include <print>"));
+    REQUIRE(file_contains(proj.src() / "libs" / "utils" / "utils-Utils.cppm", "#include <print>"));
 }
 
 TEST_CASE("run_add dispatches an explicit category without prompting",

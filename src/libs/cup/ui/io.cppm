@@ -1,5 +1,9 @@
 module;
+#ifdef _WIN32
+#include <io.h>
+#else
 #include <unistd.h>
+#endif
 
 #include <cstddef>
 #include <cstdio>
@@ -69,7 +73,11 @@ bool read_line(std::string& line) {
 }
 
 int read_key(std::span<unsigned char> buf) {
+#ifdef _WIN32
+    return ::_read(0, buf.data(), static_cast<unsigned int>(buf.size()));
+#else
     return static_cast<int>(::read(STDIN_FILENO, buf.data(), buf.size()));
+#endif
 }
 
 }

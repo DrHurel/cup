@@ -1,6 +1,7 @@
 module;
 #include <algorithm>
 #include <cctype>
+#include <cstddef>
 #include <expected>
 #include <filesystem>
 #include <format>
@@ -157,6 +158,35 @@ std::string module_std_setup(const project::Config& cfg) {
            "cmake_minimum_required(VERSION 3.28)\n";
 }
 
+std::expected<void, error::Error> merge_gitignore(const std::filesystem::path& root,
+                                                  std::string_view rendered) {
+    const std::filesystem::path path = root / ".gitignore";
+    if (std::error_code ec; !std::filesystem::exists(path, ec)) {
+        auto wrote = scaffold::write_file(root, path, rendered);
+        if (!wrote.has_value()) {
+            return std::unexpected(std::move(wrote).error());
+        }
+        return {};
+    }
+    // Entries only: the template's comment and blank lines would just pile
+    // up at the end of someone else's file.
+    for (std::size_t start = 0; start < rendered.size();) {
+        auto end = rendered.find('\n', start);
+        if (end == std::string_view::npos) {
+            end = rendered.size();
+        }
+        const std::string_view line = rendered.substr(start, end - start);
+        start = end + 1;
+        if (line.empty() || line.front() == '#') {
+            continue;
+        }
+        if (auto ensured = scaffold::ensure_line(root, path, line); !ensured.has_value()) {
+            return ensured;
+        }
+    }
+    return {};
+}
+
 std::expected<void, error::Error> scaffold_project_tree(const project::Project& proj, int std,
                                                          int gcc, int clang) {
     if (proj.uses_make()) {
@@ -184,9 +214,8 @@ std::expected<void, error::Error> scaffold_project_tree(const project::Project& 
     if (!gitignore.has_value()) {
         return std::unexpected(std::move(gitignore).error());
     }
-    if (auto wrote = scaffold::write_file(root, root / ".gitignore", *gitignore);
-        !wrote.has_value()) {
-        return std::unexpected(std::move(wrote).error());
+    if (auto merged = merge_gitignore(root, *gitignore); !merged.has_value()) {
+        return merged;
     }
 
     // src/apps and src/libs are always add_subdirectory'd by the root
@@ -219,9 +248,8 @@ std::expected<void, error::Error> scaffold_make_tree(const project::Project& pro
     if (!gitignore.has_value()) {
         return std::unexpected(std::move(gitignore).error());
     }
-    if (auto wrote = scaffold::write_file(root, root / ".gitignore", *gitignore);
-        !wrote.has_value()) {
-        return std::unexpected(std::move(wrote).error());
+    if (auto merged = merge_gitignore(root, *gitignore); !merged.has_value()) {
+        return merged;
     }
 
     // src/apps and src/libs need to exist so the Makefile's discovery has

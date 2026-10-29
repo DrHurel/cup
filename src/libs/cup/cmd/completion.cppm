@@ -25,11 +25,13 @@ export namespace cup::cmd {
 // script_for returns the completion script for a supported shell.
 [[nodiscard]] std::expected<std::string, error::Error> script_for(std::string_view shell);
 
-// detect_shell guesses the current shell from $SHELL, defaulting to bash.
+// detect_shell guesses the current shell from $SHELL, defaulting to bash —
+// or, on Windows with no $SHELL at all (cmd, PowerShell), to powershell.
 [[nodiscard]] std::string detect_shell();
 
 [[nodiscard]] std::string bash_completion();
 [[nodiscard]] std::string zsh_completion();
 [[nodiscard]] std::string fish_completion();
+[[nodiscard]] std::string powershell_completion();
 
 }

@@ -41,11 +41,13 @@ setup() {
     # (defaults to 1=class) and the "primary symbol name?" prompt (defaults
     # to Mylib). uses_modules()==true here, so this exercises create_lib_at's
     # modules branch: a primary aggregator (mylib.cppm, `export module
-    # mylib;`) plus a partition (Mylib.cppm) in one FILE_SET CXX_MODULES.
+    # mylib;`) plus a partition (mylib-Mylib.cppm — not Mylib.cppm, which a
+    # case-insensitive filesystem would merge with mylib.cppm) in one
+    # FILE_SET CXX_MODULES.
     run bash -c "printf 'mylib\n\n\n' | '$CUP_BIN' add lib"
     [ "$status" -eq 0 ]
     [ -f src/libs/mylib/mylib.cppm ]
-    [ -f src/libs/mylib/Mylib.cppm ]
+    [ -f src/libs/mylib/mylib-Mylib.cppm ]
     grep -q "export module mylib;" src/libs/mylib/mylib.cppm
     grep -q "add_subdirectory(mylib)" src/libs/CMakeLists.txt
 

@@ -17,18 +17,22 @@ namespace detail {
 // splitting, not std::filesystem::path: cup.scaffold reserves <filesystem> for
 // the one partition that actually touches disk (see :cmake / :render), and this
 // mirrors the Go source, which treats paths as strings too (path/filepath.Rel).
+// Both '/' and '\\' separate segments: callers pass path::string(), which is
+// backslash-separated on Windows, and neither character can appear in a
+// segment that has to become a C++ identifier anyway.
 [[nodiscard]] std::vector<std::string> rel_parts(std::string_view src, std::string_view dir) {
+    constexpr std::string_view kSeparators = "/\\";
     if (!dir.starts_with(src)) {
         return {};
     }
     std::string_view rest = dir.substr(src.size());
-    while (rest.starts_with('/')) {
+    while (!rest.empty() && kSeparators.contains(rest.front())) {
         rest.remove_prefix(1);
     }
     std::vector<std::string> parts;
     std::size_t start = 0;
     while (true) {
-        const auto slash = rest.find('/', start);
+        const auto slash = rest.find_first_of(kSeparators, start);
         if (slash == std::string_view::npos) {
             parts.emplace_back(rest.substr(start));
             break;

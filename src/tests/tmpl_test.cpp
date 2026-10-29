@@ -1,7 +1,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <unistd.h>
+#include "TestCompat.hpp"
 
 #include <algorithm>
 #include <expected>
@@ -134,8 +134,8 @@ TEST_CASE("copy_builtin reports an unknown kind", "[tmpl][copy]") {
 }
 
 TEST_CASE("an unreadable override falls through to the built-in", "[tmpl][override]") {
-    if (::geteuid() == 0) {
-        SKIP("root ignores the permission bits, so the override stays readable");
+    if (!cup::test::permission_bits_enforced()) {
+        SKIP("root (and Windows) ignores the permission bits, so the override stays readable");
     }
     const TempDir root;
     const std::filesystem::path override_file =

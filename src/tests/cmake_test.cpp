@@ -46,6 +46,12 @@ TEST_CASE("read_file_lines", "[cmake][read_file_lines]") {
         REQUIRE(lines.has_value());
         REQUIRE(*lines == std::vector<std::string>{"a", "b", "c"});
     }
+
+    SECTION("CRLF line endings (a Git for Windows checkout) are read as plain lines") {
+        const auto lines = cup::scaffold::read_file_lines(write_file(root, "crlf", "a\r\nb\r\n"));
+        REQUIRE(lines.has_value());
+        REQUIRE(*lines == std::vector<std::string>{"a", "b"});
+    }
 }
 
 TEST_CASE("remove_dir", "[cmake][remove_dir]") {
@@ -83,6 +89,17 @@ TEST_CASE("ensure_line", "[cmake][ensure_line]") {
         ++occurrences;
     }
     REQUIRE(occurrences == 1);
+}
+
+TEST_CASE("ensure_line recognises a line already present in a CRLF file", "[cmake][ensure_line]") {
+    const TempDir root;
+    const std::string path =
+        write_file(root, "CMakeLists.txt", "add_subdirectory(src/libs)\r\nadd_subdirectory(src/apps)\r\n");
+
+    REQUIRE(cup::scaffold::ensure_line(root.path().string(), path, "add_subdirectory(src/apps)")
+                .has_value());
+    REQUIRE(read(path).find("add_subdirectory(src/apps)") ==
+            read(path).rfind("add_subdirectory(src/apps)"));
 }
 
 TEST_CASE("ensure_line_before", "[cmake][ensure_line_before]") {

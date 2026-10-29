@@ -5,3 +5,4 @@ export module cup.platform;
 export import :terminal;
 export import :net;
 export import :process;
+export import :env;

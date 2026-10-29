@@ -8,6 +8,7 @@ target_sources(cmd
         Dispatch.cpp
         Docker.cpp
         New.cpp
+        Init.cpp
         Add.cpp
         Template.cpp
         Completion.cpp
@@ -19,6 +20,7 @@ target_sources(cmd
             build.cppm
             docker.cppm
             new.cppm  # partition token is :new_project, see new.cppm
+            init.cppm
             add.cppm
             template.cppm  # partition token is :template_cmd, see template.cppm
             completion.cppm

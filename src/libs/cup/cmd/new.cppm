@@ -1,5 +1,6 @@
 module;
 #include <expected>
+#include <filesystem>
 #include <span>
 #include <string>
 #include <string_view>
@@ -72,5 +73,11 @@ export namespace cup::cmd {
 
 [[nodiscard]] std::expected<void, error::Error> scaffold_make_tree(const project::Project& proj,
                                                                    int std);
+
+// merge_gitignore writes rendered as root's .gitignore, or — when one already
+// exists (`cup init` on a project that has its own) — appends just the
+// entries it is missing, leaving the user's file otherwise untouched.
+[[nodiscard]] std::expected<void, error::Error> merge_gitignore(const std::filesystem::path& root,
+                                                                std::string_view rendered);
 
 }

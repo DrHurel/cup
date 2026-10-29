@@ -77,7 +77,18 @@ std::optional<std::vector<std::string>> read_lines(const std::filesystem::path& 
     while (!text->empty() && text->back() == '\n') {
         text->pop_back();
     }
-    return split(*text, '\n');
+    // A CRLF file (Git for Windows' default core.autocrlf checkout) would
+    // otherwise leave a '\r' on every line, and every exact-line comparison
+    // below — ensure_line's "already present?" above all — would miss. The
+    // edit is written back with plain '\n' (write_lines), which git's own
+    // line-ending normalisation treats as no change.
+    auto lines = split(*text, '\n');
+    for (auto& line : lines) {
+        if (!line.empty() && line.back() == '\r') {
+            line.pop_back();
+        }
+    }
+    return lines;
 }
 
 std::expected<void, error::Error> write_lines(const std::filesystem::path& path,

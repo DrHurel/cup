@@ -1,7 +1,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <unistd.h>
+#include "TestCompat.hpp"
 
 #include <expected>
 #include <filesystem>
@@ -282,8 +282,8 @@ TEST_CASE("find_from errors on a malformed cup.toml", "[project][find]") {
 }
 
 TEST_CASE("find_from reports a cup.toml it cannot read", "[project][find]") {
-    if (::geteuid() == 0) {
-        SKIP("root ignores the permission bits, so the file stays readable");
+    if (!cup::test::permission_bits_enforced()) {
+        SKIP("root (and Windows) ignores the permission bits, so the file stays readable");
     }
     const TempDir root;
     root.write(cup::project::kMarker, "name = \"demo\"\n");

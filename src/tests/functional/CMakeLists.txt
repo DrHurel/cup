@@ -19,8 +19,11 @@ if(BATS_EXECUTABLE)
            COMMAND ${BATS_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty.bats")
   add_test(NAME functional_completion
            COMMAND ${BATS_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/completion.bats")
+  add_test(NAME functional_init
+           COMMAND ${BATS_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/init.bats")
   set_tests_properties(functional_dispatch functional_build_run functional_modules_build_run
                        functional_make_build_run functional_thirdparty functional_completion
+                       functional_init
                        PROPERTIES
                        ENVIRONMENT "CUP_BIN=$<TARGET_FILE:cup>")
 else()

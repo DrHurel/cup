@@ -1,31 +1,37 @@
 # The ui suite types into a pseudo-terminal from a second thread — see
-# ScopedTerminalStdin on why the keys cannot be queued up front. glibc 2.34 and musl
+# ScopedTerminalStdin on why the keys cannot be queued up front — and
+# TestHttpServer.hpp runs its accept loop on one too. glibc 2.34 and musl
 # both fold the pthread symbols into libc, so this resolves to nothing on the
 # toolchains cup builds against; it is named so an older one links rather than
 # failing at std::thread's constructor.
 find_package(Threads REQUIRED)
 
-add_executable(ui_test ui_test.cpp)
-target_compile_features(ui_test PRIVATE cxx_std_23)
-# cup scaffolds the target but not its dependencies: the module under test and
-# Catch2's bundled main(). platform is named because the suite imports cup.platform
-# itself to check the terminal condition select_one branches on — cup.ui imports it
-# without re-exporting it. ftxui backs Interactive.hpp, #included directly (not via
-# the cup.ui module) so the suite can drive its component trees with synthetic
-# events — see Interactive.hpp's header comment.
-target_link_libraries(ui_test PRIVATE ui error platform Threads::Threads
-                                      ftxui::ftxui Catch2::Catch2WithMain)
-add_test(NAME ui_test COMMAND ui_test)
+# The ui and platform suites drive a real pseudo-terminal (posix_openpt) and
+# fork/rlimit failure paths, none of which Windows has; process_test below
+# covers cup.platform's process/env layer on every platform instead.
+if(NOT WIN32)
+  add_executable(ui_test ui_test.cpp)
+  target_compile_features(ui_test PRIVATE cxx_std_23)
+  # cup scaffolds the target but not its dependencies: the module under test and
+  # Catch2's bundled main(). platform is named because the suite imports cup.platform
+  # itself to check the terminal condition select_one branches on — cup.ui imports it
+  # without re-exporting it. ftxui backs Interactive.hpp, #included directly (not via
+  # the cup.ui module) so the suite can drive its component trees with synthetic
+  # events — see Interactive.hpp's header comment.
+  target_link_libraries(ui_test PRIVATE ui error platform Threads::Threads
+                                        ftxui::ftxui Catch2::Catch2WithMain)
+  add_test(NAME ui_test COMMAND ui_test)
 
-add_executable(platform_test platform_test.cpp)
-target_compile_features(platform_test PRIVATE cxx_std_23)
-# The suite opens a pseudo-terminal to reach raw mode at all. posix_openpt, grantpt,
-# unlockpt and ptsname are in libc on glibc and musl alike, so nothing extra links.
-# TestHttpServer.hpp (http_get coverage) runs its accept loop on a second thread.
-target_include_directories(platform_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
-target_link_libraries(platform_test PRIVATE platform error Threads::Threads
-                                            Catch2::Catch2WithMain)
-add_test(NAME platform_test COMMAND platform_test)
+  add_executable(platform_test platform_test.cpp)
+  target_compile_features(platform_test PRIVATE cxx_std_23)
+  # The suite opens a pseudo-terminal to reach raw mode at all. posix_openpt, grantpt,
+  # unlockpt and ptsname are in libc on glibc and musl alike, so nothing extra links.
+  # TestHttpServer.hpp (http_get coverage) runs its accept loop on a second thread.
+  target_include_directories(platform_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+  target_link_libraries(platform_test PRIVATE platform error Threads::Threads
+                                              Catch2::Catch2WithMain)
+  add_test(NAME platform_test COMMAND platform_test)
+endif()
 
 add_executable(tmpl_test tmpl_test.cpp)
 target_compile_features(tmpl_test PRIVATE cxx_std_23)
@@ -74,12 +80,19 @@ add_executable(releases_test releases_test.cpp)
 target_compile_features(releases_test PRIVATE cxx_std_23)
 target_include_directories(releases_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(releases_test PRIVATE scaffold error Threads::Threads Catch2::Catch2WithMain)
+# TestHttpServer.hpp's Winsock branch.
+if(WIN32)
+  target_link_libraries(releases_test PRIVATE ws2_32)
+endif()
 add_test(NAME releases_test COMMAND releases_test)
 
 add_executable(dockerhub_test dockerhub_test.cpp)
 target_compile_features(dockerhub_test PRIVATE cxx_std_23)
 target_include_directories(dockerhub_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(dockerhub_test PRIVATE scaffold error Threads::Threads Catch2::Catch2WithMain)
+if(WIN32)
+  target_link_libraries(dockerhub_test PRIVATE ws2_32)
+endif()
 add_test(NAME dockerhub_test COMMAND dockerhub_test)
 
 add_executable(log_test log_test.cpp)
@@ -137,16 +150,41 @@ target_link_libraries(thirdparty_cmd_test PRIVATE cmd project platform ui error
                                                   Catch2::Catch2WithMain)
 add_test(NAME thirdparty_cmd_test COMMAND thirdparty_cmd_test)
 
-# Drives the real cup binary through a real pty (fork+exec, not synthetic
-# ftxui::Event objects) -- needs the cup target from src/apps to exist, same
-# as the bats suite below, hence CUP_TEST_BIN's use of $<TARGET_FILE:cup>.
-add_executable(interactive_signal_test interactive_signal_test.cpp)
-target_compile_features(interactive_signal_test PRIVATE cxx_std_23)
-target_include_directories(interactive_signal_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
-target_compile_definitions(interactive_signal_test PRIVATE CUP_TEST_BIN="$<TARGET_FILE:cup>")
-target_link_libraries(interactive_signal_test PRIVATE Catch2::Catch2WithMain)
-add_test(NAME interactive_signal_test COMMAND interactive_signal_test)
+# process_test runs a real child process (child_helper, below) through
+# run_command/capture_command — portable, unlike platform_test's pty and
+# fork-failure cases, so it is what exercises the Windows CreateProcess path.
+add_executable(child_helper child_helper.cpp)
+target_compile_features(child_helper PRIVATE cxx_std_23)
 
-# Black-box bats suite against the real cup binary (needs the cup target from
-# src/apps, so this must come after it — see the top-level CMakeLists.txt).
-add_subdirectory(functional)
+add_executable(process_test process_test.cpp)
+target_compile_features(process_test PRIVATE cxx_std_23)
+target_include_directories(process_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+target_compile_definitions(process_test PRIVATE CUP_CHILD_HELPER="$<TARGET_FILE:child_helper>")
+target_link_libraries(process_test PRIVATE platform error Catch2::Catch2WithMain)
+add_dependencies(process_test child_helper)
+add_test(NAME process_test COMMAND process_test)
+
+add_executable(init_test init_test.cpp)
+target_compile_features(init_test PRIVATE cxx_std_23)
+target_include_directories(init_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(init_test PRIVATE cmd project scaffold ui platform error
+                                        Catch2::Catch2WithMain)
+add_test(NAME init_test COMMAND init_test)
+
+# A pty and bats are POSIX-only, so the black-box suites below stay off a
+# Windows build; the unit suites above are what run there.
+if(NOT WIN32)
+  # Drives the real cup binary through a real pty (fork+exec, not synthetic
+  # ftxui::Event objects) -- needs the cup target from src/apps to exist, same
+  # as the bats suite below, hence CUP_TEST_BIN's use of $<TARGET_FILE:cup>.
+  add_executable(interactive_signal_test interactive_signal_test.cpp)
+  target_compile_features(interactive_signal_test PRIVATE cxx_std_23)
+  target_include_directories(interactive_signal_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+  target_compile_definitions(interactive_signal_test PRIVATE CUP_TEST_BIN="$<TARGET_FILE:cup>")
+  target_link_libraries(interactive_signal_test PRIVATE Catch2::Catch2WithMain)
+  add_test(NAME interactive_signal_test COMMAND interactive_signal_test)
+
+  # Black-box bats suite against the real cup binary (needs the cup target from
+  # src/apps, so this must come after it — see the top-level CMakeLists.txt).
+  add_subdirectory(functional)
+endif()

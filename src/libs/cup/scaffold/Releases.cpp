@@ -1,6 +1,5 @@
 module;
 #include <chrono>
-#include <cstdlib>
 #include <expected>
 #include <filesystem>
 #include <fstream>
@@ -24,13 +23,7 @@ namespace {
 // off the network on all but the occasional run.
 constexpr auto kReleaseCacheTtl = std::chrono::hours(7 * 24);
 
-std::filesystem::path release_cache_dir() {
-    if (const char* xdg = std::getenv("XDG_CACHE_HOME"); xdg != nullptr && *xdg != '\0') {
-        return std::filesystem::path(xdg) / "cup";
-    }
-    const char* home = std::getenv("HOME");
-    return std::filesystem::path(home != nullptr ? home : "") / ".cache" / "cup";
-}
+std::filesystem::path release_cache_dir() { return platform::cache_dir(); }
 
 // Reads a "key":N field out of the tiny, fixed-shape JSON object this module
 // writes itself (see write_release_cache) — not a general JSON parser.

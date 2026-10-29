@@ -53,3 +53,13 @@ TEST_CASE("path_to_module joins segments below the top-level dir with .",
     REQUIRE(cup::scaffold::path_to_module(src, "/proj/src/libs/utils/json") == "utils.json");
     REQUIRE(cup::scaffold::path_to_module(src, "/proj/src/libs/my-lib/net") == "my_lib.net");
 }
+
+TEST_CASE("path_to_module and path_to_namespace accept Windows separators",
+          "[naming][path_to_module][path_to_namespace]") {
+    // What path::string() yields on Windows.
+    const std::string src = R"(C:\proj\src)";
+    REQUIRE(cup::scaffold::path_to_module(src, R"(C:\proj\src\libs\utils\json)") == "utils.json");
+    REQUIRE(cup::scaffold::path_to_namespace(src, R"(C:\proj\src\libs\utils\json)") ==
+            "utils::json");
+    REQUIRE(cup::scaffold::path_to_namespace(src, R"(C:\proj\src\libs)") == "");
+}

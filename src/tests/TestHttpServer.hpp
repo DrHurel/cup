@@ -1,9 +1,17 @@
 #pragma once
 
+#ifdef _WIN32
+// <cstdlib> ahead of the Winsock headers, for the same GCC-modules reason as
+// cup.platform's Terminal.cppm: these suites also import cup modules.
+#include <cstdlib>
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#else
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#endif
 
 #include <atomic>
 #include <functional>
@@ -12,6 +20,33 @@
 #include <thread>
 
 namespace cup::test {
+
+namespace detail {
+
+// The few spots where Winsock and BSD sockets differ: a SOCKET handle rather
+// than an int fd, closesocket rather than close, and a WSAStartup the process
+// must call once before any socket exists.
+#ifdef _WIN32
+using socket_t = SOCKET;
+inline constexpr socket_t kNoSocket = INVALID_SOCKET;
+inline constexpr int kShutBoth = SD_BOTH;
+inline void close_socket(socket_t s) { ::closesocket(s); }
+inline void ensure_sockets() {
+    static const bool started = [] {
+        WSADATA data{};
+        return ::WSAStartup(MAKEWORD(2, 2), &data) == 0;
+    }();
+    static_cast<void>(started);
+}
+#else
+using socket_t = int;
+inline constexpr socket_t kNoSocket = -1;
+inline constexpr int kShutBoth = SHUT_RDWR;
+inline void close_socket(socket_t s) { ::close(s); }
+inline void ensure_sockets() {}
+#endif
+
+}
 
 // A minimal single-purpose HTTP/1.1 server for tests: binds an ephemeral
 // localhost port and, for every accepted connection, calls handler with the
@@ -27,13 +62,18 @@ public:
     using Handler = std::function<Response(const std::string& path)>;
 
     explicit TestHttpServer(Handler handler) : handler_(std::move(handler)) {
+        detail::ensure_sockets();
         fd_ = ::socket(AF_INET, SOCK_STREAM, 0);
         sockaddr_in addr{};
         addr.sin_family = AF_INET;
         addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
         addr.sin_port = 0; // let the OS pick a free port
         ::bind(fd_, reinterpret_cast<sockaddr*>(&addr), sizeof(addr));
+#ifdef _WIN32
+        int len = sizeof(addr);
+#else
         socklen_t len = sizeof(addr);
+#endif
         ::getsockname(fd_, reinterpret_cast<sockaddr*>(&addr), &len);
         port_ = ntohs(addr.sin_port);
         ::listen(fd_, 16);
@@ -45,8 +85,8 @@ public:
 
     ~TestHttpServer() {
         running_ = false;
-        ::shutdown(fd_, SHUT_RDWR);
-        ::close(fd_);
+        ::shutdown(fd_, detail::kShutBoth);
+        detail::close_socket(fd_);
         if (thread_.joinable()) {
             thread_.join();
         }
@@ -57,16 +97,16 @@ public:
 private:
     void run() {
         while (running_) {
-            const int client = ::accept(fd_, nullptr, nullptr);
-            if (client < 0) {
+            const detail::socket_t client = ::accept(fd_, nullptr, nullptr);
+            if (client == detail::kNoSocket) {
                 break;
             }
             handle_one(client);
-            ::close(client);
+            detail::close_socket(client);
         }
     }
 
-    void handle_one(int client) const {
+    void handle_one(detail::socket_t client) const {
         char buf[4096];
         // A GET has no body, so the header block is the whole request; one read
         // is enough for anything these tests send.
@@ -90,11 +130,11 @@ private:
             << "Connection: close\r\n\r\n"
             << resp.body;
         const std::string data = out.str();
-        ::send(client, data.data(), data.size(), 0);
+        ::send(client, data.data(), static_cast<int>(data.size()), 0);
     }
 
     Handler handler_;
-    int fd_ = -1;
+    detail::socket_t fd_ = detail::kNoSocket;
     int port_ = 0;
     std::atomic<bool> running_{true};
     std::thread thread_;

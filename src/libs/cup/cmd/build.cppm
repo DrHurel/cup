@@ -74,6 +74,16 @@ inline constexpr std::array<std::string_view, 3> kBuildModes = {"Debug", "Releas
 [[nodiscard]] std::expected<std::pair<std::string, std::vector<std::string>>, error::Error>
 resolve_app(const project::Project& proj, std::span<const std::string> rest);
 
+// app_binary locates app's executable for mode: build/<mode>/bin/<app>,
+// where cup's own root CMakeLists (CMAKE_RUNTIME_OUTPUT_DIRECTORY) and
+// Makefile put every binary — else build/<mode>/src/apps/<app>/<app>, CMake's
+// default for a project `cup init` adopted, whose own CMakeLists sets no
+// output directory. Falls back to the bin/ path when neither exists yet, so
+// the error names the conventional location. Exposed for testing, same
+// reasoning as resolve_app.
+[[nodiscard]] std::filesystem::path app_binary(const project::Project& proj, std::string_view mode,
+                                               std::string_view app);
+
 // run_clean removes the entire build/ tree.
 [[nodiscard]] std::expected<void, error::Error> run_clean(std::span<const std::string> args);
 

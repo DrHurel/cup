@@ -21,6 +21,7 @@ name: C++ CI
 #   build-deb (*) ──────────────────────────> release-main (main push only)
 #   build-canary ─┬──> unit-test-canary (*, non-blocking)
 #         (*)     └──> functional-test-canary (*, non-blocking)
+#   build-windows (*, non-blocking)
 #   build-fedora (main push only, non-blocking)
 #   build-debian (main push only, non-blocking)
 #
@@ -204,6 +205,17 @@ jobs:
       artifact-name: ${{ needs.build-canary.outputs.artifact-name }}
       gcc-version: '16'
       continue-on-error: true
+    permissions:
+      contents: read
+
+  # Native Windows build (MSYS2 UCRT64): build, unit suites, and an
+  # end-to-end cup init/add/build/run — see job-build-windows.yml. On every
+  # non-draft PR, unlike the distro jobs below, because Windows is a separate
+  # code path (CreateProcessW, WinHTTP, the Windows console) rather than a
+  # packaging variant of the Linux one; non-blocking like the canary.
+  build-windows:
+    if: ${{ !github.event.pull_request.draft }}
+    uses: ./.github/workflows/job-build-windows.yml
     permissions:
       contents: read
 

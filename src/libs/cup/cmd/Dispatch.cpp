@@ -14,13 +14,15 @@ module;
 module cup.cmd;
 
 import cup.log;
+import cup.platform;
 import cup.ui;
 
 namespace cup::cmd {
 
 std::span<const Command> commands() {
-    static const std::array<Command, 15> table{{
+    static const std::array<Command, 16> table{{
         {"new", "create a new C++ project", &run_new},
+        {"init", "turn the current directory's project into a cup project", &run_init},
         {"add", "scaffold an app, lib, or test (interactive)", &run_add},
         {"configure", "generate the CMake build system [MODE]", &run_configure},
         {"build", "configure + compile [MODE]", &run_build},
@@ -71,6 +73,9 @@ void print_version() {
 }  // namespace
 
 int run_main(std::span<const std::string> args) {
+    // UTF-8 output and ANSI colours on a Windows console; a no-op elsewhere.
+    platform::init_console();
+
     // A failed init() (e.g. an unwritable log dir) must never stop cup from
     // running the actual command — just tell the user how to quiet it.
     if (auto logged = log::init(); !logged.has_value()) {
