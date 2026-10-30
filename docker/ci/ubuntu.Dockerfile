@@ -16,7 +16,7 @@ ARG GCC_VERSION=15
 #   bats make git                                  functional suites (git init, Make backend)
 #   lcov gcovr                                     job-coverage.yml / job-sonarcloud.yml
 #   dpkg-dev file                                  job-build-deb.yml (cpack's dpkg-shlibdeps)
-#   curl unzip gnupg jq                            SonarCloud scanner download + issue report
+#   curl unzip gnupg                               SonarCloud scanner download
 #   zstd                                           actions/cache's compressor
 RUN apt-get update \
     && apt-get install -y --no-install-recommends software-properties-common gpg-agent \
@@ -27,7 +27,7 @@ RUN apt-get update \
         bats make git ca-certificates \
         lcov gcovr \
         dpkg-dev file \
-        curl unzip gnupg jq \
+        curl unzip gnupg \
         zstd \
     && apt-get purge -y --auto-remove software-properties-common gpg-agent \
     && rm -rf /var/lib/apt/lists/* \

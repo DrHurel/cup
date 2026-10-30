@@ -144,24 +144,3 @@ jobs:
           # here — see the note in sonar-project.properties.
           args: >
             -Dsonar.qualitygate.wait=true
-
-      # The quality gate's verdict alone names no issue. On failure, list the
-      # open issues and hotspots SonarCloud holds for this PR (or branch), so
-      # they can be read from the job log without a SonarCloud login.
-      - name: Report SonarCloud issues
-        if: failure()
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          PR: ${{ github.event.pull_request.number }}
-          BRANCH: ${{ github.ref_name }}
-        run: |
-          api=https://sonarcloud.io/api
-          project=$(sed -n 's/^sonar.projectKey=//p' sonar-project.properties)
-          if [ -n "$PR" ]; then scope="pullRequest=$PR"; else scope="branch=$BRANCH"; fi
-          get() { curl -fsS -u "$SONAR_TOKEN:" "$api/$1"; }
-          echo "--- open issues ($scope) ---"
-          get "issues/search?componentKeys=$project&$scope&issueStatuses=OPEN,CONFIRMED&ps=100" \
-            | jq -r '.issues[] | "\(.impacts | map(.softwareQuality + ":" + .severity) | join(",")) \(.rule) \(.component | sub("^[^:]*:"; "")):\(.line // "-") \(.message)"'
-          echo "--- security hotspots to review ($scope) ---"
-          get "hotspots/search?projectKey=$project&$scope&status=TO_REVIEW&ps=100" \
-            | jq -r '.hotspots[] | "\(.vulnerabilityProbability) \(.ruleKey) \(.component | sub("^[^:]*:"; "")):\(.line // "-") \(.message)"'
