@@ -56,12 +56,13 @@ through cup itself — that's the self-hosting loop cup's own CI exercises (see
 
 ## Where things live
 
-- `src/libs/cup/` — the library, one C++20 module per concern
-  (`cup.project`, `cup.scaffold`, `cup.tmpl`, `cup.ui`, `cup.cmd`, ...)
+- `src/libs/` — the libraries, one C++20 module per concern, each directly
+  under `src/libs` (never in a subfolder: module and namespace names come
+  from that path) — `project`, `scaffold`, `tmpl`, `ui`, `cmd`, `logging`, ...
 - `src/libs/core/`, `src/libs/posix/`, `src/libs/windows/` — the platform
   layer: the portable `core` module and its two OS backends (only the host's
   is built)
-- `src/apps/cup/` — the three-line `main()` shim over `cup.cmd::run_main`
+- `src/apps/cup/` — the three-line `main()` shim over `cmd::run_main`
 - `src/tests/` — the Catch2 suites, laid out like `src/libs`: the suites of
   the library at `src/libs/<path>/` live in `src/tests/<path>/` (`core/`,
   `posix/`, `cup/cmd/`, ...). Plus `src/tests/functional/` (bats and the pty
@@ -85,11 +86,11 @@ through cup itself — that's the self-hosting loop cup's own CI exercises (see
 - New behavior has Catch2 coverage; a new command or user-visible flow gets a
   `src/tests/functional/*.bats` case too
 - Every library exports a `Library` class (in its primary interface, e.g.
-  `cup.cmd`'s `cmd.cppm`): `dependencies`, a `std::tuple` of the `Library`
+  `cmd`'s `cmd.cppm`): `dependencies`, a `std::tuple` of the `Library`
   classes of the libraries its CMake target links, and static
-  `initialize()` / `finalize()` hooks. `cup.library` (`library.cppm`)
+  `initialize()` / `finalize()` hooks. `library` (`library.cppm`)
   checks the shape and brings a graph up dependencies-first and down in
-  reverse; `run_main` holds a `cup::library::Scope<cup::cmd::Library>` for
+  reverse; `run_main` holds a `library::Scope<cmd::Library>` for
   the whole command. A new library gets one, and a library that starts
   linking another adds it to `dependencies`
 - OS-specific code lives only in the backend libraries

@@ -7,8 +7,8 @@ export module core:env;
 import :services;
 
 // Where a user's files live, how executables are named, and which shell to
-// assume — the per-OS conventions cup.log (cup.log's directory), cup.scaffold
-// (the release cache) and cup.cmd (completion install, `cup run`) rely on.
+// assume — the per-OS conventions logging (cup.log's directory), scaffold
+// (the release cache) and cmd (completion install, `cup run`) rely on.
 // The rules every platform shares live here; the OS-specific defaults come
 // from the injected backend (see :services).
 export namespace core {

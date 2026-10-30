@@ -3,7 +3,7 @@ module;
 #include <span>
 export module core:terminal;
 
-export import cup.error;
+export import error;
 export import :raw_mode;
 import :services;
 

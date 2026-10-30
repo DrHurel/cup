@@ -1,0 +1,65 @@
+#include <catch2/catch_test_macros.hpp>
+
+import scaffold;
+
+TEST_CASE("validate_ident accepts legal C++ identifiers", "[naming][validate_ident]") {
+    for (const auto* s : {"x", "Foo", "_hidden", "a1", "MyClass", "snake_case", "__", "A0_9z"}) {
+        INFO("expected valid: " << s);
+        REQUIRE(scaffold::validate_ident(s).has_value());
+    }
+}
+
+TEST_CASE("validate_ident rejects illegal C++ identifiers", "[naming][validate_ident]") {
+    for (const auto* s : {"", "1abc", "has space", "has-hyphen", "dot.dot", "ns::name", "é"}) {
+        INFO("expected invalid: " << s);
+        REQUIRE_FALSE(scaffold::validate_ident(s).has_value());
+    }
+}
+
+TEST_CASE("validate_non_empty accepts non-blank strings", "[naming][validate_non_empty]") {
+    REQUIRE(scaffold::validate_non_empty("ok").has_value());
+}
+
+TEST_CASE("validate_non_empty rejects blank strings", "[naming][validate_non_empty]") {
+    for (const auto* s : {"", " ", "\t", "\n  \t"}) {
+        INFO("expected blank: " << s);
+        REQUIRE_FALSE(scaffold::validate_non_empty(s).has_value());
+    }
+}
+
+TEST_CASE("capitalize upper-cases the first rune only", "[naming][capitalize]") {
+    REQUIRE(scaffold::capitalize("") == "");
+    REQUIRE(scaffold::capitalize("mylib") == "Mylib");
+    REQUIRE(scaffold::capitalize("Mylib") == "Mylib");
+    REQUIRE(scaffold::capitalize("a") == "A");
+    REQUIRE(scaffold::capitalize("aBC") == "ABC");
+    REQUIRE(scaffold::capitalize("_leading") == "_leading");
+}
+
+TEST_CASE("path_to_namespace joins segments below the top-level dir with ::",
+          "[naming][path_to_namespace]") {
+    const std::string src = "/proj/src";
+    REQUIRE(scaffold::path_to_namespace(src, "/proj/src/libs") == "");
+    REQUIRE(scaffold::path_to_namespace(src, "/proj/src/libs/utils") == "utils");
+    REQUIRE(scaffold::path_to_namespace(src, "/proj/src/libs/utils/json") == "utils::json");
+    REQUIRE(scaffold::path_to_namespace(src, "/proj/src/libs/my-lib") == "my_lib");
+    REQUIRE(scaffold::path_to_namespace(src, "/proj/src/apps/cli/tools") == "cli::tools");
+}
+
+TEST_CASE("path_to_module joins segments below the top-level dir with .",
+          "[naming][path_to_module]") {
+    const std::string src = "/proj/src";
+    REQUIRE(scaffold::path_to_module(src, "/proj/src/libs/utils") == "utils");
+    REQUIRE(scaffold::path_to_module(src, "/proj/src/libs/utils/json") == "utils.json");
+    REQUIRE(scaffold::path_to_module(src, "/proj/src/libs/my-lib/net") == "my_lib.net");
+}
+
+TEST_CASE("path_to_module and path_to_namespace accept Windows separators",
+          "[naming][path_to_module][path_to_namespace]") {
+    // What path::string() yields on Windows.
+    const std::string src = R"(C:\proj\src)";
+    REQUIRE(scaffold::path_to_module(src, R"(C:\proj\src\libs\utils\json)") == "utils.json");
+    REQUIRE(scaffold::path_to_namespace(src, R"(C:\proj\src\libs\utils\json)") ==
+            "utils::json");
+    REQUIRE(scaffold::path_to_namespace(src, R"(C:\proj\src\libs)") == "");
+}

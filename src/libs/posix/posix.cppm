@@ -19,7 +19,6 @@ export import core;
 // reserves the top-level namespace posix for POSIX itself ([namespace.posix]).
 namespace posix_backend {
 // Not exported: this module's own units see these, importers don't.
-namespace error = cup::error;
 using core::RawMode;
 }
 

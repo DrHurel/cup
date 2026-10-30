@@ -90,13 +90,13 @@ jobs:
       #
       # --gcov-ignore-errors all, not just no_working_dir_found: any TU that
       # imports a named module gets a gcno note pointing at the module's BMI
-      # name (e.g. "cup.error") instead of a real path — gcc/gcov has no
+      # name (e.g. "error") instead of a real path — gcc/gcov has no
       # source file to open for that, so gcov reports it as source_not_found.
       # gcovr 7.0 (what apt installs on noble, and what this job pins via
       # g++-15/gcovr) treats an unignored gcov error as fatal *for that whole
       # translation unit* and drops the file from the report outright, rather
       # than degrading gracefully like 8.x does. That silently deleted
-      # src/libs/cup/scaffold/{Cmake,Releases,Render}.cpp from coverage.xml —
+      # src/libs/scaffold/{Cmake,Releases,Render}.cpp from coverage.xml —
       # Sonar then has zero coverage data for them, so every new line in those
       # files reads as uncovered. Measured on this branch: new_coverage went
       # from 59.3% (gate: fail, needs 80%) to 93.1% once source_not_found was

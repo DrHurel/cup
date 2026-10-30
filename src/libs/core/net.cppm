@@ -4,7 +4,7 @@ module;
 #include <string_view>
 export module core:net;
 
-export import cup.error;
+export import error;
 import :services;
 
 export namespace core {

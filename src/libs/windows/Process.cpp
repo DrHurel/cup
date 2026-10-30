@@ -10,7 +10,7 @@ module;
 // <cstdlib> first, outside any extern "C": <windows.h> reaches it through
 // the intrinsics headers from inside an extern "C" block, and GCC's modules
 // then reject those declarations as conflicting with the C++-linkage ones
-// cup.error's BMI already carries.
+// error's BMI already carries.
 #include <cstdlib>
 #include <windows.h>
 

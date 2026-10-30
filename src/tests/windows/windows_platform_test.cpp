@@ -10,7 +10,7 @@
 #include "TestCompat.hpp"
 
 import core;
-import cup.library;
+import library;
 import windows;
 
 // windows's own suite — built only on Windows (see
@@ -24,7 +24,7 @@ namespace {
 using cup::test::TempDir;
 
 // Sets (or, with nullopt, unsets) an environment variable for the test's
-// lifetime. Duplicated per file, as log_test.cpp's ScopedEnv explains.
+// lifetime. Duplicated per file, as logging_test.cpp's ScopedEnv explains.
 class ScopedEnv {
 public:
     ScopedEnv(const char* name, std::optional<std::string_view> value) : name_(name) {
@@ -96,6 +96,6 @@ TEST_CASE("enter_raw_mode reports failure off a console", "[windows][terminal]")
 }
 
 TEST_CASE("the windows backend's Library depends on core", "[library]") {
-    STATIC_REQUIRE(cup::library::Declaration<windows::Library>);
-    STATIC_REQUIRE(cup::library::depends_on_v<windows::Library, core::Library>);
+    STATIC_REQUIRE(library::Declaration<windows::Library>);
+    STATIC_REQUIRE(library::depends_on_v<windows::Library, core::Library>);
 }

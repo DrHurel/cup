@@ -6,14 +6,14 @@ module;
 #include <string_view>
 export module core:process;
 
-export import cup.error;
+export import error;
 import :services;
 
 export namespace core {
 
 // run_command_func is the seam run_command calls through: the injected
 // backend's entry in the Services table, returned by reference so tests can
-// override it and callers of run_command (cup.cmd's build/run commands) can be
+// override it and callers of run_command (cmd's build/run commands) can be
 // tested without shelling out to a real cmake/ctest/make.
 [[nodiscard]] RunCommandFunc& run_command_func() { return services().run_command; }
 

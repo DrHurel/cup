@@ -30,4 +30,15 @@ target_link_libraries(platform
     INTERFACE $<TARGET_OBJECTS:${_cup_platform_backend}_services> ${_cup_platform_backend} core)
 add_dependencies(platform ${_cup_platform_backend}_services)
 
-add_subdirectory(cup)
+# cup's own libraries. Every library sits directly under src/libs: cup derives
+# module and namespace names from the path under src/libs (src/libs/ui ->
+# module ui, namespace ui), so a nested library would get a dotted name.
+# `cup add lib` appends each new one below.
+add_subdirectory(library)
+add_subdirectory(error)
+add_subdirectory(ui)
+add_subdirectory(tmpl)
+add_subdirectory(project)
+add_subdirectory(scaffold)
+add_subdirectory(cmd)
+add_subdirectory(logging)

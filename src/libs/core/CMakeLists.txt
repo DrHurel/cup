@@ -14,6 +14,6 @@ target_sources(core
             env.cppm
 )
 target_compile_features(core PUBLIC cxx_std_23)
-# PUBLIC because cup.error types appear in core's exported interface
+# PUBLIC because error types appear in core's exported interface
 # (std::expected<RawMode, Error>, std::expected<std::string, Error>).
 target_link_libraries(core PUBLIC error)

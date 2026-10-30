@@ -289,19 +289,21 @@ still checks out on Windows.
 ## Module diagram
 
 `cup` itself is organized as a layered set of C++20 modules. Each box is a
-primary module interface under `src/libs/cup/*`; arrows point from a module to
-the modules it imports.
+primary module interface under `src/libs/*` (every library sits directly in
+`src/libs`, never in a subfolder); arrows point from a module to the modules it
+imports. Each one also exports a `Library` class declaring those dependencies.
 
 ```mermaid
 graph TD
-    main["cup (executable)"] --> cmd[cup.cmd]
-    cmd --> error[cup.error]
-    cmd --> project[cup.project]
-    cmd --> ui[cup.ui]
-    cmd --> scaffold[cup.scaffold]
-    cmd --> tmpl[cup.tmpl]
+    main["cup (executable)"] --> cmd[cmd]
+    cmd --> library[library]
+    cmd --> error[error]
+    cmd --> project[project]
+    cmd --> ui[ui]
+    cmd --> scaffold[scaffold]
+    cmd --> tmpl[tmpl]
     cmd --> platform[core]
-    cmd --> log[cup.log]
+    cmd --> log[logging]
 
     scaffold --> error
     scaffold --> ui
@@ -320,7 +322,7 @@ graph TD
     tmpl --> error
 ```
 
-The platform layer is three libraries beside `src/libs/cup/`, wired by
+The platform layer is three of those libraries, wired by
 dependency injection. `src/libs/core` (module `core`) declares what cup needs
 from the OS as a `Services` table (`services.cppm`). `src/libs/posix` and
 `src/libs/windows` (modules `posix` and `windows`) are the backends that
@@ -333,34 +335,35 @@ single service (`run_command_func()` etc.).
 
 | Module | Partitions | Purpose |
 | --- | --- | --- |
-| `cup.error` | `:error`, `:monad` | Error type and monadic `Result`/`Expected`-style helpers used everywhere else. |
-| `cup.log` | `:log` | Structured logging (`cup.log`) backed by spdlog. |
+| `library` | — | The `Library` class contract (dependencies, `initialize()`/`finalize()`) and the code that initializes a library graph in dependency order. |
+| `error` | `:error`, `:monad` | Error type and monadic `Result`/`Expected`-style helpers used everywhere else. |
+| `logging` | `:log` | Structured logging (to `cup.log`) backed by spdlog. |
 | `core` | `:services`, `:raw_mode`, `:terminal`, `:net`, `:process`, `:env` | The portable OS-facing API: terminal I/O, HTTP, subprocess execution, and per-user directories. Free of OS headers: every call goes through the `Services` table that a platform backend fills in. |
 | `posix` | — | POSIX backend (fork+exec, termios, libcurl). Built only on non-Windows hosts. |
 | `windows` | — | Windows backend (CreateProcessW, the console API, WinHTTP). Built only on Windows. |
-| `cup.project` | `:config`, `:io` | Reads/writes a project's `cup.toml` and derives on-disk paths from it. |
-| `cup.tmpl` | `:corpus`, `:resolve` | Built-in template corpus and template-path resolution for `cup add`/`cup template`. |
-| `cup.ui` | `:io`, `:color`, `:prompt`, `:select` | Terminal UI toolkit: colored output, prompts, and interactive selection. |
-| `cup.scaffold` | `:naming`, `:std`, `:render`, `:cmake`, `:compiler`, `:releases`, `:dockerhub` | Generates project/component files — naming conventions, CMake, Dockerfiles, compiler/toolchain setup, and GitHub release lookups. |
-| `cup.cmd` | `:build`, `:docker`, `:new_project`, `:init`, `:add`, `:template_cmd`, `:completion`, `:compiler`, `:thirdparty`, `:dispatch` | One partition per CLI subcommand (`cup build`, `cup new`, `cup add`, ...), plus `:dispatch` which routes parsed arguments to them. |
+| `project` | `:config`, `:io` | Reads/writes a project's `cup.toml` and derives on-disk paths from it. |
+| `tmpl` | `:corpus`, `:resolve` | Built-in template corpus and template-path resolution for `cup add`/`cup template`. |
+| `ui` | `:io`, `:color`, `:prompt`, `:select` | Terminal UI toolkit: colored output, prompts, and interactive selection. |
+| `scaffold` | `:naming`, `:std`, `:render`, `:cmake`, `:compiler`, `:releases`, `:dockerhub` | Generates project/component files — naming conventions, CMake, Dockerfiles, compiler/toolchain setup, and GitHub release lookups. |
+| `cmd` | `:build`, `:docker`, `:new_project`, `:init`, `:add`, `:template_cmd`, `:completion`, `:compiler`, `:thirdparty`, `:dispatch` | One partition per CLI subcommand (`cup build`, `cup new`, `cup add`, ...), plus `:dispatch` which routes parsed arguments to them. |
 
 ### Runtime flow: `cup new`
 
 Every invocation follows the same shape: `main` hands the raw args to
-`cup.cmd`, which logs, dispatches to a subcommand partition, and calls back
+`cmd`, which logs, dispatches to a subcommand partition, and calls back
 into the lower-level modules to do the actual work. `cup new` is the most
 representative example since it touches nearly every module in one run:
 
 ```mermaid
 sequenceDiagram
     actor User
-    participant main as main (cup.cmd:dispatch)
-    participant ui as cup.ui
-    participant scaffold as cup.scaffold
-    participant tmpl as cup.tmpl
-    participant project as cup.project
+    participant main as main (cmd:dispatch)
+    participant ui as ui
+    participant scaffold as scaffold
+    participant tmpl as tmpl
+    participant project as project
     participant platform as core
-    participant log as cup.log
+    participant log as logging
 
     User->>main: cup new myproj
     main->>log: init()
@@ -420,7 +423,7 @@ Requirements scale with the standard you pick:
   `cup configure`/`cup build` detects the installed CMake and supplies the
   matching value itself, so the committed `CMakeLists.txt` doesn't go stale
   against whichever CMake actually builds it. A CMake release outside cup's
-  known table (see `import_std_gate_uuid` in `src/libs/cup/cmd/Build.cpp`)
+  known table (see `import_std_gate_uuid` in `src/libs/cmd/Build.cpp`)
   fails with a clear error instead of CMake's cryptic `CXX_MODULE_STD` one.
 - **C++11/14/17** have no special requirements beyond a conforming compiler.
 

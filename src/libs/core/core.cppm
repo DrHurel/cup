@@ -3,7 +3,7 @@ module;
 #include <tuple>
 export module core;
 
-import cup.error;
+import error;
 
 export import :raw_mode;
 export import :services;
@@ -17,7 +17,7 @@ export import :env;
 export namespace core {
 
 struct Library {
-    using dependencies = std::tuple<cup::error::Library>;
+    using dependencies = std::tuple<error::Library>;
     static void initialize() { init_console(); }
     static void finalize() {
         // Nothing to tear down.

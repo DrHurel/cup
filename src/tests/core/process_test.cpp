@@ -27,7 +27,7 @@ std::filesystem::path here() { return std::filesystem::current_path(); }
 
 // Sets (or, with nullopt, unsets) an environment variable for the test's
 // lifetime, restoring the previous value afterward. Duplicated per file, as
-// log_test.cpp's ScopedEnv explains.
+// logging_test.cpp's ScopedEnv explains.
 class ScopedEnv {
 public:
     ScopedEnv(const char* name, std::optional<std::string_view> value) : name_(name) {

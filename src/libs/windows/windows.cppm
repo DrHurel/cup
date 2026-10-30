@@ -16,7 +16,6 @@ export import core;
 // library's implementation units, out of the BMI.
 namespace windows {
 // Not exported: this module's own units see these, importers don't.
-namespace error = cup::error;
 using core::RawMode;
 }
 

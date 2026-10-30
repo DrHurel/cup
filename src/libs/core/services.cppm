@@ -7,7 +7,7 @@ module;
 #include <string_view>
 export module core:services;
 
-export import cup.error;
+export import error;
 import :raw_mode;
 
 // The platform layer's dependency-injection seam. The portable core declares
@@ -19,11 +19,8 @@ import :raw_mode;
 // file for the target platform (see src/libs/CMakeLists.txt), so no
 // #ifdef _WIN32 is needed anywhere in cup.
 
-// core sits outside namespace cup, so it names cup.error through this alias
+// core sits outside namespace cup, so it names error through this alias
 // (not exported: core's own partitions see it, importers don't).
-namespace core {
-namespace error = cup::error;
-}
 
 export namespace core {
 

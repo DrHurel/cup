@@ -20,12 +20,12 @@
 #include "TestHttpServer.hpp"
 
 import core;
-import cup.library;
+import library;
 import posix;
 
 namespace {
 
-using cup::error::Error;
+using error::Error;
 using core::RawMode;
 using cup::test::TempDir;
 
@@ -263,7 +263,7 @@ TEST_CASE("enter_raw_mode reports failure off a terminal", "[platform][raw]") {
     REQUIRE_FALSE(raw.has_value());
     REQUIRE(raw.error().message().starts_with("tcgetattr: "));
     REQUIRE(raw.error().kind() == Error::Kind::General);
-    REQUIRE_FALSE(cup::error::is_abort(raw.error()));
+    REQUIRE_FALSE(error::is_abort(raw.error()));
 }
 
 TEST_CASE("http_get returns a 200 response's body", "[platform][http]") {
@@ -457,6 +457,6 @@ TEST_CASE("the POSIX services file injects the POSIX backend", "[platform][servi
 }
 
 TEST_CASE("the posix backend's Library depends on core", "[library]") {
-    STATIC_REQUIRE(cup::library::Declaration<posix_backend::Library>);
-    STATIC_REQUIRE(cup::library::depends_on_v<posix_backend::Library, core::Library>);
+    STATIC_REQUIRE(library::Declaration<posix_backend::Library>);
+    STATIC_REQUIRE(library::depends_on_v<posix_backend::Library, core::Library>);
 }

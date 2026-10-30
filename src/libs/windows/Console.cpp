@@ -43,7 +43,7 @@ std::expected<RawMode, error::Error> enter_raw_mode(int fd) {
 }
 
 // UTF-8 output (cup prints "❯", "—", ...) and virtual-terminal processing so
-// cup.ui's ANSI colour sequences render instead of printing as raw escapes.
+// ui's ANSI colour sequences render instead of printing as raw escapes.
 // Failures are ignored: a redirected stdout has no console mode to set, and
 // the output is still correct, just uncoloured.
 void init_console() {

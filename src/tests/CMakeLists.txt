@@ -1,5 +1,5 @@
 # The unit suites mirror src/libs: src/tests/<path>/ holds the suites of the
-# library at src/libs/<path>/ (core/, posix/, windows/, cup/cmd/, cup/ui/, ...),
+# library at src/libs/<path>/ (core/, posix/, windows/, cmd/, ui/, ...),
 # so a library's tests sit at the same relative path as its sources.
 # functional/ holds the black-box suites run against the real cup binary, and
 # support/ the plain headers shared by several suites.
@@ -30,7 +30,13 @@ if(WIN32)
 else()
   add_subdirectory(posix)
 endif()
-add_subdirectory(cup)
+add_subdirectory(library)
+add_subdirectory(ui)
+add_subdirectory(tmpl)
+add_subdirectory(project)
+add_subdirectory(scaffold)
+add_subdirectory(cmd)
+add_subdirectory(logging)
 
 # A pty and bats are POSIX-only, so the black-box suites stay off a Windows
 # build; the unit suites above are what run there. They need the cup target
