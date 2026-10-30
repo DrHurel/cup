@@ -44,6 +44,12 @@ jobs:
       contents: read
       packages: read
 
+    # A `container:` job's run steps default to sh, not bash (dash on
+    # Ubuntu/Debian), so bash-isms like ${GITHUB_SHA::7} need this.
+    defaults:
+      run:
+        shell: bash
+
     steps:
       - uses: actions/checkout@v4
         with:
@@ -68,13 +74,16 @@ jobs:
       # "stamp mismatch with notes file" / "version 'B42*', prefer 'B52*'"
       # instead of silently reusing a compatible cache. The restore-keys
       # prefix carries the same suffix, or a floor bump would still fall back
-      # to the stale entry as a "partial match".
+      # to the stale entry as a "partial match". The image (whose tag changes
+      # with its toolchain) is that compiler key, and it also keeps out caches
+      # configured outside the container, whose CMakeCache.txt files record a
+      # different absolute path and fail the configure.
       - name: Cache FetchContent dependencies
         uses: actions/cache@v4
         with:
           path: build/Coverage/_deps
-          key: ${{ runner.os }}-deps-gcc15-${{ hashFiles('third_party/CMakeLists.txt') }}
-          restore-keys: ${{ runner.os }}-deps-gcc15-
+          key: deps-${{ inputs.image }}-Coverage-${{ hashFiles('third_party/CMakeLists.txt') }}
+          restore-keys: deps-${{ inputs.image }}-Coverage-
 
       # Coverage is a first-class build mode in a cup project, so the gcov run is
       # the same build the tests run against — no second configure.

@@ -52,6 +52,12 @@ jobs:
       contents: read
       packages: read
 
+    # A `container:` job's run steps default to sh, not bash (dash on
+    # Ubuntu/Debian), so bash-isms like ${GITHUB_SHA::7} need this.
+    defaults:
+      run:
+        shell: bash
+
     steps:
       - uses: actions/checkout@v4
         with:

@@ -66,6 +66,12 @@ jobs:
       contents: read
       packages: read
 
+    # A `container:` job's run steps default to sh, not bash (dash on
+    # Ubuntu/Debian), so bash-isms like ${GITHUB_SHA::7} need this.
+    defaults:
+      run:
+        shell: bash
+
     steps:
       - uses: actions/checkout@v4
         with:
@@ -81,12 +87,16 @@ jobs:
       # at *configure* time, and the functional_* ctest entries are only
       # registered when it succeeds.
 
+      # Keyed on the image: _deps holds CMake caches that record the absolute
+      # path they were configured at (/__w/... in a container), so a cache
+      # from another environment fails the configure outright, and objects
+      # built by another toolchain shouldn't be reused either.
       - name: Cache FetchContent dependencies
         uses: actions/cache@v4
         with:
           path: build/${{ inputs.mode }}/_deps
-          key: ${{ runner.os }}-deps-gcc${{ inputs.gcc-version }}-${{ inputs.mode }}-${{ hashFiles('third_party/CMakeLists.txt') }}
-          restore-keys: ${{ runner.os }}-deps-gcc${{ inputs.gcc-version }}-${{ inputs.mode }}-
+          key: deps-${{ inputs.image }}-${{ inputs.mode }}-${{ hashFiles('third_party/CMakeLists.txt') }}
+          restore-keys: deps-${{ inputs.image }}-${{ inputs.mode }}-
 
       # CC/CXX come from the image.
       - name: Configure
