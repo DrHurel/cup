@@ -106,7 +106,7 @@ jobs:
         run: |
           file build/Release/bin/cup
           if file build/Release/bin/cup | grep -q 'dynamically linked'; then
-            echo "ERROR: binary is dynamically linked"
+            echo "ERROR: binary is dynamically linked" >&2
             exit 1
           fi
           ./build/Release/bin/cup --help

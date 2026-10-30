@@ -19,7 +19,9 @@ constexpr std::size_t kMaxBody = 8 << 20;
 // not const char*; void* userdata, not a typed pointer) — CURLOPT_WRITEFUNCTION
 // calls back through that exact C function pointer type, so a "more
 // meaningful" signature here would be undefined behaviour, not a style choice.
-std::size_t write_callback(char* ptr, std::size_t size, std::size_t nmemb, void* userdata) {
+// NOSONAR: cpp:S995 (const char*) and cpp:S5008 (void*) ask for exactly that.
+std::size_t write_callback(char* ptr, std::size_t size, std::size_t nmemb,  // NOSONAR
+                           void* userdata) {                                 // NOSONAR
     auto* body = static_cast<std::string*>(userdata);
     const std::size_t added = size * nmemb;
     if (body->size() + added > kMaxBody) {

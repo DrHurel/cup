@@ -61,23 +61,20 @@ std::optional<std::string> slurp(const std::filesystem::path& path) {
 // The project's own CMakeLists.txt files: the root one, then every one below
 // it outside skipped_dir trees, up to kMaxScannedFiles.
 std::vector<std::filesystem::path> project_cmakelists(const std::filesystem::path& root) {
-    std::vector<std::filesystem::path> out{root / kCMakeLists};
+    std::vector out{root / kCMakeLists};
     std::error_code ec;
     auto it = std::filesystem::recursive_directory_iterator(
         root, std::filesystem::directory_options::skip_permission_denied, ec);
-    for (; !ec && it != std::filesystem::recursive_directory_iterator(); it.increment(ec)) {
-        if (out.size() >= kMaxScannedFiles) {
-            break;
-        }
+    const std::filesystem::recursive_directory_iterator end;
+    while (!ec && it != end && out.size() < kMaxScannedFiles) {
         if (it->is_directory(ec)) {
             if (skipped_dir(it->path())) {
                 it.disable_recursion_pending();
             }
-            continue;
-        }
-        if (it->path().filename() == kCMakeLists && it->path().parent_path() != root) {
+        } else if (it->path().filename() == kCMakeLists && it->path().parent_path() != root) {
             out.push_back(it->path());
         }
+        it.increment(ec);
     }
     return out;
 }
@@ -140,49 +137,76 @@ struct InitOptions {
     std::string build_tool;
 };
 
+// is_flag reports whether arg is flag, bare (--std) or with a joined value
+// (--std=23).
+bool is_flag(std::string_view arg, std::string_view flag) {
+    return arg.starts_with(flag) && (arg.size() == flag.size() || arg[flag.size()] == '=');
+}
+
+std::expected<void, error::Error> set_standard(InitOptions& opts, std::string_view value) {
+    auto parsed = scaffold::parse_std(value);
+    if (!parsed.has_value()) {
+        return std::unexpected(std::move(parsed).error());
+    }
+    opts.standard = *parsed;
+    return {};
+}
+
+std::expected<void, error::Error> set_build_tool(InitOptions& opts, std::string_view value) {
+    if (value != project::kToolCMake && value != project::kToolMake) {
+        return std::unexpected(error::Error(std::format("--build-tool \"{}\": must be {} or {}",
+                                                        value, project::kToolCMake,
+                                                        project::kToolMake)));
+    }
+    opts.build_tool = std::string(value);
+    return {};
+}
+
+// set_name takes the one positional argument, the project name.
+std::expected<void, error::Error> set_name(InitOptions& opts, std::string_view arg) {
+    if (arg.starts_with("-")) {
+        return std::unexpected(error::Error(std::format("unknown flag: {}", arg)));
+    }
+    if (!opts.name.empty()) {
+        return std::unexpected(error::Error(std::format("unexpected argument: {}", arg)));
+    }
+    opts.name = std::string(arg);
+    return {};
+}
+
 std::expected<InitOptions, error::Error> parse_init_args(std::span<const std::string> args) {
     InitOptions opts;
-    for (std::size_t i = 0; i < args.size(); ++i) {
-        std::string_view arg = args[i];
-        std::string value;
-        const auto take_value = [&](std::string_view flag) -> std::expected<void, error::Error> {
-            if (arg.size() > flag.size() && arg[flag.size()] == '=') {
-                value = std::string(arg.substr(flag.size() + 1));
-                return {};
+    std::size_t i = 0;
+    while (i < args.size()) {
+        const std::string_view arg = args[i];
+        // A flag's value is joined (--std=23) or the next argument (--std 23),
+        // which this consumes.
+        const auto value_of =
+            [&](std::string_view flag) -> std::expected<std::string, error::Error> {
+            if (arg.size() > flag.size()) {
+                return std::string(arg.substr(flag.size() + 1));
             }
             if (i + 1 >= args.size()) {
                 return std::unexpected(error::Error(std::format("{} needs a value", flag)));
             }
-            value = args[++i];
-            return {};
+            ++i;
+            return args[i];
         };
 
-        if (arg == "--std" || arg.starts_with("--std=")) {
-            if (auto took = take_value("--std"); !took.has_value()) {
-                return std::unexpected(std::move(took).error());
-            }
-            auto parsed = scaffold::parse_std(value);
-            if (!parsed.has_value()) {
-                return std::unexpected(std::move(parsed).error());
-            }
-            opts.standard = *parsed;
-        } else if (arg == "--build-tool" || arg.starts_with("--build-tool=")) {
-            if (auto took = take_value("--build-tool"); !took.has_value()) {
-                return std::unexpected(std::move(took).error());
-            }
-            if (value != project::kToolCMake && value != project::kToolMake) {
-                return std::unexpected(error::Error(std::format(
-                    "--build-tool \"{}\": must be {} or {}", value, project::kToolCMake,
-                    project::kToolMake)));
-            }
-            opts.build_tool = value;
-        } else if (arg.starts_with("-")) {
-            return std::unexpected(error::Error(std::format("unknown flag: {}", arg)));
-        } else if (opts.name.empty()) {
-            opts.name = std::string(arg);
+        std::expected<void, error::Error> applied;
+        if (is_flag(arg, "--std")) {
+            applied = value_of("--std").and_then(
+                [&](const std::string& value) { return set_standard(opts, value); });
+        } else if (is_flag(arg, "--build-tool")) {
+            applied = value_of("--build-tool").and_then(
+                [&](const std::string& value) { return set_build_tool(opts, value); });
         } else {
-            return std::unexpected(error::Error(std::format("unexpected argument: {}", arg)));
+            applied = set_name(opts, arg);
         }
+        if (!applied.has_value()) {
+            return std::unexpected(std::move(applied).error());
+        }
+        ++i;
     }
     return opts;
 }
@@ -323,8 +347,7 @@ std::string detect_cmake_name(std::string_view text) {
     static const std::regex project_call(R"(^[ \t]*project[ \t]*\([ \t\r\n]*([A-Za-z_][A-Za-z0-9_.+-]*))",
                                          std::regex::icase | std::regex::multiline);
     const std::string s(text);
-    std::smatch m;
-    if (std::regex_search(s, m, project_call)) {
+    if (std::smatch m; std::regex_search(s, m, project_call)) {
         return m[1].str();
     }
     return "";
@@ -343,6 +366,26 @@ std::string sanitize_ident(std::string_view raw) {
     return out;
 }
 
+// closing_paren finds the ')' closing a call whose arguments start at open:
+// the first one outside a quoted argument (DESCRIPTION "a tool (fast)" holds
+// one that isn't), npos if there is none.
+std::size_t closing_paren(std::string_view s, std::size_t open) {
+    bool quoted = false;
+    bool escaped = false;
+    for (std::size_t i = open; i < s.size(); ++i) {
+        if (escaped) {
+            escaped = false;  // an escaped character, \" included
+        } else if (quoted && s[i] == '\\') {
+            escaped = true;
+        } else if (s[i] == '"') {
+            quoted = !quoted;
+        } else if (!quoted && s[i] == ')') {
+            return i;
+        }
+    }
+    return std::string_view::npos;
+}
+
 std::optional<std::string> with_compiler_guard(std::string_view text) {
     static const std::regex project_call(R"(^[ \t]*project[ \t]*\()",
                                          std::regex::icase | std::regex::multiline);
@@ -352,21 +395,9 @@ std::optional<std::string> with_compiler_guard(std::string_view text) {
         return std::nullopt;
     }
     // project(...) may span several lines; the guard goes after the line
-    // holding its closing parenthesis: the first ')' outside a quoted
-    // argument (DESCRIPTION "a tool (fast)" holds one that isn't).
-    const auto open = static_cast<std::size_t>(m.position(0) + m.length(0));
-    std::size_t close = std::string::npos;
-    bool quoted = false;
-    for (std::size_t i = open; i < s.size(); ++i) {
-        if (quoted && s[i] == '\\') {
-            ++i;  // an escaped character, \" included
-        } else if (s[i] == '"') {
-            quoted = !quoted;
-        } else if (!quoted && s[i] == ')') {
-            close = i;
-            break;
-        }
-    }
+    // holding its closing parenthesis.
+    const std::size_t close =
+        closing_paren(s, static_cast<std::size_t>(m.position(0) + m.length(0)));
     if (close == std::string::npos) {
         return std::nullopt;
     }
@@ -405,6 +436,20 @@ Detected detect_project(const std::filesystem::path& root) {
     return d;
 }
 
+// resolve_build_tool picks the build tool: --build-tool, else the detected one
+// (announced), else a prompt.
+std::expected<std::string, error::Error> resolve_build_tool(const InitOptions& opts,
+                                                            const Detected& detected) {
+    if (!opts.build_tool.empty()) {
+        return opts.build_tool;
+    }
+    if (!detected.build_tool.empty()) {
+        ui::detected(std::format("a {} project", detected.build_tool));
+        return detected.build_tool;
+    }
+    return choose_build_tool();
+}
+
 std::expected<void, error::Error> run_init(std::span<const std::string> args) {
     auto opts = parse_init_args(args);
     if (!opts.has_value()) {
@@ -424,19 +469,11 @@ std::expected<void, error::Error> run_init(std::span<const std::string> args) {
 
     const Detected detected = detect_project(root);
 
-    std::string tool = opts->build_tool;
-    if (tool.empty()) {
-        tool = detected.build_tool;
+    auto chosen_tool = resolve_build_tool(*opts, detected);
+    if (!chosen_tool.has_value()) {
+        return std::unexpected(std::move(chosen_tool).error());
     }
-    if (tool.empty()) {
-        auto chosen = choose_build_tool();
-        if (!chosen.has_value()) {
-            return std::unexpected(std::move(chosen).error());
-        }
-        tool = *std::move(chosen);
-    } else if (opts->build_tool.empty()) {
-        ui::detected(std::format("a {} project", tool));
-    }
+    const std::string tool = *std::move(chosen_tool);
 
     auto name = resolve_name(*opts, detected, root);
     if (!name.has_value()) {

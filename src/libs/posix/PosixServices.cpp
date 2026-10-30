@@ -22,8 +22,11 @@ Services make_platform_services() {
         .http_get = &posix_backend::http_get,
         .is_tty = &posix_backend::is_tty,
         .enter_raw_mode = &posix_backend::enter_raw_mode,
-        // A POSIX terminal already takes UTF-8 and ANSI colours.
-        .init_console = [] {},
+        .init_console =
+            [] {
+                // Nothing to set up: a POSIX terminal already takes UTF-8 and
+                // ANSI colours.
+            },
         .read_input = &posix_backend::read_input,
         .home_dir = &posix_backend::home_dir,
         .native_cache_dir = &posix_backend::native_cache_dir,

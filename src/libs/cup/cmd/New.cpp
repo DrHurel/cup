@@ -162,8 +162,7 @@ std::expected<void, error::Error> merge_gitignore(const std::filesystem::path& r
                                                   std::string_view rendered) {
     const std::filesystem::path path = root / ".gitignore";
     if (std::error_code ec; !std::filesystem::exists(path, ec)) {
-        auto wrote = scaffold::write_file(root, path, rendered);
-        if (!wrote.has_value()) {
+        if (auto wrote = scaffold::write_file(root, path, rendered); !wrote.has_value()) {
             return std::unexpected(std::move(wrote).error());
         }
         return {};
