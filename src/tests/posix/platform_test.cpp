@@ -20,6 +20,7 @@
 #include "TestHttpServer.hpp"
 
 import core;
+import cup.library;
 import posix;
 
 namespace {
@@ -453,4 +454,9 @@ TEST_CASE("the POSIX services file injects the POSIX backend", "[platform][servi
     REQUIRE(core::exe_suffix().empty());
     REQUIRE(core::default_shell() == "bash");
     REQUIRE(core::home_dir() == posix_backend::home_dir());
+}
+
+TEST_CASE("the posix backend's Library depends on core", "[library]") {
+    STATIC_REQUIRE(cup::library::Declaration<posix_backend::Library>);
+    STATIC_REQUIRE(cup::library::depends_on_v<posix_backend::Library, core::Library>);
 }

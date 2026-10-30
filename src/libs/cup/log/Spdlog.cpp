@@ -79,9 +79,7 @@ void log_at(Category category, spdlog::level::level_enum level, std::string_view
 }  // namespace
 
 std::expected<void, error::Error> init() {
-    for (auto& logger : active_loggers()) {
-        logger.reset();
-    }
+    shutdown();
 
     std::array<spdlog::level::level_enum, kCategoryCount> levels{};
     bool any_enabled = false;
@@ -127,6 +125,12 @@ std::expected<void, error::Error> init() {
         return std::unexpected(error::Error(std::format(
             "cup.log: could not open {} ({}) — set CUP_LOG=off to disable logging", path.string(),
             e.what())));
+    }
+}
+
+void shutdown() {
+    for (auto& logger : active_loggers()) {
+        logger.reset();
     }
 }
 

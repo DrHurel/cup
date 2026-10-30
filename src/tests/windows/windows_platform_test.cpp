@@ -10,6 +10,7 @@
 #include "TestCompat.hpp"
 
 import core;
+import cup.library;
 import windows;
 
 // windows's own suite — built only on Windows (see
@@ -92,4 +93,9 @@ TEST_CASE("enter_raw_mode reports failure off a console", "[windows][terminal]")
     // ctest runs the suite with redirected stdio: fd 1 is a pipe or file,
     // which has no console mode to change.
     REQUIRE_FALSE(core::enter_raw_mode(core::kStdoutFd).has_value());
+}
+
+TEST_CASE("the windows backend's Library depends on core", "[library]") {
+    STATIC_REQUIRE(cup::library::Declaration<windows::Library>);
+    STATIC_REQUIRE(cup::library::depends_on_v<windows::Library, core::Library>);
 }

@@ -9,7 +9,7 @@
 // letting this suite drive them with synthetic ftxui::Event objects for real
 // coverage — no real terminal (and so no pty) needed for this part. See its
 // header comment. Interactive.cpp is the other (and only other) includer.
-#include "../libs/cup/ui/Interactive.hpp"
+#include "Interactive.hpp"
 #include <ftxui/component/event.hpp>
 #include <ftxui/screen/screen.hpp>
 

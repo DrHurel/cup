@@ -153,7 +153,7 @@ CMake finds):
 
 Not covered on Windows: the pty-driven `ui_test`/`platform_test`/
 `interactive_signal_test` suites and the bats functional suite (see
-`src/tests/CMakeLists.txt`); every other Catch2 suite runs there, with
+the CMakeLists under `src/tests/`); every other Catch2 suite runs there, with
 `process_test` exercising the Windows process layer and
 `windows_platform_test` the Windows backend itself.
 

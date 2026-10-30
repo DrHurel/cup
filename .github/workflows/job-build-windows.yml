@@ -9,7 +9,7 @@ name: Windows build
 #
 # What Windows runs: every Catch2 suite except ui_test, platform_test and
 # interactive_signal_test, which need a POSIX pseudo-terminal, and the bats
-# functional suite (see src/tests/CMakeLists.txt). process_test covers the
+# functional suite (see the CMakeLists under src/tests). process_test covers the
 # CreateProcessW path those POSIX-only suites would otherwise exercise, and
 # windows_platform_test the Windows backend (src/libs/windows) itself.
 #

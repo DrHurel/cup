@@ -23,7 +23,7 @@ target_sources(scaffold
 )
 target_compile_features(scaffold PUBLIC cxx_std_23)
 # glibc/musl fold pthread's symbols into libc on the toolchains cup builds
-# against (see src/tests/CMakeLists.txt's note on ui_test), but Threads::Threads
+# against (see src/tests/CMakeLists.txt's note on Threads), but Threads::Threads
 # is still how CMake spells "link against the platform's thread support".
 find_package(Threads REQUIRED)
 # :render is the one partition that imports cup.tmpl (template lookup) and

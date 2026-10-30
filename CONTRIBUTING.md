@@ -57,14 +57,16 @@ through cup itself — that's the self-hosting loop cup's own CI exercises (see
 ## Where things live
 
 - `src/libs/cup/` — the library, one C++20 module per concern
-  (`cup.project`, `cup.scaffold`, `cup.tmpl`, `cup.ui`, `cup.cmd`)
+  (`cup.project`, `cup.scaffold`, `cup.tmpl`, `cup.ui`, `cup.cmd`, ...)
 - `src/libs/core/`, `src/libs/posix/`, `src/libs/windows/` — the platform
   layer: the portable `core` module and its two OS backends (only the host's
   is built)
 - `src/apps/cup/` — the three-line `main()` shim over `cup.cmd::run_main`
-- `src/tests/` — the Catch2 suites, one file per module/concern, plus
-  `src/tests/functional/` (bats, black-box tests against the real compiled
-  binary)
+- `src/tests/` — the Catch2 suites, laid out like `src/libs`: the suites of
+  the library at `src/libs/<path>/` live in `src/tests/<path>/` (`core/`,
+  `posix/`, `cup/cmd/`, ...). Plus `src/tests/functional/` (bats and the pty
+  suite, black-box tests against the real compiled binary) and
+  `src/tests/support/` (headers shared by several suites)
 - `templates/` — the scaffolding template corpus, embedded into the binary
   at build time by `cmake/EmbedTemplates.cmake`
 - `docker/ci/` — the images every Linux CI job runs in (Ubuntu + GCC 15/16,
@@ -82,6 +84,14 @@ through cup itself — that's the self-hosting loop cup's own CI exercises (see
 - `./devtools/test.sh` passes
 - New behavior has Catch2 coverage; a new command or user-visible flow gets a
   `src/tests/functional/*.bats` case too
+- Every library exports a `Library` class (in its primary interface, e.g.
+  `cup.cmd`'s `cmd.cppm`): `dependencies`, a `std::tuple` of the `Library`
+  classes of the libraries its CMake target links, and static
+  `initialize()` / `finalize()` hooks. `cup.library` (`library.cppm`)
+  checks the shape and brings a graph up dependencies-first and down in
+  reverse; `run_main` holds a `cup::library::Scope<cup::cmd::Library>` for
+  the whole command. A new library gets one, and a library that starts
+  linking another adds it to `dependencies`
 - OS-specific code lives only in the backend libraries
   (`src/libs/posix/`, `src/libs/windows/`), never
   behind an `#ifdef _WIN32` elsewhere: add the capability to the `Services`

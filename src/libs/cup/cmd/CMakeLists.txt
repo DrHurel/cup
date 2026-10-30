@@ -31,8 +31,10 @@ target_sources(cmd
 target_compile_features(cmd PUBLIC cxx_std_23)
 # Build.cpp/Docker.cpp/New.cpp/Add.cpp call cup.project (locate/inspect the
 # project), cup.scaffold (rendering, CMakeLists editing, naming), cup.tmpl
-# (template-kind lookup), cup.ui (status lines, prompts) and core
-# (run_command, git init). None of those types appear in cup.cmd's own
-# exported interface (Command's Run is a std::function<..., cup::error::Error>),
-# so all are PRIVATE; only cup.error is PUBLIC.
-target_link_libraries(cmd PUBLIC error PRIVATE project scaffold tmpl ui platform log cup_version)
+# (template-kind lookup), cup.ui (status lines, prompts), core (run_command,
+# git init) and cup.log. They are PUBLIC because cmd.cppm imports each of them
+# to name its Library in cup::cmd::Library's dependencies, and an importer of
+# cup.cmd needs their BMIs to read cup.cmd's; cup.library is what run_main
+# initializes them with. cup_version is a header only Dispatch.cpp includes.
+target_link_libraries(cmd PUBLIC error library project scaffold tmpl ui platform log
+                          PRIVATE cup_version)

@@ -4,6 +4,7 @@ module;
 #include <span>
 #include <string>
 #include <string_view>
+#include <tuple>
 export module windows;
 
 export import core;
@@ -58,5 +59,22 @@ void init_console();
     }
     return home_dir() / ".cache" / "cup";
 }
+
+}
+
+// The Windows backend's Library. Nothing names it as a dependency — the backend
+// is injected into core by WindowsServices.cpp, never imported — but it
+// declares its own graph like every other library.
+export namespace windows {
+
+struct Library {
+    using dependencies = std::tuple<core::Library>;
+    static void initialize() {
+        // Nothing to set up.
+    }
+    static void finalize() {
+        // Nothing to tear down.
+    }
+};
 
 }

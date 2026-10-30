@@ -13,6 +13,6 @@ target_sources(log
 )
 target_compile_features(log PUBLIC cxx_std_23)
 # cup.error supplies the E of init()'s std::expected result. platform resolves
-# the log directory (core::cache_dir) and appears in no exported
-# signature, so it is PRIVATE like spdlog.
-target_link_libraries(log PUBLIC error PRIVATE platform spdlog::spdlog)
+# the log directory (core::cache_dir); it is PUBLIC because log.cppm imports
+# core to name core::Library in cup::log::Library's dependencies.
+target_link_libraries(log PUBLIC error platform PRIVATE spdlog::spdlog)

@@ -4,6 +4,7 @@ module;
 #include <span>
 #include <string>
 #include <string_view>
+#include <tuple>
 export module posix;
 
 export import core;
@@ -42,5 +43,22 @@ export namespace posix_backend {
 [[nodiscard]] std::filesystem::path home_dir() { return core::detail::env_path("HOME"); }
 
 [[nodiscard]] std::filesystem::path native_cache_dir() { return home_dir() / ".cache" / "cup"; }
+
+}
+
+// The POSIX backend's Library. Nothing names it as a dependency — the backend is
+// injected into core by PosixServices.cpp, never imported — but it declares
+// its own graph like every other library.
+export namespace posix_backend {
+
+struct Library {
+    using dependencies = std::tuple<core::Library>;
+    static void initialize() {
+        // Nothing to set up.
+    }
+    static void finalize() {
+        // Nothing to tear down.
+    }
+};
 
 }

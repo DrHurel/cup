@@ -13,6 +13,7 @@ module;
 #include <cup/version.h>
 module cup.cmd;
 
+import cup.library;
 import cup.log;
 import core;
 import cup.ui;
@@ -73,8 +74,11 @@ void print_version() {
 }  // namespace
 
 int run_main(std::span<const std::string> args) {
-    // UTF-8 output and ANSI colours on a Windows console; a no-op elsewhere.
-    core::init_console();
+    // Initializes every library cup.cmd depends on, dependencies first
+    // (core's initialize() sets up the console: UTF-8 output and ANSI colours
+    // on Windows, a no-op elsewhere), and finalizes them in reverse when the
+    // command returns.
+    const library::Scope<Library> libraries;
 
     // A failed init() (e.g. an unwritable log dir) must never stop cup from
     // running the actual command — just tell the user how to quiet it.

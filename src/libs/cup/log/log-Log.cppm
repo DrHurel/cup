@@ -19,6 +19,10 @@ export namespace cup::log {
 // reason curl stays out of core's :net (see posix/Http.cpp).
 [[nodiscard]] std::expected<void, error::Error> init();
 
+// shutdown closes the log file: every stream goes inert until the next
+// init(). Idempotent. cup::log::Library::finalize() calls it.
+void shutdown();
+
 // user: cup detected something wrong with what it was given — bad
 // arguments, an invalid project, a declined confirmation — not a bug in cup
 // itself. Independently leveled via CUP_LOG_USER (falls back to the shared
