@@ -182,7 +182,7 @@ std::expected<InitOptions, error::Error> parse_init_args(std::span<const std::st
         // A flag's value is joined (--std=23) or the next argument (--std 23),
         // which this consumes.
         const auto value_of =
-            [&](std::string_view flag) -> std::expected<std::string, error::Error> {
+            [&i, args, arg](std::string_view flag) -> std::expected<std::string, error::Error> {
             if (arg.size() > flag.size()) {
                 return std::string(arg.substr(flag.size() + 1));
             }
@@ -196,10 +196,10 @@ std::expected<InitOptions, error::Error> parse_init_args(std::span<const std::st
         std::expected<void, error::Error> applied;
         if (is_flag(arg, "--std")) {
             applied = value_of("--std").and_then(
-                [&](const std::string& value) { return set_standard(opts, value); });
+                [&opts](const std::string& value) { return set_standard(opts, value); });
         } else if (is_flag(arg, "--build-tool")) {
             applied = value_of("--build-tool").and_then(
-                [&](const std::string& value) { return set_build_tool(opts, value); });
+                [&opts](const std::string& value) { return set_build_tool(opts, value); });
         } else {
             applied = set_name(opts, arg);
         }
