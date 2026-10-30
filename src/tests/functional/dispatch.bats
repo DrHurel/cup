@@ -33,6 +33,14 @@
     [[ "$output" =~ ^cup\ [0-9]+\.[0-9]+\.[0-9]+ ]]
 }
 
+@test "--version names the commit cup was built from" {
+    git -C "$BATS_TEST_DIRNAME" rev-parse --git-dir > /dev/null 2>&1 \
+        || skip "not built from a git checkout"
+    run "$CUP_BIN" --version
+    [ "$status" -eq 0 ]
+    [[ "$output" =~ ^cup\ [0-9]+\.[0-9]+\.[0-9]+\ \([0-9a-f]{7,40}\)$ ]]
+}
+
 @test "-v prints the cup version and exits 0" {
     run "$CUP_BIN" -v
     [ "$status" -eq 0 ]

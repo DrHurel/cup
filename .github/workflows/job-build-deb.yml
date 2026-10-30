@@ -72,9 +72,8 @@ jobs:
           # .deb is expected to land its binary at /usr/bin, the same
           # convention `apt`-installed packages already follow.
           #
-          # CUP_BUILD_SHA matches build-static.yml's own reasoning -- baked
-          # into the binary, surfaced by `cup --version`, set only by the CI
-          # paths that actually build a distributed artifact.
+          # CUP_BUILD_SHA: see build-static.yml -- pins the commit
+          # `cup --version` reports to the one this workflow runs for.
           cmake -B build/Release \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX=/usr \

@@ -72,11 +72,9 @@ jobs:
           # find_package(CURL) resolves the shared libcurl.so even with this
           # variable set, which fails "-static" linking.
           #
-          # CUP_BUILD_SHA is baked into the binary and surfaced by
-          # `cup --version` — this is the one build path (shared by CI
-          # verification and actual releases) that sets it, which is what lets
-          # `cup --version` distinguish a GitHub-built binary from a local
-          # `cup build`/devtools/build.sh, where it's left empty.
+          # CUP_BUILD_SHA pins the commit `cup --version` reports to the one
+          # this workflow runs for, instead of whatever git says HEAD is in
+          # the checkout (the default for every other build).
           #
           # The image's bats matters even though this job never runs it: find_program(BATS_EXECUTABLE bats)
           # in functional/CMakeLists.txt runs at *this* configure step, and

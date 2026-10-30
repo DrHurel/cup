@@ -218,7 +218,7 @@ cup unregister [name]              remove a third-party dependency
 cup template list                  list library-component templates
 cup template new [name]            add a project-local template
 cup completion <install|bash|zsh|fish|powershell>  install or print shell completion
-cup --version, -v                  print cup's version (and build SHA, for a GitHub-built binary)
+cup --version, -v                  print cup's version and the commit it was built from
 ```
 
 `MODE` is `Debug` (default), `Release`, or `Coverage`; each gets its own

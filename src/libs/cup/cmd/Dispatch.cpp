@@ -59,8 +59,8 @@ void usage() {
 }
 
 // print_version reports cup's own cup_version (from this project's cup.toml,
-// baked in at build time) plus the build SHA when one is present — i.e. only
-// for a binary CI's build-static.yml built, never for a plain local build.
+// baked in at build time) plus the commit it was built from — absent only for
+// a build made outside a git checkout.
 void print_version() {
     constexpr std::string_view sha = CUP_BUILD_SHA;
     if (sha.empty()) {
