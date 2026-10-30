@@ -3,13 +3,20 @@ name: SonarCloud
 # Reusable: reuses job-coverage.yml's already-built + already-tested
 # build/Coverage tree (gcno *and* gcda both present, since that job ran
 # ctest) to generate the gcovr report and feed the SonarCloud scan — no
-# second configure/build/test cycle. Needs its own g++-15 install anyway:
-# CFamily's analyser runs the real compiler to learn its built-in macros and
-# include paths (compile_commands.json names /usr/bin/g++-15 outright), and
-# gcovr needs the matching gcov-15 to read GCC 15's note/data files.
+# second configure/build/test cycle. Runs in the same image as the coverage
+# job (job-ci-images.yml's gcc15): CFamily's analyser runs the real compiler
+# to learn its built-in macros and include paths (compile_commands.json names
+# /usr/bin/g++-15 and /__w/... paths outright), and gcovr needs the matching
+# gcov-15 to read GCC 15's note/data files. The image carries both, gcovr,
+# and the curl/unzip/gnupg the scan action uses to fetch the scanner.
 
 on:
   workflow_call:
+    inputs:
+      image:
+        description: 'CI image to run in (the job-ci-images.yml gcc15 output, as for job-coverage.yml)'
+        required: true
+        type: string
     secrets:
       SONAR_TOKEN:
         required: true
@@ -17,9 +24,15 @@ on:
 jobs:
   sonarcloud:
     runs-on: ubuntu-24.04
+    container:
+      image: ${{ inputs.image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
 
     permissions:
       contents: read
+      packages: read
 
     steps:
       - uses: actions/checkout@v4
@@ -39,19 +52,13 @@ jobs:
       - name: Restore executable permissions
         run: chmod -R +x build/Coverage/bin
 
-      - name: Install gcov + gcovr
-        run: |
-          sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends g++-15 gcovr
-
       # Run from the repository root on purpose: --root decides the paths written
       # into the report, and Sonar keys C++ files as src/... — matching --root .
       # here. Rooting this anywhere else would emit a different prefix and match
       # nothing, which shows up as 0% coverage rather than as an error.
       #
-      # gcov-15 must match the compiler; the default `gcov` is GCC 13 on this
-      # runner and rejects the notes files. Vendored, generated and test sources
+      # gcov-15 must match the compiler; a bare `gcov` would not be GCC 15's
+      # and would reject the notes files. Vendored, generated and test sources
       # are excluded to match sonar.exclusions.
       #
       # The two --exclude-*-branches/lines flags are what make the imported
@@ -137,3 +144,24 @@ jobs:
           # here — see the note in sonar-project.properties.
           args: >
             -Dsonar.qualitygate.wait=true
+
+      # The quality gate's verdict alone names no issue. On failure, list the
+      # open issues and hotspots SonarCloud holds for this PR (or branch), so
+      # they can be read from the job log without a SonarCloud login.
+      - name: Report SonarCloud issues
+        if: failure()
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          api=https://sonarcloud.io/api
+          project=$(sed -n 's/^sonar.projectKey=//p' sonar-project.properties)
+          if [ -n "$PR" ]; then scope="pullRequest=$PR"; else scope="branch=$BRANCH"; fi
+          get() { curl -fsS -u "$SONAR_TOKEN:" "$api/$1"; }
+          echo "--- open issues ($scope) ---"
+          get "issues/search?componentKeys=$project&$scope&issueStatuses=OPEN,CONFIRMED&ps=100" \
+            | jq -r '.issues[] | "\(.impacts | map(.softwareQuality + ":" + .severity) | join(",")) \(.rule) \(.component | sub("^[^:]*:"; "")):\(.line // "-") \(.message)"'
+          echo "--- security hotspots to review ($scope) ---"
+          get "hotspots/search?projectKey=$project&$scope&status=TO_REVIEW&ps=100" \
+            | jq -r '.hotspots[] | "\(.vulnerabilityProbability) \(.ruleKey) \(.component | sub("^[^:]*:"; "")):\(.line // "-") \(.message)"'

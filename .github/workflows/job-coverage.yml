@@ -9,33 +9,40 @@ name: Coverage
 #
 # Also uploads the built tree (minus _deps) so job-sonarcloud.yml can run
 # gcovr straight against it instead of configuring/building/testing a third
-# time.
+# time -- in the same image, since the tree's .gcno notes and
+# compile_commands.json name /__w/... paths and /usr/bin/g++-15.
+#
+# Runs in `image` (docker/ci/ubuntu.Dockerfile at GCC 15, from
+# job-ci-images.yml), which already carries g++-15, lcov, bats and the rest,
+# and sets CC/CXX image-wide -- so the nested cmake configures several
+# functional_* bats suites run through the just-built `cup` pick GCC 15 too.
 
 on:
-  workflow_call: {}
+  workflow_call:
+    inputs:
+      image:
+        description: 'CI image to run in (the job-ci-images.yml gcc15 output)'
+        required: true
+        type: string
 
 env:
   # Named modules require Ninja: CMake's Makefile generator does not implement
   # the dyndep scanning protocol modules need, and never will.
   CMAKE_GENERATOR: Ninja
-  # Job-level, not just on "Configure": several functional_* bats suites
-  # (see src/tests/functional/*.bats) have the just-built `cup` binary
-  # orchestrate a *nested* cmake configure of a scratch fixture project
-  # during "Test". A step-scoped CC/CXX would not reach that nested
-  # invocation, which would then fall back to whatever `cc`/`c++` resolve to
-  # by default -- Ubuntu 24.04's system GCC 13, too old for the fixture's
-  # named-modules code path (modules_build_run.bats) even though the g++-15
-  # this job explicitly installed is right there on PATH.
-  CC: gcc-15
-  CXX: g++-15
 
 jobs:
   coverage:
     name: gcc-15 (floor) — build + test + coverage
     runs-on: ubuntu-24.04
+    container:
+      image: ${{ inputs.image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
 
     permissions:
       contents: read
+      packages: read
 
     steps:
       - uses: actions/checkout@v4
@@ -44,13 +51,6 @@ jobs:
           # token persisted in .git/config is an avoidable credential-
           # exposure surface (flagged by SonarCloud's githubactions:S8262).
           persist-credentials: false
-
-      - name: Install toolchain
-        run: |
-          sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            g++-15 ninja-build cmake libcurl4-openssl-dev lcov bats
 
       - name: Show toolchain versions
         run: |
@@ -86,8 +86,15 @@ jobs:
 
       # No --no-tests=ignore: Phase 2 landed the ui, tmpl and project suites, so a
       # run that discovers no tests means the wiring broke and must fail loudly.
+      #
+      # As the image's non-root `runner` user, not the container's root:
+      # cmd_test.cpp and build_run.bats chmod a directory to 0000 and expect
+      # cup to fail, which root's permission bypass would defeat. runner also
+      # has to own the tree, since every test process writes its .gcda there.
       - name: Test
-        run: ctest --test-dir build/Coverage --output-on-failure
+        run: |
+          chown -R runner:runner "$GITHUB_WORKSPACE"
+          su runner -c "ctest --test-dir build/Coverage --output-on-failure"
 
       - name: Collect coverage
         run: |

@@ -7,6 +7,13 @@ name: Build
 # since it also runs the tests and collects lcov data in the same step,
 # rather than splitting build/test.
 #
+# Runs in `image`, a docker/ci/ubuntu.Dockerfile build from job-ci-images.yml
+# that already carries g++-<gcc-version>, cmake, ninja, libcurl and bats (and
+# sets CC/CXX), so there is nothing to install. The test jobs downloading this
+# build tree must run in the same image: a `container:` job mounts the
+# workspace at /__w/..., and every absolute path CMake baked into the tree
+# points there.
+#
 # gcc-version defaults to the floor (15); cpp.yml also calls this at 16 for
 # the canary build, structured identically to the Debug/Release pipeline
 # (build -> parallel unit-test/functional-test) rather than as a bespoke
@@ -21,10 +28,14 @@ on:
         required: true
         type: string
       gcc-version:
-        description: 'GCC major version to build with'
+        description: 'GCC major version the image carries (names the artifact)'
         required: false
         type: string
         default: '15'
+      image:
+        description: 'CI image to build in (a job-ci-images.yml output matching gcc-version)'
+        required: true
+        type: string
       continue-on-error:
         description: 'Report failure without failing the overall run (for the gcc-16 canary)'
         required: false
@@ -44,10 +55,16 @@ jobs:
   build:
     name: build (${{ inputs.mode }}, gcc-${{ inputs.gcc-version }})
     runs-on: ubuntu-24.04
+    container:
+      image: ${{ inputs.image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
     continue-on-error: ${{ inputs.continue-on-error }}
 
     permissions:
       contents: read
+      packages: read
 
     steps:
       - uses: actions/checkout@v4
@@ -59,18 +76,10 @@ jobs:
           # is exactly the kind of step that rule exists to catch).
           persist-credentials: false
 
-      # bats is needed here, not just in job-functional-test.yml: the
-      # functional/CMakeLists.txt find_program(BATS_EXECUTABLE bats) call
-      # happens at *configure* time, and the functional_* ctest entries are
-      # only registered when it succeeds. If bats were missing here, the
-      # later functional-test job would find zero functional_* tests to run,
-      # no matter how it's provisioned itself.
-      - name: Install toolchain
-        run: |
-          sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            g++-${{ inputs.gcc-version }} ninja-build cmake libcurl4-openssl-dev bats
+      # The image's bats matters here, not just in job-functional-test.yml:
+      # functional/CMakeLists.txt's find_program(BATS_EXECUTABLE bats) runs
+      # at *configure* time, and the functional_* ctest entries are only
+      # registered when it succeeds.
 
       - name: Cache FetchContent dependencies
         uses: actions/cache@v4
@@ -79,10 +88,8 @@ jobs:
           key: ${{ runner.os }}-deps-gcc${{ inputs.gcc-version }}-${{ inputs.mode }}-${{ hashFiles('third_party/CMakeLists.txt') }}
           restore-keys: ${{ runner.os }}-deps-gcc${{ inputs.gcc-version }}-${{ inputs.mode }}-
 
+      # CC/CXX come from the image.
       - name: Configure
-        env:
-          CC: gcc-${{ inputs.gcc-version }}
-          CXX: g++-${{ inputs.gcc-version }}
         run: cmake -B build/${{ inputs.mode }} -DCMAKE_BUILD_TYPE=${{ inputs.mode }}
 
       - name: Build

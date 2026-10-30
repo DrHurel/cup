@@ -67,6 +67,12 @@ through cup itself — that's the self-hosting loop cup's own CI exercises (see
   binary)
 - `templates/` — the scaffolding template corpus, embedded into the binary
   at build time by `cmake/EmbedTemplates.cmake`
+- `docker/ci/` — the images every Linux CI job runs in (Ubuntu + GCC 15/16,
+  Alpine, Debian sid, Fedora). CI publishes them to
+  `ghcr.io/drhurel/cup-ci` itself (`job-ci-images.yml`), tagged by a hash of
+  the Dockerfile. To add a tool a job needs, add it to the Dockerfile rather
+  than an install step: the next run builds and pushes the new image before
+  any job uses it.
 - `docs/migration-cpp23.md` — the full history of the Go→C++23 port; still
   the best source for *why* a given seam or module boundary looks the way it
   does
