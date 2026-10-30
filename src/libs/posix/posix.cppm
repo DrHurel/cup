@@ -4,16 +4,25 @@ module;
 #include <span>
 #include <string>
 #include <string_view>
-export module cup.platform.posix;
+export module posix;
 
-export import cup.platform;
+export import core;
 
-// cup.platform's POSIX backend (Linux, macOS, MSYS2's own runtime aside): the
-// OS-facing half of every Services entry, built only on non-Windows hosts and
-// injected into the portable core by services/PosixServices.cpp. Declarations
+// The platform layer's POSIX backend (Linux, macOS, MSYS2's own runtime
+// aside): the OS-facing half of every core::Services entry, built only on
+// non-Windows hosts and injected into core by PosixServices.cpp. Declarations
 // only where the definition needs OS headers (fork/exec, termios, libcurl) —
 // those stay in this library's implementation units, out of the BMI.
-export namespace cup::platform::posix {
+//
+// The namespace is posix_backend rather than the module's name: the standard
+// reserves the top-level namespace posix for POSIX itself ([namespace.posix]).
+namespace posix_backend {
+// Not exported: this module's own units see these, importers don't.
+namespace error = cup::error;
+using core::RawMode;
+}
+
+export namespace posix_backend {
 
 // fork/chdir/execvp/waitpid (Process.cpp).
 [[nodiscard]] std::expected<void, error::Error> run_command(const std::filesystem::path& dir,
@@ -30,7 +39,7 @@ export namespace cup::platform::posix {
 [[nodiscard]] std::expected<RawMode, error::Error> enter_raw_mode(int fd);
 [[nodiscard]] int read_input(int fd, std::span<unsigned char> buf);
 
-[[nodiscard]] std::filesystem::path home_dir() { return cup::platform::detail::env_path("HOME"); }
+[[nodiscard]] std::filesystem::path home_dir() { return core::detail::env_path("HOME"); }
 
 [[nodiscard]] std::filesystem::path native_cache_dir() { return home_dir() / ".cache" / "cup"; }
 

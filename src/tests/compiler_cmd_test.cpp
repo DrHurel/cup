@@ -17,7 +17,7 @@
 import cup.cmd;
 import cup.project;
 import cup.scaffold;
-import cup.platform;
+import core;
 import cup.error;
 
 namespace {
@@ -63,8 +63,8 @@ class StubRunCommand {
 public:
     explicit StubRunCommand(bool fail = false)
         : fail_(fail),
-          override_(cup::platform::run_command_func(),
-                    cup::platform::RunCommandFunc{
+          override_(core::run_command_func(),
+                    core::RunCommandFunc{
                         [this](const std::filesystem::path&, std::string_view name,
                               std::span<const std::string> args)
                             -> std::expected<void, cup::error::Error> {
@@ -85,7 +85,7 @@ public:
 private:
     bool fail_;
     std::vector<std::string> calls_;
-    ScopedOverride<cup::platform::RunCommandFunc> override_;
+    ScopedOverride<core::RunCommandFunc> override_;
 };
 
 std::optional<std::string> read_whole_file(const std::filesystem::path& path) {

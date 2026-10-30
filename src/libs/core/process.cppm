@@ -4,12 +4,12 @@ module;
 #include <span>
 #include <string>
 #include <string_view>
-export module cup.platform:process;
+export module core:process;
 
 export import cup.error;
 import :services;
 
-export namespace cup::platform {
+export namespace core {
 
 // run_command_func is the seam run_command calls through: the injected
 // backend's entry in the Services table, returned by reference so tests can

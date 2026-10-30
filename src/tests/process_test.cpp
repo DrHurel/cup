@@ -9,9 +9,9 @@
 
 #include "TempDir.hpp"
 
-import cup.platform;
+import core;
 
-// Portable coverage of cup.platform's process and env layers: every case here
+// Portable coverage of core's process and env layers: every case here
 // runs a real child (child_helper.cpp) rather than sh/true/false, so the same
 // suite exercises fork/execvp on POSIX and CreateProcessW — including its
 // command-line quoting — on Windows. platform_test.cpp keeps the POSIX-only
@@ -65,7 +65,7 @@ TEST_CASE("capture_command hands every argument to the child unchanged", "[proce
         "args",          "plain",        "with space", R"(say "hi")", R"(C:\dir\)",
         R"(back\\slash)", R"(\"quoted\")", "",           "tab\there",
     };
-    auto out = cup::platform::capture_command(here(), kHelper, args);
+    auto out = core::capture_command(here(), kHelper, args);
     REQUIRE(out.has_value());
     std::string expected;
     for (std::size_t i = 1; i < args.size(); ++i) {
@@ -78,25 +78,25 @@ TEST_CASE("capture_command hands every argument to the child unchanged", "[proce
 }
 
 TEST_CASE("run_command succeeds for a zero exit and reports a non-zero one", "[process]") {
-    REQUIRE(cup::platform::run_command(here(), kHelper, std::vector<std::string>{"exit", "0"})
+    REQUIRE(core::run_command(here(), kHelper, std::vector<std::string>{"exit", "0"})
                 .has_value());
 
     const auto failed =
-        cup::platform::run_command(here(), kHelper, std::vector<std::string>{"exit", "3"});
+        core::run_command(here(), kHelper, std::vector<std::string>{"exit", "3"});
     REQUIRE_FALSE(failed.has_value());
     REQUIRE(failed.error().message().contains("exit status 3"));
 }
 
 TEST_CASE("capture_command reports a non-zero exit as an error", "[process]") {
     const auto failed =
-        cup::platform::capture_command(here(), kHelper, std::vector<std::string>{"exit", "7"});
+        core::capture_command(here(), kHelper, std::vector<std::string>{"exit", "7"});
     REQUIRE_FALSE(failed.has_value());
     REQUIRE(failed.error().message().contains("exit status 7"));
 }
 
 TEST_CASE("run_command and capture_command run the child in dir", "[process]") {
     const TempDir dir;
-    auto out = cup::platform::capture_command(dir.path(), kHelper, std::vector<std::string>{"cwd"});
+    auto out = core::capture_command(dir.path(), kHelper, std::vector<std::string>{"cwd"});
     REQUIRE(out.has_value());
     std::string printed = *out;
     while (!printed.empty() && (printed.back() == '\n' || printed.back() == '\r')) {
@@ -107,21 +107,21 @@ TEST_CASE("run_command and capture_command run the child in dir", "[process]") {
 
 TEST_CASE("a missing program or working directory is an error, not a crash", "[process]") {
     const std::vector<std::string> none;
-    REQUIRE_FALSE(cup::platform::run_command(here(), "cup-no-such-program-xyz", none).has_value());
+    REQUIRE_FALSE(core::run_command(here(), "cup-no-such-program-xyz", none).has_value());
     REQUIRE_FALSE(
-        cup::platform::capture_command(here(), "cup-no-such-program-xyz", none).has_value());
+        core::capture_command(here(), "cup-no-such-program-xyz", none).has_value());
 
     const TempDir dir;
     const auto missing = dir.path() / "does-not-exist";
     REQUIRE_FALSE(
-        cup::platform::run_command(missing, kHelper, std::vector<std::string>{"exit", "0"})
+        core::run_command(missing, kHelper, std::vector<std::string>{"exit", "0"})
             .has_value());
 }
 
 TEST_CASE("cache_dir prefers XDG_CACHE_HOME", "[env]") {
     const TempDir dir;
     const ScopedEnv xdg("XDG_CACHE_HOME", dir.path().string());
-    REQUIRE(cup::platform::cache_dir() == dir.path() / "cup");
+    REQUIRE(core::cache_dir() == dir.path() / "cup");
 }
 
 TEST_CASE("home_dir and cache_dir fall back to HOME", "[env]") {
@@ -129,15 +129,15 @@ TEST_CASE("home_dir and cache_dir fall back to HOME", "[env]") {
     const ScopedEnv xdg("XDG_CACHE_HOME", std::nullopt);
     const ScopedEnv local("LOCALAPPDATA", std::nullopt);
     const ScopedEnv home("HOME", dir.path().string());
-    REQUIRE(cup::platform::home_dir() == dir.path());
-    REQUIRE(cup::platform::cache_dir() == dir.path() / ".cache" / "cup");
+    REQUIRE(core::home_dir() == dir.path());
+    REQUIRE(core::cache_dir() == dir.path() / ".cache" / "cup");
 }
 
 TEST_CASE("the platform's services file injects every service", "[services]") {
-    // Whichever of services/PosixServices.cpp or WindowsServices.cpp CMake
+    // Whichever of posix/PosixServices.cpp or WindowsServices.cpp CMake
     // built: an entry it forgot would only surface as a bad_function_call at
     // the first use, so check them all up front.
-    const auto& s = cup::platform::services();
+    const auto& s = core::services();
     REQUIRE(static_cast<bool>(s.run_command));
     REQUIRE(static_cast<bool>(s.capture_command));
     REQUIRE(static_cast<bool>(s.http_get));
@@ -151,6 +151,6 @@ TEST_CASE("the platform's services file injects every service", "[services]") {
 }
 
 TEST_CASE("init_console is safe to call off a console", "[services]") {
-    cup::platform::init_console();
+    core::init_console();
     SUCCEED();
 }

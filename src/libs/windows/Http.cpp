@@ -16,9 +16,9 @@ module;
 #include <string>
 #include <string_view>
 #include <vector>
-module cup.platform.windows;
+module windows;
 
-namespace cup::platform::windows {
+namespace windows {
 
 // WinHTTP, not libcurl, on Windows: it ships with every Windows install and
 // uses the OS certificate store and TLS stack (SChannel), so a Windows build

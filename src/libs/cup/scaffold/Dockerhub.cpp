@@ -5,7 +5,7 @@ module;
 #include <vector>
 module cup.scaffold;
 
-import cup.platform;
+import core;
 
 namespace cup::scaffold {
 namespace {
@@ -22,7 +22,7 @@ std::string build_tags_url(std::string_view repo) {
 }
 
 std::expected<Tags, error::Error> fetch_docker_hub_tags(std::string_view repo) {
-    return platform::http_get(build_tags_url(repo))
+    return core::http_get(build_tags_url(repo))
         .transform([](const std::string& body) { return Tags{detail::parse_docker_hub_tags(body)}; });
 }
 

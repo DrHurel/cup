@@ -7,9 +7,9 @@ module;
 #include <format>
 #include <string>
 #include <string_view>
-module cup.platform.posix;
+module posix;
 
-namespace cup::platform::posix {
+namespace posix_backend {
 namespace {
 
 // 8 MiB, matching Go's io.LimitReader(resp.Body, 8<<20) cap.

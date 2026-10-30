@@ -16,7 +16,7 @@ export namespace cup::log {
 // the CLI — but it is reported back rather than swallowed, so a caller can
 // tell the user and point at CUP_LOG=off as the way to silence it. Defined
 // in Spdlog.cpp: spdlog stays out of this interface partition for the same
-// reason curl stays out of cup.platform's :net (see platform/posix/Http.cpp).
+// reason curl stays out of core's :net (see posix/Http.cpp).
 [[nodiscard]] std::expected<void, error::Error> init();
 
 // user: cup detected something wrong with what it was given — bad

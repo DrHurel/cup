@@ -19,12 +19,12 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(Catch2)
 
 # GLOBAL: find_package's/pkg_check_modules' imported targets are scoped to this
-# directory (and its children) by default, but cup.platform needing
+# directory (and its children) by default, but the posix backend needing
 # CURL::libcurl lives under src/libs, a sibling of third_party — without GLOBAL
 # the target is invisible there.
 if(WIN32)
-  # Nothing to find: cup.platform talks HTTP through the OS's WinHTTP on
-  # Windows (src/libs/cup/platform/windows/Http.cpp), not libcurl.
+  # Nothing to find: the windows backend talks HTTP through the OS's WinHTTP
+  # (src/libs/windows/Http.cpp), not libcurl.
 elseif(CURL_USE_STATIC_LIBS)
   # The musl-static release build (release-musl-static CI job) needs libcurl.a
   # plus its own static transitive deps (openssl, zlib, nghttp2, brotli — apk

@@ -13,7 +13,7 @@ module;
 #include <utility>
 module cup.scaffold;
 
-import cup.platform;
+import core;
 import cup.ui;
 
 namespace cup::scaffold {
@@ -23,7 +23,7 @@ namespace {
 // off the network on all but the occasional run.
 constexpr auto kReleaseCacheTtl = std::chrono::hours(7 * 24);
 
-std::filesystem::path release_cache_dir() { return platform::cache_dir(); }
+std::filesystem::path release_cache_dir() { return core::cache_dir(); }
 
 // Reads a "key":N field out of the tiny, fixed-shape JSON object this module
 // writes itself (see write_release_cache) — not a general JSON parser.
@@ -86,7 +86,7 @@ std::expected<void, error::Error> write_release_cache(const ReleaseCache& cache)
 }
 
 int fetch_gcc_newest() {
-    const auto body = platform::http_get(gcc_releases_url());
+    const auto body = core::http_get(gcc_releases_url());
     if (!body.has_value()) {
         return 0;
     }
@@ -94,7 +94,7 @@ int fetch_gcc_newest() {
 }
 
 int fetch_clang_newest() {
-    const auto body = platform::http_get(clang_releases_url());
+    const auto body = core::http_get(clang_releases_url());
     if (!body.has_value()) {
         return 0;
     }

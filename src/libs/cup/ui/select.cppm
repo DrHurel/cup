@@ -15,7 +15,7 @@ import :io;
 import :color;
 import :prompt;
 export import cup.error;
-import cup.platform;
+import core;
 
 export namespace cup::ui {
 
@@ -33,7 +33,7 @@ namespace detail {
 
 // select_interactive_impl is declared here, defined in Interactive.cpp: it
 // drives an FTXUI ftxui::Menu, which stays out of this interface partition
-// for the same reason curl stays out of :net (see platform/posix/Http.cpp) — a
+// for the same reason curl stays out of :net (see posix/Http.cpp) — a
 // heavy third-party header would otherwise enter every importer's BMI.
 [[nodiscard]] std::expected<std::string, error::Error> select_interactive_impl(
     std::string_view question, std::span<const std::string> options, std::size_t initial_cursor);
@@ -74,7 +74,7 @@ using SelectInteractiveFunc = std::function<std::expected<std::string, error::Er
 
 // select_interactive_func is the seam select_one and confirm call through on
 // a real terminal; overridable in tests so callers can be tested without
-// driving a real pty. Mirrors platform::run_command_func().
+// driving a real pty. Mirrors core::run_command_func().
 [[nodiscard]] SelectInteractiveFunc& select_interactive_func() {
     static SelectInteractiveFunc f = &detail::select_interactive_impl;
     return f;
@@ -85,7 +85,7 @@ using SelectInteractiveFunc = std::function<std::expected<std::string, error::Er
     if (options.empty()) {
         return std::unexpected(error::Error("no options to choose from"));
     }
-    if (!detail::can_use_interactive(platform::kStdinFd)) {
+    if (!detail::can_use_interactive(core::kStdinFd)) {
         return detail::select_numbered(question, options);
     }
     return select_interactive_func()(question, options, detail::index_of(options, def));
@@ -95,7 +95,7 @@ using SelectInteractiveFunc = std::function<std::expected<std::string, error::Er
 // rather than a separate FTXUI component — one real interactive
 // implementation, not two.
 [[nodiscard]] std::expected<bool, error::Error> confirm(std::string_view question, bool def) {
-    if (detail::can_use_interactive(platform::kStdinFd)) {
+    if (detail::can_use_interactive(core::kStdinFd)) {
         const std::array<std::string, 2> options{"Yes", "No"};
         auto chosen = select_interactive_func()(question, options, def ? 0 : 1);
         if (!chosen.has_value()) {

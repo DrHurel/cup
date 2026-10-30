@@ -7,9 +7,9 @@ module;
 #include <expected>
 #include <format>
 #include <span>
-module cup.platform.posix;
+module posix;
 
-namespace cup::platform::posix {
+namespace posix_backend {
 
 bool is_tty(int fd) { return ::isatty(fd) == 1; }
 

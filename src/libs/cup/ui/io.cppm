@@ -11,7 +11,7 @@ module;
 #include <utility>
 export module cup.ui:io;
 
-import cup.platform;
+import core;
 
 export namespace cup::ui {
 
@@ -70,7 +70,7 @@ bool read_line(std::string& line) {
 }
 
 int read_key(std::span<unsigned char> buf) {
-    return platform::read_input(platform::kStdinFd, buf);
+    return core::read_input(core::kStdinFd, buf);
 }
 
 }

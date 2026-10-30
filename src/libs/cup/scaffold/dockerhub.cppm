@@ -93,7 +93,7 @@ struct Tags {
 };
 
 // fetch_docker_hub_tags is declared here, defined in Dockerhub.cpp: it calls
-// cup.platform::http_get (a cross-module import), which this interface
+// core::http_get (a cross-module import), which this interface
 // partition stays clear of — see releases.cppm's note.
 [[nodiscard]] std::expected<Tags, error::Error> fetch_docker_hub_tags(std::string_view repo);
 

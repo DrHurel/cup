@@ -300,7 +300,7 @@ graph TD
     cmd --> ui[cup.ui]
     cmd --> scaffold[cup.scaffold]
     cmd --> tmpl[cup.tmpl]
-    cmd --> platform[cup.platform]
+    cmd --> platform[core]
     cmd --> log[cup.log]
 
     scaffold --> error
@@ -314,29 +314,30 @@ graph TD
     log --> error
     log --> platform
     platform --> error
-    posix["cup.platform.posix"] -. "injected by<br/>PosixServices.cpp" .-> platform
-    windows["cup.platform.windows"] -. "injected by<br/>WindowsServices.cpp" .-> platform
+    posix["posix"] -. "injected by<br/>PosixServices.cpp" .-> platform
+    windows["windows"] -. "injected by<br/>WindowsServices.cpp" .-> platform
     project --> error
     tmpl --> error
 ```
 
-The platform layer uses dependency injection. `cup.platform` declares what
-cup needs from the OS as a `Services` table (`services.cppm`). Each backend
-library implements it. A per-platform *services file*
-(`src/libs/cup/platform/services/PosixServices.cpp` or `WindowsServices.cpp`)
-injects one backend into the core by defining `make_platform_services()`.
-CMake compiles exactly one backend and its services file for the host
-(`if(WIN32)` in `src/libs/cup/platform/CMakeLists.txt`). Nothing else in cup
-imports a backend or tests `_WIN32`, and tests can swap any single service
-(`run_command_func()` etc.).
+The platform layer is three libraries beside `src/libs/cup/`, wired by
+dependency injection. `src/libs/core` (module `core`) declares what cup needs
+from the OS as a `Services` table (`services.cppm`). `src/libs/posix` and
+`src/libs/windows` (modules `posix` and `windows`) are the backends that
+implement it. Each backend also owns a *services file* (`PosixServices.cpp`,
+`WindowsServices.cpp`) that injects that backend into `core` by defining
+`make_platform_services()`. CMake adds exactly one backend directory, with its
+services file, for the host (`if(WIN32)` in `src/libs/CMakeLists.txt`).
+Nothing else in cup imports a backend or tests `_WIN32`, and tests can swap any
+single service (`run_command_func()` etc.).
 
 | Module | Partitions | Purpose |
 | --- | --- | --- |
 | `cup.error` | `:error`, `:monad` | Error type and monadic `Result`/`Expected`-style helpers used everywhere else. |
 | `cup.log` | `:log` | Structured logging (`cup.log`) backed by spdlog. |
-| `cup.platform` | `:services`, `:raw_mode`, `:terminal`, `:net`, `:process`, `:env` | The portable OS-facing API: terminal I/O, HTTP, subprocess execution, and per-user directories. Free of OS headers: every call goes through the `Services` table that a platform backend fills in. |
-| `cup.platform.posix` | — | POSIX backend (fork+exec, termios, libcurl). Built only on non-Windows hosts. |
-| `cup.platform.windows` | — | Windows backend (CreateProcessW, the console API, WinHTTP). Built only on Windows. |
+| `core` | `:services`, `:raw_mode`, `:terminal`, `:net`, `:process`, `:env` | The portable OS-facing API: terminal I/O, HTTP, subprocess execution, and per-user directories. Free of OS headers: every call goes through the `Services` table that a platform backend fills in. |
+| `posix` | — | POSIX backend (fork+exec, termios, libcurl). Built only on non-Windows hosts. |
+| `windows` | — | Windows backend (CreateProcessW, the console API, WinHTTP). Built only on Windows. |
 | `cup.project` | `:config`, `:io` | Reads/writes a project's `cup.toml` and derives on-disk paths from it. |
 | `cup.tmpl` | `:corpus`, `:resolve` | Built-in template corpus and template-path resolution for `cup add`/`cup template`. |
 | `cup.ui` | `:io`, `:color`, `:prompt`, `:select` | Terminal UI toolkit: colored output, prompts, and interactive selection. |
@@ -358,7 +359,7 @@ sequenceDiagram
     participant scaffold as cup.scaffold
     participant tmpl as cup.tmpl
     participant project as cup.project
-    participant platform as cup.platform
+    participant platform as core
     participant log as cup.log
 
     User->>main: cup new myproj

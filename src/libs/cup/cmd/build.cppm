@@ -14,7 +14,7 @@ export import cup.error;
 export import cup.project;
 
 // Declarations only, defined in Build.cpp: the definitions import cup.ui,
-// cup.scaffold and cup.platform and use <filesystem> throughout, none of
+// cup.scaffold and core and use <filesystem> throughout, none of
 // which this interface partition needs to expose.
 export namespace cup::cmd {
 
@@ -90,7 +90,7 @@ resolve_app(const project::Project& proj, std::span<const std::string> rest);
 [[nodiscard]] std::expected<void, error::Error> run_rebuild(std::span<const std::string> args);
 [[nodiscard]] std::expected<void, error::Error> run_retest(std::span<const std::string> args);
 
-// run_shell shells out via cup.platform::run_command, logging a "run ..."
+// run_shell shells out via core::run_command, logging a "run ..."
 // status line first. The one call site the rest of cup.cmd (new/add/docker's
 // git init and future docker build/push) goes through, mirroring Go's
 // runCommand var doing both in one step.

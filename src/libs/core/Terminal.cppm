@@ -1,14 +1,14 @@
 module;
 #include <expected>
 #include <span>
-export module cup.platform:terminal;
+export module core:terminal;
 
 export import cup.error;
 export import :raw_mode;
 import :services;
 
 // Terminal primitives, forwarded to the injected backend (see :services).
-export namespace cup::platform {
+export namespace core {
 
 // The standard three descriptors — the same 0/1/2 on POSIX and Windows.
 inline constexpr int kStdinFd = 0;

@@ -14,7 +14,7 @@ module;
 module cup.cmd;
 
 import cup.log;
-import cup.platform;
+import core;
 import cup.ui;
 
 namespace cup::cmd {
@@ -74,7 +74,7 @@ void print_version() {
 
 int run_main(std::span<const std::string> args) {
     // UTF-8 output and ANSI colours on a Windows console; a no-op elsewhere.
-    platform::init_console();
+    core::init_console();
 
     // A failed init() (e.g. an unwritable log dir) must never stop cup from
     // running the actual command — just tell the user how to quiet it.

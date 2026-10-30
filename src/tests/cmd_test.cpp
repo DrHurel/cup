@@ -14,7 +14,7 @@
 
 import cup.cmd;
 import cup.project;
-import cup.platform;
+import core;
 import cup.ui;
 
 namespace {
@@ -93,8 +93,8 @@ class StubRunCommand {
 public:
     explicit StubRunCommand(bool fail = false)
         : fail_(fail),
-          override_(cup::platform::run_command_func(),
-                    cup::platform::RunCommandFunc{
+          override_(core::run_command_func(),
+                    core::RunCommandFunc{
                         [this](const std::filesystem::path&, std::string_view name,
                               std::span<const std::string> args)
                             -> std::expected<void, cup::error::Error> {
@@ -109,8 +109,8 @@ public:
                             }
                             return {};
                         }}),
-          capture_override_(cup::platform::capture_command_func(),
-                             cup::platform::CaptureCommandFunc{
+          capture_override_(core::capture_command_func(),
+                             core::CaptureCommandFunc{
                                  [this](const std::filesystem::path&, std::string_view,
                                        std::span<const std::string>)
                                      -> std::expected<std::string, cup::error::Error> {
@@ -131,8 +131,8 @@ private:
     bool fail_;
     std::vector<std::string> calls_;
     std::string capture_version_ = "cmake version 4.2.3\n";
-    ScopedOverride<cup::platform::RunCommandFunc> override_;
-    ScopedOverride<cup::platform::CaptureCommandFunc> capture_override_;
+    ScopedOverride<core::RunCommandFunc> override_;
+    ScopedOverride<core::CaptureCommandFunc> capture_override_;
 };
 
 // Writes a minimal cup.toml under dir so project::find() (cwd-based, exactly
@@ -573,7 +573,7 @@ TEST_CASE("run_run resolves the app, builds, then runs the binary", "[cmd][run]"
     REQUIRE(stub.calls()[0] == "make MODE=Debug");
     REQUIRE(stub.calls()[1] ==
             (dir.path() / "build" / "Debug" / "bin" /
-                              ("greeter" + std::string(cup::platform::exe_suffix())))
+                              ("greeter" + std::string(core::exe_suffix())))
                                      .string() +
                                  " -v");
 }
@@ -582,7 +582,7 @@ TEST_CASE("app_binary finds an adopted CMake project's app in its default locati
           "[cmd][run]") {
     const TempDir dir;
     const Project proj = make_project(dir);
-    const std::string file = "greeter" + std::string(cup::platform::exe_suffix());
+    const std::string file = "greeter" + std::string(core::exe_suffix());
     const auto bin = dir.path() / "build" / "Debug" / "bin" / file;
     const auto in_tree = dir.path() / "build" / "Debug" / "src" / "apps" / "greeter" / file;
 

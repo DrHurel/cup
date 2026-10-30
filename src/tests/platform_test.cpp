@@ -19,13 +19,13 @@
 #include "TempDir.hpp"
 #include "TestHttpServer.hpp"
 
-import cup.platform;
-import cup.platform.posix;
+import core;
+import posix;
 
 namespace {
 
 using cup::error::Error;
-using cup::platform::RawMode;
+using core::RawMode;
 using cup::test::TempDir;
 
 // Restores a mutable global (an overridable hook) to its prior value when the
@@ -146,15 +146,15 @@ TEST_CASE("is_tty tells a terminal from a pipe", "[platform][tty]") {
     const Pty pty;
     const Pipe pipe;
 
-    REQUIRE(cup::platform::is_tty(pty.fd()));
-    REQUIRE_FALSE(cup::platform::is_tty(pipe.fd()));
-    REQUIRE_FALSE(cup::platform::is_tty(-1));
+    REQUIRE(core::is_tty(pty.fd()));
+    REQUIRE_FALSE(core::is_tty(pipe.fd()));
+    REQUIRE_FALSE(core::is_tty(-1));
 }
 
 TEST_CASE("the exported descriptors are the standard three", "[platform][fd]") {
-    REQUIRE(cup::platform::kStdinFd == 0);
-    REQUIRE(cup::platform::kStdoutFd == 1);
-    REQUIRE(cup::platform::kStderrFd == 2);
+    REQUIRE(core::kStdinFd == 0);
+    REQUIRE(core::kStdoutFd == 1);
+    REQUIRE(core::kStderrFd == 2);
 }
 
 TEST_CASE("enter_raw_mode clears the cooked-mode flags and the guard puts them back",
@@ -164,7 +164,7 @@ TEST_CASE("enter_raw_mode clears the cooked-mode flags and the guard puts them b
     REQUIRE(cooked(before));
 
     {
-        const auto raw = cup::platform::enter_raw_mode(pty.fd());
+        const auto raw = core::enter_raw_mode(pty.fd());
         REQUIRE(raw.has_value());
         REQUIRE(raw->owns());
 
@@ -192,7 +192,7 @@ TEST_CASE("restore hands the terminal back early, and never twice", "[platform][
     const Pty pty;
     const termios before = pty.settings();
 
-    auto raw = cup::platform::enter_raw_mode(pty.fd());
+    auto raw = core::enter_raw_mode(pty.fd());
     REQUIRE(raw.has_value());
 
     raw->restore();
@@ -212,7 +212,7 @@ TEST_CASE("a moved-from guard owns nothing and restores nothing", "[platform][ra
     const Pty pty;
     const termios before = pty.settings();
 
-    auto raw = cup::platform::enter_raw_mode(pty.fd());
+    auto raw = core::enter_raw_mode(pty.fd());
     REQUIRE(raw.has_value());
 
     RawMode moved(std::move(*raw));
@@ -229,8 +229,8 @@ TEST_CASE("move assignment restores the terminal it gives up", "[platform][raw][
     const Pty taken_over;
     const termios given_up_before = given_up.settings();
 
-    auto held = cup::platform::enter_raw_mode(given_up.fd());
-    auto other = cup::platform::enter_raw_mode(taken_over.fd());
+    auto held = core::enter_raw_mode(given_up.fd());
+    auto other = core::enter_raw_mode(taken_over.fd());
     REQUIRE(held.has_value());
     REQUIRE(other.has_value());
 
@@ -245,7 +245,7 @@ TEST_CASE("move assignment restores the terminal it gives up", "[platform][raw][
 TEST_CASE("self-assignment leaves a guard holding its terminal", "[platform][raw][move]") {
     const Pty pty;
 
-    auto raw = cup::platform::enter_raw_mode(pty.fd());
+    auto raw = core::enter_raw_mode(pty.fd());
     REQUIRE(raw.has_value());
 
     RawMode& alias = *raw;
@@ -258,7 +258,7 @@ TEST_CASE("self-assignment leaves a guard holding its terminal", "[platform][raw
 TEST_CASE("enter_raw_mode reports failure off a terminal", "[platform][raw]") {
     const Pipe pipe;
 
-    const auto raw = cup::platform::enter_raw_mode(pipe.fd());
+    const auto raw = core::enter_raw_mode(pipe.fd());
     REQUIRE_FALSE(raw.has_value());
     REQUIRE(raw.error().message().starts_with("tcgetattr: "));
     REQUIRE(raw.error().kind() == Error::Kind::General);
@@ -270,7 +270,7 @@ TEST_CASE("http_get returns a 200 response's body", "[platform][http]") {
     const TestHttpServer server(
         [](const std::string&) { return TestHttpServer::Response{200, "hello"}; });
 
-    const auto body = cup::platform::http_get(server.url() + "/ok");
+    const auto body = core::http_get(server.url() + "/ok");
     REQUIRE(body.has_value());
     REQUIRE(*body == "hello");
 }
@@ -280,24 +280,24 @@ TEST_CASE("http_get reports a non-200 response as an error", "[platform][http]")
     const TestHttpServer server(
         [](const std::string&) { return TestHttpServer::Response{404, "not found"}; });
 
-    const auto body = cup::platform::http_get(server.url() + "/missing");
+    const auto body = core::http_get(server.url() + "/missing");
     REQUIRE_FALSE(body.has_value());
 }
 
 TEST_CASE("http_get reports a malformed url as an error", "[platform][http]") {
-    const auto body = cup::platform::http_get("://not-a-url");
+    const auto body = core::http_get("://not-a-url");
     REQUIRE_FALSE(body.has_value());
 }
 
 TEST_CASE("run_command succeeds for a zero-exit program", "[platform][process]") {
     const TempDir dir;
-    const auto result = cup::platform::run_command(dir.path(), "true", {});
+    const auto result = core::run_command(dir.path(), "true", {});
     REQUIRE(result.has_value());
 }
 
 TEST_CASE("run_command reports a non-zero exit as an error", "[platform][process]") {
     const TempDir dir;
-    const auto result = cup::platform::run_command(dir.path(), "false", {});
+    const auto result = core::run_command(dir.path(), "false", {});
     REQUIRE_FALSE(result.has_value());
     REQUIRE(result.error().message() == "command failed: false : exit status 1");
     REQUIRE(result.error().kind() == Error::Kind::General);
@@ -305,7 +305,7 @@ TEST_CASE("run_command reports a non-zero exit as an error", "[platform][process
 
 TEST_CASE("run_command reports a missing binary as an error", "[platform][process]") {
     const TempDir dir;
-    const auto result = cup::platform::run_command(dir.path(), "cup-test-does-not-exist", {});
+    const auto result = core::run_command(dir.path(), "cup-test-does-not-exist", {});
     REQUIRE_FALSE(result.has_value());
     REQUIRE(result.error().message().starts_with("command failed: cup-test-does-not-exist"));
 }
@@ -314,7 +314,7 @@ TEST_CASE("run_command runs the program with dir as its working directory",
           "[platform][process]") {
     const TempDir dir;
     const std::vector<std::string> args{"-c", "touch marker"};
-    const auto result = cup::platform::run_command(dir.path(), "sh", args);
+    const auto result = core::run_command(dir.path(), "sh", args);
     REQUIRE(result.has_value());
     REQUIRE(std::filesystem::exists(dir.path() / "marker"));
 }
@@ -322,7 +322,7 @@ TEST_CASE("run_command runs the program with dir as its working directory",
 TEST_CASE("run_command passes args through to the child", "[platform][process]") {
     const TempDir dir;
     const std::vector<std::string> args{"-c", "exit $1", "_", "7"};
-    const auto result = cup::platform::run_command(dir.path(), "sh", args);
+    const auto result = core::run_command(dir.path(), "sh", args);
     REQUIRE_FALSE(result.has_value());
     REQUIRE(result.error().message().ends_with("exit status 7"));
 }
@@ -330,7 +330,7 @@ TEST_CASE("run_command passes args through to the child", "[platform][process]")
 TEST_CASE("run_command reports a signal-terminated child as an error", "[platform][process]") {
     const TempDir dir;
     const std::vector<std::string> args{"-c", "kill -TERM $$"};
-    const auto result = cup::platform::run_command(dir.path(), "sh", args);
+    const auto result = core::run_command(dir.path(), "sh", args);
     REQUIRE_FALSE(result.has_value());
     REQUIRE(result.error().message().ends_with("signal 15"));
 }
@@ -343,21 +343,21 @@ TEST_CASE("run_command reports pipe() failing as an error", "[platform][process]
     // count-based ceiling. 0 leaves no valid descriptor index at all, so a
     // new pipe() fails regardless of any such gaps.
     const ScopedRlimit no_fds(RLIMIT_NOFILE, 0);
-    const auto result = cup::platform::run_command(dir.path(), "true", {});
+    const auto result = core::run_command(dir.path(), "true", {});
     REQUIRE_FALSE(result.has_value());
     REQUIRE(result.error().message().starts_with("pipe:"));
 }
 
 TEST_CASE("run_command_func is the override point for run_command", "[platform][process]") {
     ScopedOverride override_func(
-        cup::platform::run_command_func(),
-        cup::platform::RunCommandFunc{[](const std::filesystem::path&, std::string_view,
+        core::run_command_func(),
+        core::RunCommandFunc{[](const std::filesystem::path&, std::string_view,
                                          std::span<const std::string>)
                                           -> std::expected<void, Error> {
             return std::unexpected(Error("stubbed"));
         }});
     const TempDir dir;
-    const auto result = cup::platform::run_command(dir.path(), "true", {});
+    const auto result = core::run_command(dir.path(), "true", {});
     REQUIRE_FALSE(result.has_value());
     REQUIRE(result.error().message() == "stubbed");
 }
@@ -365,21 +365,21 @@ TEST_CASE("run_command_func is the override point for run_command", "[platform][
 TEST_CASE("capture_command returns a zero-exit program's stdout", "[platform][process]") {
     const TempDir dir;
     const std::vector<std::string> args{"-c", "printf hello"};
-    const auto result = cup::platform::capture_command(dir.path(), "sh", args);
+    const auto result = core::capture_command(dir.path(), "sh", args);
     REQUIRE(result.has_value());
     REQUIRE(*result == "hello");
 }
 
 TEST_CASE("capture_command reports a non-zero exit as an error", "[platform][process]") {
     const TempDir dir;
-    const auto result = cup::platform::capture_command(dir.path(), "false", {});
+    const auto result = core::capture_command(dir.path(), "false", {});
     REQUIRE_FALSE(result.has_value());
     REQUIRE(result.error().message() == "command failed: false : exit status 1");
 }
 
 TEST_CASE("capture_command reports a missing binary as an error", "[platform][process]") {
     const TempDir dir;
-    const auto result = cup::platform::capture_command(dir.path(), "cup-test-does-not-exist", {});
+    const auto result = core::capture_command(dir.path(), "cup-test-does-not-exist", {});
     REQUIRE_FALSE(result.has_value());
     REQUIRE(result.error().message().starts_with("command failed: cup-test-does-not-exist"));
 }
@@ -389,7 +389,7 @@ TEST_CASE("capture_command reports pipe() failing as an error", "[platform][proc
     // See run_command's identical test above for why this is 0 rather than a
     // count-based ceiling.
     const ScopedRlimit no_fds(RLIMIT_NOFILE, 0);
-    const auto result = cup::platform::capture_command(dir.path(), "true", {});
+    const auto result = core::capture_command(dir.path(), "true", {});
     REQUIRE_FALSE(result.has_value());
     REQUIRE(result.error().message().starts_with("pipe:"));
 }
@@ -397,7 +397,7 @@ TEST_CASE("capture_command reports pipe() failing as an error", "[platform][proc
 TEST_CASE("capture_command reports fork() failing as an error", "[platform][process]") {
     const TempDir dir;
     const ScopedRlimit no_procs(RLIMIT_NPROC, 0);
-    const auto result = cup::platform::capture_command(dir.path(), "true", {});
+    const auto result = core::capture_command(dir.path(), "true", {});
     REQUIRE_FALSE(result.has_value());
     REQUIRE(result.error().message().starts_with("fork:"));
 }
@@ -405,7 +405,7 @@ TEST_CASE("capture_command reports fork() failing as an error", "[platform][proc
 TEST_CASE("capture_command reports waitpid() failing as an error", "[platform][process]") {
     const TempDir dir;
     const ScopedAutoReapChildren auto_reap;
-    const auto result = cup::platform::capture_command(dir.path(), "true", {});
+    const auto result = core::capture_command(dir.path(), "true", {});
     REQUIRE_FALSE(result.has_value());
     REQUIRE(result.error().message().starts_with("waitpid:"));
 }
@@ -414,7 +414,7 @@ TEST_CASE("capture_command runs the program with dir as its working directory",
           "[platform][process]") {
     const TempDir dir;
     const std::vector<std::string> args{"-c", "pwd"};
-    const auto result = cup::platform::capture_command(dir.path(), "sh", args);
+    const auto result = core::capture_command(dir.path(), "sh", args);
     REQUIRE(result.has_value());
     REQUIRE(*result == std::filesystem::canonical(dir.path()).string() + "\n");
 }
@@ -422,7 +422,7 @@ TEST_CASE("capture_command runs the program with dir as its working directory",
 TEST_CASE("capture_command reports a signal-terminated child as an error", "[platform][process]") {
     const TempDir dir;
     const std::vector<std::string> args{"-c", "kill -TERM $$"};
-    const auto result = cup::platform::capture_command(dir.path(), "sh", args);
+    const auto result = core::capture_command(dir.path(), "sh", args);
     REQUIRE_FALSE(result.has_value());
     REQUIRE(result.error().message().ends_with("signal 15"));
 }
@@ -430,27 +430,27 @@ TEST_CASE("capture_command reports a signal-terminated child as an error", "[pla
 TEST_CASE("capture_command passes args through to the child", "[platform][process]") {
     const TempDir dir;
     const std::vector<std::string> args{"-c", "exit $1", "_", "7"};
-    const auto result = cup::platform::capture_command(dir.path(), "sh", args);
+    const auto result = core::capture_command(dir.path(), "sh", args);
     REQUIRE_FALSE(result.has_value());
     REQUIRE(result.error().message().ends_with("exit status 7"));
 }
 
 TEST_CASE("capture_command_func is the override point for capture_command", "[platform][process]") {
     ScopedOverride override_func(
-        cup::platform::capture_command_func(),
-        cup::platform::CaptureCommandFunc{[](const std::filesystem::path&, std::string_view,
+        core::capture_command_func(),
+        core::CaptureCommandFunc{[](const std::filesystem::path&, std::string_view,
                                              std::span<const std::string>)
                                               -> std::expected<std::string, Error> {
             return std::unexpected(Error("stubbed"));
         }});
     const TempDir dir;
-    const auto result = cup::platform::capture_command(dir.path(), "true", {});
+    const auto result = core::capture_command(dir.path(), "true", {});
     REQUIRE_FALSE(result.has_value());
     REQUIRE(result.error().message() == "stubbed");
 }
 
 TEST_CASE("the POSIX services file injects the POSIX backend", "[platform][services]") {
-    REQUIRE(cup::platform::exe_suffix().empty());
-    REQUIRE(cup::platform::default_shell() == "bash");
-    REQUIRE(cup::platform::home_dir() == cup::platform::posix::home_dir());
+    REQUIRE(core::exe_suffix().empty());
+    REQUIRE(core::default_shell() == "bash");
+    REQUIRE(core::home_dir() == posix_backend::home_dir());
 }

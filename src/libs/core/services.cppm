@@ -5,20 +5,27 @@ module;
 #include <span>
 #include <string>
 #include <string_view>
-export module cup.platform:services;
+export module core:services;
 
 export import cup.error;
 import :raw_mode;
 
-// cup.platform's dependency-injection seam. The portable core declares *what*
-// cup needs from the operating system — this Services table — and never how:
-// every OS-specific implementation lives in a backend library
-// (cup.platform.posix, cup.platform.windows), and a per-platform services file
-// (services/PosixServices.cpp, services/WindowsServices.cpp) injects one into
-// the core by defining make_platform_services(). CMake compiles exactly one
-// backend and its services file for the target platform (see this
-// directory's CMakeLists.txt), so no #ifdef _WIN32 is needed anywhere in cup.
-export namespace cup::platform {
+// The platform layer's dependency-injection seam. The portable core declares
+// *what* cup needs from the operating system — this Services table — and never
+// how: every OS-specific implementation lives in a backend library
+// (src/libs/posix, src/libs/windows), and that backend's services file
+// (PosixServices.cpp, WindowsServices.cpp) injects it into core by defining
+// make_platform_services(). CMake builds exactly one backend and its services
+// file for the target platform (see src/libs/CMakeLists.txt), so no
+// #ifdef _WIN32 is needed anywhere in cup.
+
+// core sits outside namespace cup, so it names cup.error through this alias
+// (not exported: core's own partitions see it, importers don't).
+namespace core {
+namespace error = cup::error;
+}
+
+export namespace core {
 
 using RunCommandFunc = std::function<std::expected<void, error::Error>(
     const std::filesystem::path&, std::string_view, std::span<const std::string>)>;
@@ -65,17 +72,17 @@ struct Services {
 
 // The injection point: declared here, defined by whichever services file
 // CMake built for this platform. extern "C++" attaches it to the global
-// module rather than cup.platform, which is what lets a TU outside this module
+// module rather than core, which is what lets a TU outside this module
 // (the services file, which also imports the backend) provide the definition.
 export extern "C++" {
-namespace cup::platform::detail {
+namespace core::detail {
 [[nodiscard]] Services make_platform_services();
 }
 }
 
-export namespace cup::platform {
+export namespace core {
 
-// services is the live table every cup.platform call goes through, built on
+// services is the live table every core call goes through, built on
 // first use from make_platform_services(). Returned by reference so tests can
 // swap one entry (see run_command_func()) without touching the rest.
 [[nodiscard]] Services& services() {

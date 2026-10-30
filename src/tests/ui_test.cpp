@@ -25,7 +25,7 @@
 
 import cup.ui;
 import cup.error;
-import cup.platform;
+import core;
 
 namespace {
 
@@ -40,7 +40,7 @@ private:
     bool previous_;
 };
 
-// Points the real stdin fd at a pipe, so cup.platform::is_tty(kStdinFd) sees
+// Points the real stdin fd at a pipe, so core::is_tty(kStdinFd) sees
 // "not a terminal" regardless of how the test binary was invoked (ctest's
 // own stdin may or may not be a tty depending on how it is run). Content is
 // irrelevant here -- read_line() reads from ScopedInput's istream, never
@@ -199,7 +199,7 @@ TEST_CASE("text aborts on EOF", "[ui][text]") {
 
 TEST_CASE("text calls the interactive seam on a terminal", "[ui][text]") {
     const ScopedPtyStdin pty;
-    REQUIRE(cup::platform::is_tty(cup::platform::kStdinFd));
+    REQUIRE(core::is_tty(core::kStdinFd));
 
     std::string seen_question;
     std::string seen_def;
@@ -377,7 +377,7 @@ TEST_CASE("select_one falls back to the numbered list off a terminal", "[ui][sel
     const std::vector<std::string> options{"red", "green", "blue"};
 
     const ScopedStdin not_a_terminal;
-    REQUIRE_FALSE(cup::platform::is_tty(cup::platform::kStdinFd));
+    REQUIRE_FALSE(core::is_tty(core::kStdinFd));
 
     std::istringstream in("3\n");
     const cup::ui::ScopedInput scoped(in);
@@ -389,7 +389,7 @@ TEST_CASE("select_one falls back to the numbered list off a terminal", "[ui][sel
 
 TEST_CASE("select_one calls the interactive seam on a terminal", "[ui][select]") {
     const ScopedPtyStdin pty;
-    REQUIRE(cup::platform::is_tty(cup::platform::kStdinFd));
+    REQUIRE(core::is_tty(core::kStdinFd));
 
     std::string seen_question;
     std::vector<std::string> seen_options;

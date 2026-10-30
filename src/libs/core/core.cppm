@@ -1,6 +1,6 @@
 module;
 #include <string>
-export module cup.platform;
+export module core;
 
 export import :raw_mode;
 export import :services;

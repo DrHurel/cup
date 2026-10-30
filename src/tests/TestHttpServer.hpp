@@ -2,7 +2,7 @@
 
 #ifdef _WIN32
 // <cstdlib> ahead of the Winsock headers, for the same GCC-modules reason as
-// cup.platform's Terminal.cppm: these suites also import cup modules.
+// core's Terminal.cppm: these suites also import cup modules.
 #include <cstdlib>
 #include <winsock2.h>
 #include <ws2tcpip.h>

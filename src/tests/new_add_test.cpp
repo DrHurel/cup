@@ -21,7 +21,7 @@ import cup.cmd;
 import cup.project;
 import cup.scaffold;
 import cup.tmpl;
-import cup.platform;
+import core;
 import cup.ui;
 
 namespace {
@@ -97,8 +97,8 @@ class StubRunCommand {
 public:
     explicit StubRunCommand(std::string_view fail_for = {})
         : fail_for_(fail_for),
-          override_(cup::platform::run_command_func(),
-                    cup::platform::RunCommandFunc{
+          override_(core::run_command_func(),
+                    core::RunCommandFunc{
                         [this](const std::filesystem::path&, std::string_view name,
                               std::span<const std::string> args)
                             -> std::expected<void, cup::error::Error> {
@@ -119,7 +119,7 @@ public:
 private:
     std::string fail_for_;
     std::vector<std::string> calls_;
-    ScopedOverride<cup::platform::RunCommandFunc> override_;
+    ScopedOverride<core::RunCommandFunc> override_;
 };
 
 // newest_compilers_func can only be overridden with a plain function

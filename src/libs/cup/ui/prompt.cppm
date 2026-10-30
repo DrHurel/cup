@@ -11,7 +11,7 @@ export module cup.ui:prompt;
 import :io;
 import :color;
 export import cup.error;
-import cup.platform;
+import core;
 
 export namespace cup::ui {
 
@@ -78,15 +78,15 @@ namespace detail {
 // mode itself when the interactive seam actually runs, so this is a
 // capability check only, not the thing that puts the terminal in raw mode.
 [[nodiscard]] bool can_use_interactive(int fd) {
-    if (!platform::is_tty(fd)) {
+    if (!core::is_tty(fd)) {
         return false;
     }
-    return platform::enter_raw_mode(fd).has_value();
+    return core::enter_raw_mode(fd).has_value();
 }
 
 // text_interactive_impl is declared here, defined in Interactive.cpp: it
 // drives an FTXUI ftxui::Input, which stays out of this interface partition
-// for the same reason curl stays out of :net (see platform/posix/Http.cpp).
+// for the same reason curl stays out of :net (see posix/Http.cpp).
 [[nodiscard]] std::expected<std::string, error::Error> text_interactive_impl(
     std::string_view question, std::string_view def, const Validator& validate);
 
@@ -97,7 +97,7 @@ using TextInteractiveFunc = std::function<std::expected<std::string, error::Erro
 
 // text_interactive_func is the seam text() calls through on a real
 // terminal; overridable in tests so callers can be tested without driving a
-// real pty. Mirrors platform::run_command_func().
+// real pty. Mirrors core::run_command_func().
 [[nodiscard]] TextInteractiveFunc& text_interactive_func() {
     static TextInteractiveFunc f = &detail::text_interactive_impl;
     return f;
@@ -105,7 +105,7 @@ using TextInteractiveFunc = std::function<std::expected<std::string, error::Erro
 
 [[nodiscard]] std::expected<std::string, error::Error> text(
     std::string_view question, std::string_view def, const Validator& validate = {}) {
-    if (detail::can_use_interactive(platform::kStdinFd)) {
+    if (detail::can_use_interactive(core::kStdinFd)) {
         return text_interactive_func()(question, def, validate);
     }
 

@@ -16,7 +16,7 @@ export import cup.error;
 export import cup.project;
 
 // Declarations only, defined in New.cpp: the definitions import cup.scaffold,
-// cup.platform (git init) and use <filesystem> throughout, none of which
+// core (git init) and use <filesystem> throughout, none of which
 // this interface partition needs to expose.
 export namespace cup::cmd {
 

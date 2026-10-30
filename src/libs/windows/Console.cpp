@@ -13,9 +13,9 @@ module;
 #include <expected>
 #include <format>
 #include <span>
-module cup.platform.windows;
+module windows;
 
-namespace cup::platform::windows {
+namespace windows {
 
 bool is_tty(int fd) { return ::_isatty(fd) != 0; }
 

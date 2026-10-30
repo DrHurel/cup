@@ -15,7 +15,7 @@ module;
 #include <utility>
 module cup.log;
 
-import cup.platform;
+import core;
 
 namespace cup::log {
 namespace {
@@ -31,8 +31,8 @@ constexpr std::array<const char*, kCategoryCount> kCategoryEnvVars{"CUP_LOG_USER
 
 // log_dir is the same per-user cache directory the release cache uses
 // (XDG_CACHE_HOME, %LOCALAPPDATA% on Windows, else ~/.cache), resolved by
-// cup.platform so the per-OS rules live in one place.
-std::filesystem::path log_dir() { return platform::cache_dir(); }
+// core so the per-OS rules live in one place.
+std::filesystem::path log_dir() { return core::cache_dir(); }
 
 spdlog::level::level_enum parse_level(std::string_view level) {
     if (level == "trace") return spdlog::level::trace;

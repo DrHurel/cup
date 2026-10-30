@@ -5,7 +5,7 @@ module;
 export module cup.ui:color;
 
 import :io;
-import cup.platform;
+import core;
 
 export namespace cup::ui {
 
@@ -19,7 +19,7 @@ inline constexpr std::string_view kSalmon = "38;5;209";
 namespace detail {
 
 bool& colour_enabled() {
-    static bool enabled = std::getenv("NO_COLOR") == nullptr && platform::is_tty(platform::kStdoutFd);
+    static bool enabled = std::getenv("NO_COLOR") == nullptr && core::is_tty(core::kStdoutFd);
     return enabled;
 }
 

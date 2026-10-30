@@ -16,7 +16,7 @@ module;
 #include <vector>
 module cup.cmd;
 
-import cup.platform;
+import core;
 import cup.ui;
 
 namespace cup::cmd {
@@ -135,7 +135,7 @@ std::expected<void, error::Error> install_completion(std::span<const std::string
             "$PROFILE instead:  cup completion powershell | Out-String | Invoke-Expression"));
     }
 
-    const std::filesystem::path home = platform::home_dir();
+    const std::filesystem::path home = core::home_dir();
     if (home.empty()) {
         return std::unexpected(error::Error("$HOME is not set"));
     }
@@ -199,7 +199,7 @@ std::string detect_shell() {
     // No $SHELL at all: the platform's own default (powershell on Windows,
     // where cmd and PowerShell set none; bash elsewhere).
     if (base.empty()) {
-        return std::string(platform::default_shell());
+        return std::string(core::default_shell());
     }
     return "bash";
 }

@@ -8,12 +8,12 @@ find_package(Threads REQUIRED)
 
 # The ui and platform suites drive a real pseudo-terminal (posix_openpt) and
 # fork/rlimit failure paths, none of which Windows has; process_test below
-# covers cup.platform's process/env layer on every platform instead.
+# covers core's process/env layer on every platform instead.
 if(NOT WIN32)
   add_executable(ui_test ui_test.cpp)
   target_compile_features(ui_test PRIVATE cxx_std_23)
   # cup scaffolds the target but not its dependencies: the module under test and
-  # Catch2's bundled main(). platform is named because the suite imports cup.platform
+  # Catch2's bundled main(). platform is named because the suite imports core
   # itself to check the terminal condition select_one branches on — cup.ui imports it
   # without re-exporting it. ftxui backs Interactive.hpp, #included directly (not via
   # the cup.ui module) so the suite can drive its component trees with synthetic

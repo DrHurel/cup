@@ -15,7 +15,7 @@ module;
 module cup.cmd;
 
 import cup.scaffold;
-import cup.platform;
+import core;
 import cup.ui;
 
 namespace cup::cmd {

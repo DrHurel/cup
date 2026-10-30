@@ -26,7 +26,7 @@ export namespace cup::cmd {
 [[nodiscard]] std::expected<std::string, error::Error> script_for(std::string_view shell);
 
 // detect_shell guesses the current shell from $SHELL, defaulting to bash —
-// or, with no $SHELL at all, to platform::default_shell() (powershell on
+// or, with no $SHELL at all, to core::default_shell() (powershell on
 // Windows, where cmd and PowerShell set none).
 [[nodiscard]] std::string detect_shell();
 

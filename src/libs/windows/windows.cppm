@@ -4,16 +4,22 @@ module;
 #include <span>
 #include <string>
 #include <string_view>
-export module cup.platform.windows;
+export module windows;
 
-export import cup.platform;
+export import core;
 
-// cup.platform's Windows backend: the OS-facing half of every Services entry,
-// built only on Windows hosts and injected into the portable core by
-// services/WindowsServices.cpp. Declarations only where the definition needs
+// The platform layer's Windows backend: the OS-facing half of every
+// core::Services entry, built only on Windows hosts and injected into core by
+// WindowsServices.cpp. Declarations only where the definition needs
 // <windows.h> (CreateProcessW, WinHTTP, the console API) — those stay in this
 // library's implementation units, out of the BMI.
-export namespace cup::platform::windows {
+namespace windows {
+// Not exported: this module's own units see these, importers don't.
+namespace error = cup::error;
+using core::RawMode;
+}
+
+export namespace windows {
 
 // CreateProcessW with CommandLineToArgvW-correct quoting (Process.cpp).
 [[nodiscard]] std::expected<void, error::Error> run_command(const std::filesystem::path& dir,
@@ -40,14 +46,14 @@ void init_console();
 // A native Windows shell sets only %USERPROFILE%; MSYS2 and Git Bash set
 // $HOME too, and win.
 [[nodiscard]] std::filesystem::path home_dir() {
-    auto home = cup::platform::detail::env_path("HOME");
-    return home.empty() ? cup::platform::detail::env_path("USERPROFILE") : home;
+    auto home = core::detail::env_path("HOME");
+    return home.empty() ? core::detail::env_path("USERPROFILE") : home;
 }
 
 // %LOCALAPPDATA%\cup — where per-user, per-machine caches belong on Windows —
 // else ~/.cache/cup as on POSIX.
 [[nodiscard]] std::filesystem::path native_cache_dir() {
-    if (auto local = cup::platform::detail::env_path("LOCALAPPDATA"); !local.empty()) {
+    if (auto local = core::detail::env_path("LOCALAPPDATA"); !local.empty()) {
         return local / "cup";
     }
     return home_dir() / ".cache" / "cup";

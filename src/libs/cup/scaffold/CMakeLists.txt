@@ -28,7 +28,7 @@ target_compile_features(scaffold PUBLIC cxx_std_23)
 find_package(Threads REQUIRED)
 # :render is the one partition that imports cup.tmpl (template lookup) and
 # cup.ui (overwrite prompt, status lines); :releases and :dockerhub import
-# cup.platform (http_get); :releases' Releases.cpp is the only file using
+# core (http_get); :releases' Releases.cpp is the only file using
 # std::thread directly. cup.error supplies the E of every std::expected
 # result.
 target_link_libraries(scaffold PUBLIC error tmpl ui platform PRIVATE Threads::Threads)

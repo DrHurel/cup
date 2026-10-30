@@ -25,9 +25,9 @@ module;
 #include <string>
 #include <string_view>
 #include <utility>
-module cup.platform.windows;
+module windows;
 
-namespace cup::platform::windows {
+namespace windows {
 namespace {
 
 std::string join(std::span<const std::string> args) {

@@ -23,7 +23,7 @@ namespace {
 // Mirrors cup.scaffold's kStandards (std.cppm): the set of C++ standards cup
 // can scaffold. Duplicated rather than imported so this foundational,
 // low-level module doesn't take on cup.scaffold's much heavier dependency
-// graph (cup.ui, cup.tmpl, cup.platform) just to validate five integers.
+// graph (cup.ui, cup.tmpl, core) just to validate five integers.
 inline constexpr std::array<int, 5> kStandards{23, 20, 17, 14, 11};
 
 [[nodiscard]] std::expected<void, error::Error> check_cpp_standard(int cpp_standard) {

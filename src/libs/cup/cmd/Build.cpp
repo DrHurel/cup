@@ -16,7 +16,7 @@ module cup.cmd;
 
 import cup.ui;
 import cup.scaffold;
-import cup.platform;
+import core;
 
 namespace cup::cmd {
 namespace {
@@ -104,16 +104,16 @@ std::expected<void, error::Error> make_test(const project::Project& proj, std::s
 
 }  // namespace
 
-// run_shell is cup.cmd's one call site reaching cup.platform::run_command,
+// run_shell is cup.cmd's one call site reaching core::run_command,
 // pairing it with the "run ..." status line the way Go's runCommand did in
-// one step. cup.platform cannot log through cup.ui itself: cup.ui already
-// imports cup.platform (is_tty / raw mode), so the reverse import would
+// one step. core cannot log through cup.ui itself: cup.ui already
+// imports core (is_tty / raw mode), so the reverse import would
 // cycle. Exported (not file-local) so New.cpp/Add.cpp/Docker.cpp reuse the
-// same logging wrapper instead of calling platform::run_command bare.
+// same logging wrapper instead of calling core::run_command bare.
 std::expected<void, error::Error> run_shell(const std::filesystem::path& dir, std::string_view name,
                                             std::span<const std::string> args) {
     ui::running(std::string(name) + " " + join(args));
-    return platform::run_command(dir, name, args);
+    return core::run_command(dir, name, args);
 }
 
 std::optional<std::string> import_std_gate_uuid(std::string_view cmake_version_output) {
@@ -132,7 +132,7 @@ std::optional<std::string> import_std_gate_uuid(std::string_view cmake_version_o
 
 std::expected<std::string, error::Error> resolve_import_std_gate(const std::filesystem::path& dir) {
     const std::vector<std::string> version_args{"--version"};
-    auto version_output = platform::capture_command(dir, "cmake", version_args);
+    auto version_output = core::capture_command(dir, "cmake", version_args);
     if (!version_output.has_value()) {
         return std::unexpected(std::move(version_output).error());
     }
@@ -311,7 +311,7 @@ std::expected<void, error::Error> run_run(std::span<const std::string> args) {
 std::filesystem::path app_binary(const project::Project& proj, std::string_view mode,
                                  std::string_view app) {
     // exe_suffix: the toolchain names the binary hello.exe on Windows.
-    const std::string file = std::string(app) + std::string(platform::exe_suffix());
+    const std::string file = std::string(app) + std::string(core::exe_suffix());
     const std::filesystem::path bin = build_dir(proj, mode) / "bin" / file;
     if (std::error_code ec; std::filesystem::exists(bin, ec)) {
         return bin;

@@ -57,8 +57,10 @@ through cup itself — that's the self-hosting loop cup's own CI exercises (see
 ## Where things live
 
 - `src/libs/cup/` — the library, one C++20 module per concern
-  (`cup.project`, `cup.scaffold`, `cup.tmpl`, `cup.ui`, `cup.platform`,
-  `cup.cmd`)
+  (`cup.project`, `cup.scaffold`, `cup.tmpl`, `cup.ui`, `cup.cmd`)
+- `src/libs/core/`, `src/libs/posix/`, `src/libs/windows/` — the platform
+  layer: the portable `core` module and its two OS backends (only the host's
+  is built)
 - `src/apps/cup/` — the three-line `main()` shim over `cup.cmd::run_main`
 - `src/tests/` — the Catch2 suites, one file per module/concern, plus
   `src/tests/functional/` (bats, black-box tests against the real compiled
@@ -74,11 +76,12 @@ through cup itself — that's the self-hosting loop cup's own CI exercises (see
 - `./devtools/test.sh` passes
 - New behavior has Catch2 coverage; a new command or user-visible flow gets a
   `src/tests/functional/*.bats` case too
-- OS-specific code lives only in cup.platform's backend libraries
-  (`src/libs/cup/platform/posix/`, `src/libs/cup/platform/windows/`), never
+- OS-specific code lives only in the backend libraries
+  (`src/libs/posix/`, `src/libs/windows/`), never
   behind an `#ifdef _WIN32` elsewhere: add the capability to the `Services`
   table (`services.cppm`), implement it in both backends, and wire it in both
-  services files (`services/PosixServices.cpp`, `services/WindowsServices.cpp`).
+  services files (`src/libs/posix/PosixServices.cpp`,
+  `src/libs/windows/WindowsServices.cpp`).
   CMake builds one backend and one services file per platform. Test-only
   shims go in `TestCompat.hpp`. `process_test`, `windows_platform_test` and
   the Windows CI job (`job-build-windows.yml`) exercise the Windows side

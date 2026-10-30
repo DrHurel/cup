@@ -31,7 +31,7 @@ target_sources(cmd
 target_compile_features(cmd PUBLIC cxx_std_23)
 # Build.cpp/Docker.cpp/New.cpp/Add.cpp call cup.project (locate/inspect the
 # project), cup.scaffold (rendering, CMakeLists editing, naming), cup.tmpl
-# (template-kind lookup), cup.ui (status lines, prompts) and cup.platform
+# (template-kind lookup), cup.ui (status lines, prompts) and core
 # (run_command, git init). None of those types appear in cup.cmd's own
 # exported interface (Command's Run is a std::function<..., cup::error::Error>),
 # so all are PRIVATE; only cup.error is PUBLIC.

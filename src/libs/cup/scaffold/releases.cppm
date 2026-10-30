@@ -170,7 +170,7 @@ struct ReleaseCache {
 [[nodiscard]] std::expected<void, error::Error> write_release_cache(const ReleaseCache& cache);
 
 // fetch_gcc_newest / fetch_clang_newest / fetch_newest_compilers are declared
-// here, defined in Releases.cpp: they call cup.platform::http_get (a
+// here, defined in Releases.cpp: they call core::http_get (a
 // cross-module import) and touch the on-disk cache, both of which this
 // interface partition stays clear of.
 [[nodiscard]] int fetch_gcc_newest();

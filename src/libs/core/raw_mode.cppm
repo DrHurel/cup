@@ -1,16 +1,16 @@
 module;
 #include <functional>
 #include <utility>
-export module cup.platform:raw_mode;
+export module core:raw_mode;
 
-export namespace cup::platform {
+export namespace core {
 
 // RawMode is the guard enter_raw_mode hands back: while it owns the terminal,
 // the terminal stays raw; destroying (or restore()-ing) it puts the saved
 // settings back, exactly once. What "the saved settings" are — a termios on
 // POSIX, a console mode on Windows — is the platform backend's business: it
 // hands over a callback that restores them, so this type (and everything in
-// cup.platform's portable core) stays free of OS headers.
+// core's portable core) stays free of OS headers.
 class RawMode {
 public:
     RawMode(const RawMode&) = delete;

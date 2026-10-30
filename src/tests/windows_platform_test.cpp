@@ -9,10 +9,10 @@
 #include "TempDir.hpp"
 #include "TestCompat.hpp"
 
-import cup.platform;
-import cup.platform.windows;
+import core;
+import windows;
 
-// cup.platform.windows's own suite — built only on Windows (see
+// windows's own suite — built only on Windows (see
 // CMakeLists.txt), like the backend it tests. process_test.cpp covers what
 // both backends share through the portable API; this covers what only the
 // Windows one does: its services-file wiring, the %USERPROFILE% and
@@ -54,8 +54,8 @@ private:
 }  // namespace
 
 TEST_CASE("the Windows services file injects the Windows backend", "[windows][services]") {
-    REQUIRE(cup::platform::exe_suffix() == ".exe");
-    REQUIRE(cup::platform::default_shell() == "powershell");
+    REQUIRE(core::exe_suffix() == ".exe");
+    REQUIRE(core::default_shell() == "powershell");
 }
 
 TEST_CASE("home_dir falls back to USERPROFILE and cache_dir to LOCALAPPDATA", "[windows][env]") {
@@ -64,19 +64,19 @@ TEST_CASE("home_dir falls back to USERPROFILE and cache_dir to LOCALAPPDATA", "[
     const ScopedEnv home("HOME", std::nullopt);
     const ScopedEnv profile("USERPROFILE", dir.path().string());
     const ScopedEnv local("LOCALAPPDATA", (dir.path() / "AppData").string());
-    REQUIRE(cup::platform::home_dir() == dir.path());
-    REQUIRE(cup::platform::cache_dir() == dir.path() / "AppData" / "cup");
+    REQUIRE(core::home_dir() == dir.path());
+    REQUIRE(core::cache_dir() == dir.path() / "AppData" / "cup");
 }
 
 TEST_CASE("$HOME (MSYS2, Git Bash) wins over USERPROFILE", "[windows][env]") {
     const TempDir dir;
     const ScopedEnv home("HOME", (dir.path() / "msys").string());
     const ScopedEnv profile("USERPROFILE", dir.path().string());
-    REQUIRE(cup::platform::home_dir() == dir.path() / "msys");
+    REQUIRE(core::home_dir() == dir.path() / "msys");
 }
 
 TEST_CASE("quote_arg follows CommandLineToArgvW's rules", "[windows][process]") {
-    using cup::platform::windows::quote_arg;
+    using windows::quote_arg;
     REQUIRE(quote_arg(L"plain") == L"plain");
     REQUIRE(quote_arg(L"") == L"\"\"");
     REQUIRE(quote_arg(L"with space") == L"\"with space\"");
@@ -91,5 +91,5 @@ TEST_CASE("quote_arg follows CommandLineToArgvW's rules", "[windows][process]") 
 TEST_CASE("enter_raw_mode reports failure off a console", "[windows][terminal]") {
     // ctest runs the suite with redirected stdio: fd 1 is a pipe or file,
     // which has no console mode to change.
-    REQUIRE_FALSE(cup::platform::enter_raw_mode(cup::platform::kStdoutFd).has_value());
+    REQUIRE_FALSE(core::enter_raw_mode(core::kStdoutFd).has_value());
 }

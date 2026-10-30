@@ -14,9 +14,9 @@ module;
 #include <string>
 #include <string_view>
 #include <vector>
-module cup.platform.posix;
+module posix;
 
-namespace cup::platform::posix {
+namespace posix_backend {
 namespace {
 
 std::string join(std::span<const std::string> args) {

@@ -4,7 +4,7 @@
 // stdin, an environment variable, the process id) — <unistd.h> itself on
 // POSIX, and thin shims over the Windows CRT's equivalents otherwise, so the
 // same suites build and run on a Windows cup build too. Not a portability
-// layer for cup itself: cup.platform owns that.
+// layer for cup itself: core owns that.
 
 #ifdef _WIN32
 

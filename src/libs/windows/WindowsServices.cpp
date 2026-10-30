@@ -1,19 +1,19 @@
-// cup.platform's composition root on Windows: the one place the portable
-// core (cup.platform) meets its Windows backend (cup.platform.windows).
-// Compiled only on Windows — ../CMakeLists.txt picks this file or
-// PosixServices.cpp — so nothing else in cup needs to know which OS it runs
-// on, let alone #ifdef on it.
+// The platform layer's composition root on Windows: the one place the
+// portable module core meets its Windows backend (module windows). Compiled
+// only on Windows — ../CMakeLists.txt adds this directory or ../posix, never
+// both — so nothing else in cup needs to know which OS it runs on, let alone
+// #ifdef on it.
 
 // Building the std::function entries below instantiates std::function's
 // manager here, which needs <typeinfo> (typeid) visible in this TU itself —
-// GCC doesn't take it from cup.platform's BMI.
+// GCC doesn't take it from core's BMI.
 #include <functional>
 #include <typeinfo>
 
-import cup.platform;
-import cup.platform.windows;
+import core;
+import windows;
 
-namespace cup::platform::detail {
+namespace core::detail {
 
 Services make_platform_services() {
     return Services{

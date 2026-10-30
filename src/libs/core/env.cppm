@@ -2,7 +2,7 @@ module;
 #include <cstdlib>
 #include <filesystem>
 #include <string_view>
-export module cup.platform:env;
+export module core:env;
 
 import :services;
 
@@ -11,7 +11,7 @@ import :services;
 // (the release cache) and cup.cmd (completion install, `cup run`) rely on.
 // The rules every platform shares live here; the OS-specific defaults come
 // from the injected backend (see :services).
-export namespace cup::platform {
+export namespace core {
 
 namespace detail {
 
