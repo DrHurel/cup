@@ -21,12 +21,13 @@ struct Dependency {
     std::string name;
     std::string method;
 
-    // Hand-written, not `= default`: a defaulted friend comparison operator
-    // on a struct exported from a module interface segfaults GCC 15 the
-    // moment a *consuming* translation unit imports and uses it (hit while
-    // building this port's own test suite) — every other Config-shaped
-    // struct in this codebase already hand-writes its comparison for the
-    // same reason. NOSONAR: cpp:S6230 wants `= default` here; that's the bug.
+    // Hand-written, not `= default`: a defaulted comparison on a struct
+    // exported from a module interface crashes GCC (internal compiler error)
+    // when an importing translation unit uses it; still the case in GCC 15.2
+    // and GCC 16 as of 2026-10-31. The full note, including when to re-check
+    // (each time the project's GCC floor is raised), is above DockerImage in
+    // project's Config.cppm. NOSONAR: cpp:S6230 wants `= default` here;
+    // that's the crash.
     friend bool operator==(const Dependency& lhs, const Dependency& rhs) {  // NOSONAR
         return lhs.name == rhs.name && lhs.method == rhs.method;
     }

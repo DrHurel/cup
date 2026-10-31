@@ -117,15 +117,16 @@ using TextInteractiveFunc = std::function<std::expected<std::string, error::Erro
         emit(line);
         flush_output();
 
-        // Named distinctly from rejection()'s `value` parameter below: SonarCloud's
-        // CFamily symbolic execution conflated the two identically-named locals
-        // across the call graph and flagged rejection()'s (never moved) `value` as
-        // used-after-move because of this lambda's own std::move(entered).
-        auto answer = detail::read_answer().transform([def](std::string entered) {
-            return entered.empty() ? std::string(def) : std::move(entered);
-        });
+        // Filled in place rather than via expected::transform: transform on the
+        // temporary moves its value into the lambda, and SonarCloud's CFamily
+        // symbolic execution tied that moved-from value to `answer`, flagging
+        // rejection()'s read of it as a use-after-move (cpp:S5272).
+        auto answer = detail::read_answer();
         if (!answer.has_value()) {
             return answer;
+        }
+        if (answer->empty()) {
+            *answer = def;
         }
         const auto refused = detail::rejection(validate, *answer);
         if (!refused.has_value()) {
