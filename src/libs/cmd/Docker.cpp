@@ -431,7 +431,7 @@ std::expected<void, error::Error> run_docker_push(project::Project& proj,
     if (!targets.has_value()) {
         return std::unexpected(std::move(targets).error());
     }
-    for (auto* img : *targets) {
+    for (const auto* img : *targets) {
         if (img->version == 0) {
             return std::unexpected(error::Error(std::format(
                 "image \"{}\" has not been built yet — run `cup docker build {}` first", img->name,
@@ -454,7 +454,7 @@ std::expected<void, error::Error> run_docker_push(project::Project& proj,
         }
     }
     const std::string reg = proj.config.docker.registry;
-    for (auto* img : *targets) {
+    for (const auto* img : *targets) {
         if (auto pushed = push_image(proj, reg, *img); !pushed.has_value()) {
             return pushed;
         }
