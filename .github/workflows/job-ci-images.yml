@@ -1,0 +1,133 @@
+name: CI images
+
+# Reusable: makes sure every Linux CI image (docker/ci/*.Dockerfile) exists on
+# ghcr.io and hands their references to the jobs that run in them, so no job
+# spends its first minutes adding the toolchain PPA and apt/apk-installing the
+# same packages on every run.
+#
+# Each image is tagged with a hash of its Dockerfile (plus build arg), e.g.
+# ghcr.io/drhurel/cup-ci:gcc15-1a2b3c4d5e6f. `resolve` computes the tags and
+# checks which ones are already published; `build` builds and pushes only the
+# missing ones. A run where no Dockerfile changed therefore just reads a few
+# manifests and moves on, and a PR that edits a Dockerfile gets its new image
+# built before any job tries to use it.
+#
+# Images are pushed with the workflow's own GITHUB_TOKEN, which links the
+# package to this repository, so the jobs here can pull it with the same token
+# (container credentials + `packages: read`). A PR from a fork gets a read-only
+# token: it can still use every published image, but one that edits a
+# Dockerfile fails in `build` until a maintainer's run publishes the image.
+
+on:
+  workflow_call:
+    outputs:
+      gcc15:
+        description: Ubuntu 24.04 + GCC 15 (the floor) image
+        value: ${{ jobs.resolve.outputs.gcc15 }}
+      gcc16:
+        description: Ubuntu 24.04 + GCC 16 (the canary) image
+        value: ${{ jobs.resolve.outputs.gcc16 }}
+      alpine:
+        description: alpine:3.23 musl-static image
+        value: ${{ jobs.resolve.outputs.alpine }}
+      debian:
+        description: debian:sid image
+        value: ${{ jobs.resolve.outputs.debian }}
+      fedora:
+        description: fedora:42 image
+        value: ${{ jobs.resolve.outputs.fedora }}
+
+jobs:
+  resolve:
+    name: resolve image tags
+    runs-on: ubuntu-24.04
+
+    permissions:
+      contents: read
+      packages: read
+
+    outputs:
+      gcc15: ${{ steps.tags.outputs.gcc15 }}
+      gcc16: ${{ steps.tags.outputs.gcc16 }}
+      alpine: ${{ steps.tags.outputs.alpine }}
+      debian: ${{ steps.tags.outputs.debian }}
+      fedora: ${{ steps.tags.outputs.fedora }}
+      missing: ${{ steps.tags.outputs.missing }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          sparse-checkout: docker/ci
+
+      - name: Log in to ghcr.io
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "$TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+
+      - name: Compute tags and find unpublished images
+        id: tags
+        run: |
+          repo="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/cup-ci"
+          missing=()
+          # image <name> <dockerfile> [build-arg]
+          image() {
+            local name=$1 file=$2 arg=${3:-}
+            local hash
+            hash=$( { cat "$file"; printf '%s' "$arg"; } | sha256sum | cut -c1-12)
+            local ref="$repo:$name-$hash"
+            echo "$name=$ref" >> "$GITHUB_OUTPUT"
+            if docker manifest inspect "$ref" > /dev/null 2>&1; then
+              echo "published: $ref"
+            else
+              echo "missing:   $ref"
+              missing+=("$(jq -cn --arg name "$name" --arg file "$file" --arg arg "$arg" --arg ref "$ref" \
+                '{name: $name, file: $file, arg: $arg, ref: $ref}')")
+            fi
+          }
+          image gcc15 docker/ci/ubuntu.Dockerfile GCC_VERSION=15
+          image gcc16 docker/ci/ubuntu.Dockerfile GCC_VERSION=16
+          image alpine docker/ci/alpine.Dockerfile
+          image debian docker/ci/debian.Dockerfile
+          image fedora docker/ci/fedora.Dockerfile
+          echo "missing=$(printf '%s\n' "${missing[@]}" | jq -cs 'map(select(. != null))')" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: build ${{ matrix.name }}
+    needs: resolve
+    if: needs.resolve.outputs.missing != '[]'
+    runs-on: ubuntu-24.04
+
+    permissions:
+      contents: read
+      packages: write
+
+    strategy:
+      matrix:
+        include: ${{ fromJSON(needs.resolve.outputs.missing) }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          sparse-checkout: docker/ci
+
+      - name: Log in to ghcr.io
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "$TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+
+      # The source label is what links the package to this repository, and so
+      # what lets the other jobs pull it with their own GITHUB_TOKEN.
+      - name: Build and push
+        env:
+          FILE: ${{ matrix.file }}
+          ARG: ${{ matrix.arg }}
+          REF: ${{ matrix.ref }}
+        run: |
+          args=()
+          if [ -n "$ARG" ]; then args+=(--build-arg "$ARG"); fi
+          docker build "${args[@]}" \
+            --label "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+            -f "$FILE" -t "$REF" docker/ci
+          docker push "$REF"

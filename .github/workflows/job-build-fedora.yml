@@ -12,8 +12,16 @@ name: Fedora build
 # fedora:42 ships GCC 15.2 and CMake 3.31 by default -- no PPA-equivalent
 # extra repo needed, unlike ubuntu-24.04.
 
+# Runs in job-ci-images.yml's fedora image (docker/ci/fedora.Dockerfile),
+# which carries the toolchain and an ordinary `runner` user.
+
 on:
-  workflow_call: {}
+  workflow_call:
+    inputs:
+      image:
+        description: 'CI image to run in (the job-ci-images.yml fedora output)'
+        required: true
+        type: string
 
 env:
   CMAKE_GENERATOR: Ninja
@@ -22,11 +30,22 @@ jobs:
   build-and-test:
     name: fedora 42 — build + test
     runs-on: ubuntu-24.04
-    container: fedora:42
+    container:
+      image: ${{ inputs.image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
     continue-on-error: true
 
     permissions:
       contents: read
+      packages: read
+
+    # A `container:` job's run steps default to sh, not bash (dash on
+    # Ubuntu/Debian), so bash-isms like ${GITHUB_SHA::7} need this.
+    defaults:
+      run:
+        shell: bash
 
     steps:
       - uses: actions/checkout@v4
@@ -34,9 +53,6 @@ jobs:
           # This job never pushes back to the repo; no reason to leave the
           # checkout token persisted in .git/config.
           persist-credentials: false
-
-      - name: Install toolchain
-        run: dnf install -y gcc-c++ cmake ninja-build git bats libcurl-devel
 
       - name: Show toolchain versions
         run: |
@@ -48,13 +64,10 @@ jobs:
       # directory to 0000 to simulate a permission-denied error and expects
       # the resulting cup operation to fail -- root bypasses permission
       # checks entirely, so those scenarios only mean anything running as an
-      # ordinary user, same as every non-containerized job in this pipeline
-      # (GitHub's own `runner` account). A `container:` job otherwise runs
-      # as root, so this adds one and hands it the checked-out workspace.
-      - name: Create a non-root build user
-        run: |
-          useradd -m runner
-          chown -R runner:runner "$GITHUB_WORKSPACE"
+      # ordinary user. A `container:` job runs as root, so the image carries
+      # an ordinary `runner` user; hand it the checked-out workspace.
+      - name: Hand the workspace to the non-root user
+        run: chown -R runner:runner "$GITHUB_WORKSPACE"
 
       - name: Configure
         run: su runner -c 'cmake -B build/Debug -G Ninja -DCMAKE_BUILD_TYPE=Debug'

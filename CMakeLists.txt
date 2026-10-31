@@ -39,6 +39,13 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)   # -std=c++23, not -std=gnu++23
 
+# MinGW's libstdc++ keeps std::print's Windows-console path (the half that
+# writes UTF-16 to a real console) in the separate libstdc++exp archive, not
+# libstdc++ itself — without it every std::println fails to link on Windows.
+if(MINGW)
+  link_libraries(stdc++exp)
+endif()
+
 # Emit compile_commands.json so external tooling (clangd, clang-tidy, sonar) can
 # see exactly how each translation unit is compiled.
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -103,19 +110,32 @@ include(EmbedTemplates)
 cup_embed_templates(TARGET cup_templates DIR "${CMAKE_CURRENT_SOURCE_DIR}/templates")
 
 # --- Version info, embedded for `cup --version` ----------------------------
-# CUP_BUILD_SHA is empty unless set on the command line. CI's
-# build-static.yml passes it (from $GITHUB_SHA) when it builds the binary
-# that CI verifies and releases publish; a plain `cup build`/devtools/build.sh
-# never sets it. That distinction is what lets `cup --version` show a build
-# SHA only for a binary GitHub Actions actually built.
-set(CUP_BUILD_SHA "" CACHE STRING "Git commit SHA this binary was built from (set by CI)")
+# `cup --version` prints the commit the binary was built from. The header is
+# regenerated on every build by cmake/GenerateVersionHeader.cmake (which asks
+# git for HEAD), not once at configure time, so a new commit or a checkout
+# never leaves a stale SHA behind. CUP_BUILD_SHA overrides git: CI passes
+# ${GITHUB_SHA::7} so its builds don't depend on the checkout's .git.
+set(CUP_BUILD_SHA "" CACHE STRING "Commit SHA to embed instead of asking git for HEAD")
 set(_cup_version_gen_dir "${CMAKE_BINARY_DIR}/generated/cup_version")
-configure_file(
-  "${CMAKE_CURRENT_SOURCE_DIR}/cmake/version.h.in"
-  "${_cup_version_gen_dir}/cup/version.h"
-  @ONLY)
+set(_cup_version_args
+  -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+  -DTEMPLATE=${CMAKE_CURRENT_SOURCE_DIR}/cmake/version.h.in
+  -DOUTPUT=${_cup_version_gen_dir}/cup/version.h
+  -DCUP_VERSION=${CUP_VERSION}
+  -DCUP_BUILD_SHA=${CUP_BUILD_SHA})
+# Once now, so the header exists before the first build (module scanning,
+# IDEs), then again on every build.
+execute_process(COMMAND "${CMAKE_COMMAND}" ${_cup_version_args}
+  -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/GenerateVersionHeader.cmake")
+add_custom_target(cup_version_header
+  COMMAND "${CMAKE_COMMAND}" ${_cup_version_args}
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/GenerateVersionHeader.cmake"
+  BYPRODUCTS "${_cup_version_gen_dir}/cup/version.h"
+  COMMENT "Embedding the build commit in cup/version.h"
+  VERBATIM)
 add_library(cup_version INTERFACE)
 target_include_directories(cup_version INTERFACE "${_cup_version_gen_dir}")
+add_dependencies(cup_version cup_version_header)
 
 add_subdirectory(third_party)
 add_subdirectory(src/libs)
@@ -132,7 +152,13 @@ set(CPACK_PACKAGE_VERSION "${CUP_VERSION}")
 set(CPACK_PACKAGE_VENDOR "DrHurel")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Scaffolds and manages C++ projects from a single binary")
 set(CPACK_PACKAGE_HOMEPAGE_URL "https://github.com/DrHurel/cup")
-set(CPACK_GENERATOR "DEB")
+# A Windows build packages as a plain .zip of cup.exe instead; the DEB
+# settings below are inert there.
+if(WIN32)
+  set(CPACK_GENERATOR "ZIP")
+else()
+  set(CPACK_GENERATOR "DEB")
+endif()
 set(CPACK_DEBIAN_PACKAGE_SECTION "devel")
 set(CPACK_DEBIAN_PACKAGE_MAINTAINER "https://github.com/DrHurel/cup/issues")
 # Auto-computed from the binary's actual linked libraries (needs dpkg-dev's

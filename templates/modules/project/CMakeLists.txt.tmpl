@@ -6,6 +6,12 @@ project({{name}} VERSION 0.1.0 LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD {{standard}})
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# MinGW (Windows) keeps std::print's console half in libstdc++exp rather than
+# libstdc++ itself, so a C++23 std::println fails to link without it.
+if(MINGW AND CMAKE_CXX_STANDARD GREATER_EQUAL 23)
+  link_libraries(stdc++exp)
+endif()
+
 # Emit compile_commands.json so external tooling (clangd, clang-tidy, sonar) can
 # see exactly how each translation unit is compiled.
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)

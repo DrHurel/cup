@@ -39,6 +39,10 @@ a `cup-dev` image with GCC 15 + CMake + Ninja already in it:
 docker run --rm -v "$PWD:/work" cup-dev ./devtools/build.sh
 ```
 
+On Windows, use MSYS2's UCRT64 environment (GCC 15+, CMake, Ninja) — see the
+README's [Windows](README.md#windows) section for the packages and the
+configure line. The bootstrap is the same plain `cmake`/`ninja` build.
+
 ## Running the tests
 
 ```sh
@@ -52,15 +56,26 @@ through cup itself — that's the self-hosting loop cup's own CI exercises (see
 
 ## Where things live
 
-- `src/libs/cup/` — the library, one C++20 module per concern
-  (`cup.project`, `cup.scaffold`, `cup.tmpl`, `cup.ui`, `cup.platform`,
-  `cup.cmd`)
-- `src/apps/cup/` — the three-line `main()` shim over `cup.cmd::run_main`
-- `src/tests/` — the Catch2 suites, one file per module/concern, plus
-  `src/tests/functional/` (bats, black-box tests against the real compiled
-  binary)
+- `src/libs/` — the libraries, one C++20 module per concern, each directly
+  under `src/libs` (never in a subfolder: module and namespace names come
+  from that path) — `project`, `scaffold`, `tmpl`, `ui`, `cmd`, `logging`, ...
+- `src/libs/core/`, `src/libs/posix/`, `src/libs/windows/` — the platform
+  layer: the portable `core` module and its two OS backends (only the host's
+  is built)
+- `src/apps/cup/` — the three-line `main()` shim over `cmd::run_main`
+- `src/tests/` — the Catch2 suites, laid out like `src/libs`: the suites of
+  the library at `src/libs/<path>/` live in `src/tests/<path>/` (`core/`,
+  `posix/`, `cup/cmd/`, ...). Plus `src/tests/functional/` (bats and the pty
+  suite, black-box tests against the real compiled binary) and
+  `src/tests/support/` (headers shared by several suites)
 - `templates/` — the scaffolding template corpus, embedded into the binary
   at build time by `cmake/EmbedTemplates.cmake`
+- `docker/ci/` — the images every Linux CI job runs in (Ubuntu + GCC 15/16,
+  Alpine, Debian sid, Fedora). CI publishes them to
+  `ghcr.io/drhurel/cup-ci` itself (`job-ci-images.yml`), tagged by a hash of
+  the Dockerfile. To add a tool a job needs, add it to the Dockerfile rather
+  than an install step: the next run builds and pushes the new image before
+  any job uses it.
 - `docs/migration-cpp23.md` — the full history of the Go→C++23 port; still
   the best source for *why* a given seam or module boundary looks the way it
   does
@@ -70,6 +85,25 @@ through cup itself — that's the self-hosting loop cup's own CI exercises (see
 - `./devtools/test.sh` passes
 - New behavior has Catch2 coverage; a new command or user-visible flow gets a
   `src/tests/functional/*.bats` case too
+- Every library exports a `Library` class (in its primary interface, e.g.
+  `cmd`'s `cmd.cppm`): `dependencies`, a `std::tuple` of the `Library`
+  classes of the libraries its CMake target links, and static
+  `initialize()` / `finalize()` hooks. `library` (`library.cppm`)
+  checks the shape and brings a graph up dependencies-first and down in
+  reverse; `run_main` holds a `library::Scope<cmd::Library>` for
+  the whole command. A new library gets one, and a library that starts
+  linking another adds it to `dependencies`
+- OS-specific code lives only in the backend libraries
+  (`src/libs/posix/`, `src/libs/windows/`), never
+  behind an `#ifdef _WIN32` elsewhere: add the capability to the `Services`
+  table (`services.cppm`), implement it in both backends, and wire it in both
+  services files (`src/libs/posix/PosixServices.cpp`,
+  `src/libs/windows/WindowsServices.cpp`).
+  CMake builds one backend and one services file per platform. Test-only
+  shims go in `TestCompat.hpp`. `process_test`, `windows_platform_test` and
+  the Windows CI job (`job-build-windows.yml`) exercise the Windows side
+- No two files in one directory may differ only by case (`Error.cppm` next
+  to `error.cppm`): a Windows or macOS checkout keeps just one of them
 - SonarCloud's quality gate runs on every PR (new-code coverage ≥ 80%, no new
   issues) — `sonar-project.properties` has the details if a finding needs a
   documented suppression rather than a fix

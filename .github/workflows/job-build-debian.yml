@@ -14,8 +14,16 @@ name: Debian build
 # GCC 12 and testing (trixie) ships GCC 14, both under the GCC >= 15 floor
 # named modules need. sid carries a g++-15 package.
 
+# Runs in job-ci-images.yml's debian image (docker/ci/debian.Dockerfile),
+# which carries the toolchain and an ordinary `runner` user.
+
 on:
-  workflow_call: {}
+  workflow_call:
+    inputs:
+      image:
+        description: 'CI image to run in (the job-ci-images.yml debian output)'
+        required: true
+        type: string
 
 env:
   CMAKE_GENERATOR: Ninja
@@ -24,11 +32,22 @@ jobs:
   build-and-test:
     name: debian sid — build + test
     runs-on: ubuntu-24.04
-    container: debian:sid
+    container:
+      image: ${{ inputs.image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
     continue-on-error: true
 
     permissions:
       contents: read
+      packages: read
+
+    # A `container:` job's run steps default to sh, not bash (dash on
+    # Ubuntu/Debian), so bash-isms like ${GITHUB_SHA::7} need this.
+    defaults:
+      run:
+        shell: bash
 
     steps:
       - uses: actions/checkout@v4
@@ -36,18 +55,6 @@ jobs:
           # This job never pushes back to the repo; no reason to leave the
           # checkout token persisted in .git/config.
           persist-credentials: false
-
-      # ca-certificates isn't a given here, unlike fedora/ubuntu's base
-      # images: without it git's HTTPS clone of FetchContent dependencies
-      # (toml++, Catch2) fails outright ("Problem with the SSL CA cert").
-      # make isn't a given either -- unlike Fedora, where gcc-c++ pulls it
-      # in transitively, debian's g++ package doesn't, and make_build_run.
-      # bats needs the real `make` binary cup's Make backend shells out to.
-      - name: Install toolchain
-        run: |
-          apt-get update
-          apt-get install -y --no-install-recommends \
-            g++-15 ninja-build cmake libcurl4-openssl-dev bats git ca-certificates make
 
       - name: Show toolchain versions
         run: |
@@ -59,30 +66,19 @@ jobs:
       # directory to 0000 to simulate a permission-denied error and expects
       # the resulting cup operation to fail -- root bypasses permission
       # checks entirely, so those scenarios only mean anything running as an
-      # ordinary user, same as every non-containerized job in this pipeline
-      # (GitHub's own `runner` account). A `container:` job otherwise runs
-      # as root, so this adds one and hands it the checked-out workspace.
-      - name: Create a non-root build user
-        run: |
-          useradd -m runner
-          chown -R runner:runner "$GITHUB_WORKSPACE"
+      # ordinary user. A `container:` job runs as root, so the image carries
+      # an ordinary `runner` user; hand it the checked-out workspace.
+      - name: Hand the workspace to the non-root user
+        run: chown -R runner:runner "$GITHUB_WORKSPACE"
 
-      # CC/CXX prefixed on each su'd command itself, not a step-level `env:`:
-      # su (without -p) drops the calling shell's environment for the target
-      # user, same as build-static.yml's Configure step. Test needs it too,
-      # not just Configure: several functional_* bats suites (see
-      # build_run.bats/modules_build_run.bats/make_build_run.bats) have the
-      # already-built `cup` binary orchestrate a *nested* cmake configure of
-      # a scratch fixture project, and debian:sid has no unversioned `gcc`/
-      # `cc` at all (only the g++-15 package installed above) -- without
-      # CC/CXX reaching that nested invocation, cmake fails outright with
-      # "No CMAKE_C_COMPILER could be found", not just a too-old fallback
-      # the way ubuntu's system GCC 13 did elsewhere in this pipeline.
+      # CC/CXX come from the image (debian:sid has no unversioned gcc/cc), and
+      # su keeps them -- which also matters for Test, where several
+      # functional_* bats suites have `cup` run a nested cmake configure.
       - name: Configure
-        run: su runner -c 'CC=gcc-15 CXX=g++-15 cmake -B build/Debug -G Ninja -DCMAKE_BUILD_TYPE=Debug'
+        run: su runner -c 'cmake -B build/Debug -G Ninja -DCMAKE_BUILD_TYPE=Debug'
 
       - name: Build
         run: su runner -c 'cmake --build build/Debug'
 
       - name: Test
-        run: su runner -c 'CC=gcc-15 CXX=g++-15 ctest --test-dir build/Debug --output-on-failure'
+        run: su runner -c 'ctest --test-dir build/Debug --output-on-failure'

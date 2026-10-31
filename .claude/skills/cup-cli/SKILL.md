@@ -18,6 +18,8 @@ floors, templates) when a task needs more than the command itself.
 
 ```
 cup new [name]                     create a new C++ project (prompts for name + standard)
+cup init [name] [--std N] [--build-tool cmake|make]
+                                   adopt the current directory's existing project in place
 cup add [app|lib|test]             scaffold a target (interactive if no arg)
 cup configure [MODE]               generate the CMake/Make build system
 cup build [MODE]                   configure + compile
@@ -36,7 +38,7 @@ cup register                       register a third-party dependency
 cup unregister [name]              remove a third-party dependency
 cup template list                  list library-component templates
 cup template new [name]            add a project-local template
-cup completion <install|bash|zsh|fish>  install or print shell completion
+cup completion <install|bash|zsh|fish|powershell>  install or print shell completion
 cup --version, -v                  print cup's version (and build SHA, for a GitHub-built binary)
 ```
 
@@ -49,6 +51,10 @@ cup --version, -v                  print cup's version (and build SHA, for a Git
 - **New project**: `cup new myproj` → prompts for standard + build tool →
   `cd myproj && cup add app` / `cup add lib` / `cup add test` to scaffold
   targets → `cup build && cup test`.
+- **Existing project**: `cd existing && cup init` → detects CMake/Make, name
+  and standard, writes `cup.toml`, adds a compiler-guard block and (if absent)
+  `src/libs` + `src/apps`; existing files are never moved. Then `cup add` /
+  `cup build` as usual.
 - **Iterate**: `cup build [MODE]` after edits; `cup run [MODE] <app> -- args`
   to execute; `cup test [MODE]` to run ctest. Use `rebuild`/`retest` only when
   a clean build is actually needed (stale CMake cache, toolchain change) —

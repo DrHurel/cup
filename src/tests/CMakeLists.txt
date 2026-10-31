@@ -1,152 +1,46 @@
+# The unit suites mirror src/libs: src/tests/<path>/ holds the suites of the
+# library at src/libs/<path>/ (core/, posix/, windows/, cmd/, ui/, ...),
+# so a library's tests sit at the same relative path as its sources.
+# functional/ holds the black-box suites run against the real cup binary, and
+# support/ the plain headers shared by several suites.
+
 # The ui suite types into a pseudo-terminal from a second thread — see
-# ScopedTerminalStdin on why the keys cannot be queued up front. glibc 2.34 and musl
+# ScopedTerminalStdin on why the keys cannot be queued up front — and
+# TestHttpServer.hpp runs its accept loop on one too. glibc 2.34 and musl
 # both fold the pthread symbols into libc, so this resolves to nothing on the
 # toolchains cup builds against; it is named so an older one links rather than
 # failing at std::thread's constructor.
 find_package(Threads REQUIRED)
 
-add_executable(ui_test ui_test.cpp)
-target_compile_features(ui_test PRIVATE cxx_std_23)
-# cup scaffolds the target but not its dependencies: the module under test and
-# Catch2's bundled main(). platform is named because the suite imports cup.platform
-# itself to check the terminal condition select_one branches on — cup.ui imports it
-# without re-exporting it. ftxui backs Interactive.hpp, #included directly (not via
-# the cup.ui module) so the suite can drive its component trees with synthetic
-# events — see Interactive.hpp's header comment.
-target_link_libraries(ui_test PRIVATE ui error platform Threads::Threads
-                                      ftxui::ftxui Catch2::Catch2WithMain)
-add_test(NAME ui_test COMMAND ui_test)
+# support/: TempDir.hpp (scratch directories for the suites that touch the
+# filesystem), TestCompat.hpp (setenv/unsetenv and friends on Windows) and
+# TestHttpServer.hpp (a loopback HTTP server, on a thread, over Winsock on
+# Windows).
+add_library(test_support INTERFACE)
+target_include_directories(test_support INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/support")
+target_link_libraries(test_support INTERFACE Threads::Threads)
+if(WIN32)
+  target_link_libraries(test_support INTERFACE ws2_32)
+endif()
 
-add_executable(platform_test platform_test.cpp)
-target_compile_features(platform_test PRIVATE cxx_std_23)
-# The suite opens a pseudo-terminal to reach raw mode at all. posix_openpt, grantpt,
-# unlockpt and ptsname are in libc on glibc and musl alike, so nothing extra links.
-# TestHttpServer.hpp (http_get coverage) runs its accept loop on a second thread.
-target_include_directories(platform_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
-target_link_libraries(platform_test PRIVATE platform error Threads::Threads
-                                            Catch2::Catch2WithMain)
-add_test(NAME platform_test COMMAND platform_test)
+add_subdirectory(core)
+# Each platform backend's own suite, built only where that backend is.
+if(WIN32)
+  add_subdirectory(windows)
+else()
+  add_subdirectory(posix)
+endif()
+add_subdirectory(library)
+add_subdirectory(ui)
+add_subdirectory(tmpl)
+add_subdirectory(project)
+add_subdirectory(scaffold)
+add_subdirectory(cmd)
+add_subdirectory(logging)
 
-add_executable(tmpl_test tmpl_test.cpp)
-target_compile_features(tmpl_test PRIVATE cxx_std_23)
-# TempDir.hpp is a plain header shared by the suites that touch the filesystem.
-target_include_directories(tmpl_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
-target_link_libraries(tmpl_test PRIVATE tmpl error Catch2::Catch2WithMain)
-add_test(NAME tmpl_test COMMAND tmpl_test)
-
-add_executable(project_test project_test.cpp)
-target_compile_features(project_test PRIVATE cxx_std_23)
-target_include_directories(project_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
-# The dogfood parity case re-encodes cup's own cup.toml, which the Go cup wrote.
-target_compile_definitions(project_test PRIVATE CUP_PROJECT_ROOT="${CMAKE_SOURCE_DIR}")
-target_link_libraries(project_test PRIVATE project error Catch2::Catch2WithMain)
-add_test(NAME project_test COMMAND project_test)
-
-add_executable(naming_test naming_test.cpp)
-target_compile_features(naming_test PRIVATE cxx_std_23)
-target_link_libraries(naming_test PRIVATE scaffold error Catch2::Catch2WithMain)
-add_test(NAME naming_test COMMAND naming_test)
-
-add_executable(std_test std_test.cpp)
-target_compile_features(std_test PRIVATE cxx_std_23)
-target_link_libraries(std_test PRIVATE scaffold error Catch2::Catch2WithMain)
-add_test(NAME std_test COMMAND std_test)
-
-add_executable(render_test render_test.cpp)
-target_compile_features(render_test PRIVATE cxx_std_23)
-target_include_directories(render_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
-target_link_libraries(render_test PRIVATE scaffold tmpl error Catch2::Catch2WithMain)
-add_test(NAME render_test COMMAND render_test)
-
-add_executable(cmake_test cmake_test.cpp)
-target_compile_features(cmake_test PRIVATE cxx_std_23)
-target_include_directories(cmake_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
-target_link_libraries(cmake_test PRIVATE scaffold error Catch2::Catch2WithMain)
-add_test(NAME cmake_test COMMAND cmake_test)
-
-add_executable(compiler_test compiler_test.cpp)
-target_compile_features(compiler_test PRIVATE cxx_std_23)
-target_include_directories(compiler_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
-target_link_libraries(compiler_test PRIVATE scaffold error Catch2::Catch2WithMain)
-add_test(NAME compiler_test COMMAND compiler_test)
-
-add_executable(releases_test releases_test.cpp)
-target_compile_features(releases_test PRIVATE cxx_std_23)
-target_include_directories(releases_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
-target_link_libraries(releases_test PRIVATE scaffold error Threads::Threads Catch2::Catch2WithMain)
-add_test(NAME releases_test COMMAND releases_test)
-
-add_executable(dockerhub_test dockerhub_test.cpp)
-target_compile_features(dockerhub_test PRIVATE cxx_std_23)
-target_include_directories(dockerhub_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
-target_link_libraries(dockerhub_test PRIVATE scaffold error Threads::Threads Catch2::Catch2WithMain)
-add_test(NAME dockerhub_test COMMAND dockerhub_test)
-
-add_executable(log_test log_test.cpp)
-target_compile_features(log_test PRIVATE cxx_std_23)
-target_include_directories(log_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
-target_link_libraries(log_test PRIVATE log Catch2::Catch2WithMain)
-add_test(NAME log_test COMMAND log_test)
-
-add_executable(cmd_test cmd_test.cpp)
-target_compile_features(cmd_test PRIVATE cxx_std_23)
-target_include_directories(cmd_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
-target_link_libraries(cmd_test PRIVATE cmd project scaffold ui platform error
-                                       Catch2::Catch2WithMain)
-add_test(NAME cmd_test COMMAND cmd_test)
-
-add_executable(new_add_test new_add_test.cpp)
-target_compile_features(new_add_test PRIVATE cxx_std_23)
-target_include_directories(new_add_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
-target_link_libraries(new_add_test PRIVATE cmd project scaffold tmpl ui platform error
-                                           Catch2::Catch2WithMain)
-add_test(NAME new_add_test COMMAND new_add_test)
-
-add_executable(cmd_docker_test cmd_docker_test.cpp)
-target_compile_features(cmd_docker_test PRIVATE cxx_std_23)
-target_include_directories(cmd_docker_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
-target_link_libraries(cmd_docker_test PRIVATE cmd project scaffold ui error
-                                              Catch2::Catch2WithMain)
-add_test(NAME cmd_docker_test COMMAND cmd_docker_test)
-
-add_executable(template_completion_test template_completion_test.cpp)
-target_compile_features(template_completion_test PRIVATE cxx_std_23)
-target_include_directories(template_completion_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
-target_link_libraries(template_completion_test PRIVATE cmd project tmpl ui error
-                                                       Catch2::Catch2WithMain)
-add_test(NAME template_completion_test COMMAND template_completion_test)
-
-add_executable(compiler_cmd_test compiler_cmd_test.cpp)
-target_compile_features(compiler_cmd_test PRIVATE cxx_std_23)
-target_include_directories(compiler_cmd_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
-target_link_libraries(compiler_cmd_test PRIVATE cmd project scaffold platform error
-                                                Catch2::Catch2WithMain)
-add_test(NAME compiler_cmd_test COMMAND compiler_cmd_test)
-
-add_executable(docker_cmd_test docker_cmd_test.cpp)
-target_compile_features(docker_cmd_test PRIVATE cxx_std_23)
-target_include_directories(docker_cmd_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
-target_link_libraries(docker_cmd_test PRIVATE cmd project scaffold platform ui error
-                                              Catch2::Catch2WithMain)
-add_test(NAME docker_cmd_test COMMAND docker_cmd_test)
-
-add_executable(thirdparty_cmd_test thirdparty_cmd_test.cpp)
-target_compile_features(thirdparty_cmd_test PRIVATE cxx_std_23)
-target_include_directories(thirdparty_cmd_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
-target_link_libraries(thirdparty_cmd_test PRIVATE cmd project platform ui error
-                                                  Catch2::Catch2WithMain)
-add_test(NAME thirdparty_cmd_test COMMAND thirdparty_cmd_test)
-
-# Drives the real cup binary through a real pty (fork+exec, not synthetic
-# ftxui::Event objects) -- needs the cup target from src/apps to exist, same
-# as the bats suite below, hence CUP_TEST_BIN's use of $<TARGET_FILE:cup>.
-add_executable(interactive_signal_test interactive_signal_test.cpp)
-target_compile_features(interactive_signal_test PRIVATE cxx_std_23)
-target_include_directories(interactive_signal_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
-target_compile_definitions(interactive_signal_test PRIVATE CUP_TEST_BIN="$<TARGET_FILE:cup>")
-target_link_libraries(interactive_signal_test PRIVATE Catch2::Catch2WithMain)
-add_test(NAME interactive_signal_test COMMAND interactive_signal_test)
-
-# Black-box bats suite against the real cup binary (needs the cup target from
-# src/apps, so this must come after it — see the top-level CMakeLists.txt).
-add_subdirectory(functional)
+# A pty and bats are POSIX-only, so the black-box suites stay off a Windows
+# build; the unit suites above are what run there. They need the cup target
+# from src/apps, so this must come after it — see the top-level CMakeLists.txt.
+if(NOT WIN32)
+  add_subdirectory(functional)
+endif()

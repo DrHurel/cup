@@ -32,6 +32,9 @@ CXXFLAGS := -std=c++{{std_number}} -Wall -Wextra $(CXXFLAGS_$(MODE)) $(EXTRA_CXX
 LDFLAGS  := $(LDFLAGS_$(MODE)) $(EXTRA_LDFLAGS)
 
 # --- output tree ------------------------------------------------------------
+# Windows (MSYS2 / Git Bash make) names executables hello.exe; the rules below
+# spell that out so make sees the binary it built as up to date.
+EXE    := $(if $(filter Windows_NT,$(OS)),.exe,)
 BUILD  := build/$(MODE)
 OBJDIR := $(BUILD)/obj
 BINDIR := $(BUILD)/bin
@@ -77,23 +80,23 @@ $(foreach d,$(lib_src_dirs),$(eval $(call LIB_template,$(d))))
 
 # --- per-app link rules -----------------------------------------------------
 define APP_template
-$(BINDIR)/$(notdir $(1)): $(patsubst %.cpp,$(OBJDIR)/%.o,$(wildcard $(1)/*.cpp)) $(lib_archives)
+$(BINDIR)/$(notdir $(1))$(EXE): $(patsubst %.cpp,$(OBJDIR)/%.o,$(wildcard $(1)/*.cpp)) $(lib_archives)
 	@mkdir -p $$(dir $$@)
 	$(CXX) $(CXXFLAGS) $$^ -o $$@ $(LDFLAGS) $(CUP_TP_LIBS)
 endef
 $(foreach d,$(app_dirs),$(eval $(call APP_template,$(d))))
 
-app_bins := $(foreach d,$(app_dirs),$(BINDIR)/$(notdir $(d)))
+app_bins := $(foreach d,$(app_dirs),$(BINDIR)/$(notdir $(d))$(EXE))
 
 # --- per-test link rules ----------------------------------------------------
 define TEST_template
-$(BINDIR)/$(basename $(notdir $(1))): $(OBJDIR)/$(basename $(1)).o $(lib_archives)
+$(BINDIR)/$(basename $(notdir $(1)))$(EXE): $(OBJDIR)/$(basename $(1)).o $(lib_archives)
 	@mkdir -p $$(dir $$@)
 	$(CXX) $(CXXFLAGS) $$^ -o $$@ $(LDFLAGS) $(CUP_TP_LIBS)
 endef
 $(foreach s,$(test_srcs),$(eval $(call TEST_template,$(s))))
 
-test_bins := $(foreach s,$(test_srcs),$(BINDIR)/$(basename $(notdir $(s))))
+test_bins := $(foreach s,$(test_srcs),$(BINDIR)/$(basename $(notdir $(s)))$(EXE))
 
 # --- phony targets ----------------------------------------------------------
 .PHONY: all test clean

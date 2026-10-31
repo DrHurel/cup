@@ -14,15 +14,30 @@ on:
     tags: ['v*']
 
 jobs:
-  build:
-    uses: ./.github/workflows/build-static.yml
+  # The same prebuilt CI images cpp.yml uses (see job-ci-images.yml).
+  images:
+    uses: ./.github/workflows/job-ci-images.yml
     permissions:
       contents: read
+      packages: write
+
+  build:
+    needs: images
+    uses: ./.github/workflows/build-static.yml
+    with:
+      image: ${{ needs.images.outputs.alpine }}
+    permissions:
+      contents: read
+      packages: read
 
   build-deb:
+    needs: images
     uses: ./.github/workflows/job-build-deb.yml
+    with:
+      image: ${{ needs.images.outputs.gcc15 }}
     permissions:
       contents: read
+      packages: read
 
   publish:
     needs: [build, build-deb]

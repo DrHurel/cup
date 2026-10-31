@@ -11,7 +11,16 @@ name: C++ CI
 #
 # This is an orchestrator: every job below (other than the trivial `uses:`
 # wiring) lives in its own job-*.yml reusable workflow, one file per job, so
-# each can be read/changed in isolation. The graph:
+# each can be read/changed in isolation.
+#
+# Every Linux job runs in a prebuilt CI image (docker/ci/*.Dockerfile) rather
+# than installing its toolchain on each run. `images` (job-ci-images.yml)
+# comes first: it publishes any image whose Dockerfile changed to ghcr.io and
+# outputs each image's reference, which the jobs below pass on as `image:`.
+# A test job always runs in the same image as the build it tests, since a
+# `container:` job's paths (/__w/...) are baked into the build tree.
+#
+# The graph (every Linux job also needs `images`):
 #
 #   coverage ──────────────────────────────┬──> sonarcloud ──> deploy-pages (main push only)
 #   build-debug ──┬──> unit-test-debug      │
@@ -21,6 +30,7 @@ name: C++ CI
 #   build-deb (*) ──────────────────────────> release-main (main push only)
 #   build-canary ─┬──> unit-test-canary (*, non-blocking)
 #         (*)     └──> functional-test-canary (*, non-blocking)
+#   build-windows (*, non-blocking)
 #   build-fedora (main push only, non-blocking)
 #   build-debian (main push only, non-blocking)
 #
@@ -38,12 +48,8 @@ name: C++ CI
 # the exact same unit-test/functional-test coverage Debug does, and
 # release.yml (the tag-triggered publisher) and release-main both consume
 # this same job's output rather than a redundant fourth build. Its test jobs
-# pass container: alpine:3.23 + pm: apk (job-unit-test.yml/
-# job-functional-test.yml both accept this) so they run in the same
-# container build-release did — a `container:` job mounts the workspace at
-# /__w/... rather than the usual /home/runner/work/..., so a plain
-# (non-containerized) test job downloading this artifact would find every
-# absolute path CTestTestfile.cmake baked in pointing nowhere.
+# run in the alpine image build-release did, like every test job runs in its
+# build's image.
 #
 # (*) gated on the PR not being a draft — draft PRs only run build-debug and
 # coverage, for the fastest possible signal while iterating. Everything else
@@ -63,6 +69,7 @@ on:
       - '.github/workflows/cpp.yml'
       - '.github/workflows/job-*.yml'
       - '.github/workflows/build-static.yml'
+      - 'docker/ci/**'
   pull_request:
     paths:
       - 'src/**'
@@ -74,6 +81,7 @@ on:
       - '.github/workflows/cpp.yml'
       - '.github/workflows/job-*.yml'
       - '.github/workflows/build-static.yml'
+      - 'docker/ci/**'
   workflow_dispatch:
 
 concurrency:
@@ -91,37 +99,54 @@ concurrency:
 
 jobs:
   # --- always on, even for a draft PR -----------------------------------
-  coverage:
-    uses: ./.github/workflows/job-coverage.yml
+  images:
+    uses: ./.github/workflows/job-ci-images.yml
     permissions:
       contents: read
+      packages: write
+
+  coverage:
+    needs: images
+    uses: ./.github/workflows/job-coverage.yml
+    with:
+      image: ${{ needs.images.outputs.gcc15 }}
+    permissions:
+      contents: read
+      packages: read
 
   build-debug:
+    needs: images
     uses: ./.github/workflows/job-build.yml
     with:
+      image: ${{ needs.images.outputs.gcc15 }}
       mode: Debug
     permissions:
       contents: read
+      packages: read
 
   unit-test-debug:
-    needs: build-debug
+    needs: [images, build-debug]
     if: ${{ !github.event.pull_request.draft }}
     uses: ./.github/workflows/job-unit-test.yml
     with:
+      image: ${{ needs.images.outputs.gcc15 }}
       mode: Debug
       artifact-name: ${{ needs.build-debug.outputs.artifact-name }}
     permissions:
       contents: read
+      packages: read
 
   functional-test-debug:
-    needs: build-debug
+    needs: [images, build-debug]
     if: ${{ !github.event.pull_request.draft }}
     uses: ./.github/workflows/job-functional-test.yml
     with:
+      image: ${{ needs.images.outputs.gcc15 }}
       mode: Debug
       artifact-name: ${{ needs.build-debug.outputs.artifact-name }}
     permissions:
       contents: read
+      packages: read
 
   # --- gated: skipped on a draft PR ---------------------------------------
   # The release artifact itself: a musl-static binary built in alpine (see
@@ -129,34 +154,38 @@ jobs:
   # build-release, not a separate verification build alongside it -- cup's
   # actual shippable Release output is what gets tested and packaged.
   build-release:
+    needs: images
     if: ${{ !github.event.pull_request.draft }}
     uses: ./.github/workflows/build-static.yml
+    with:
+      image: ${{ needs.images.outputs.alpine }}
     permissions:
       contents: read
+      packages: read
 
   unit-test-release:
-    needs: build-release
+    needs: [images, build-release]
     if: ${{ !github.event.pull_request.draft }}
     uses: ./.github/workflows/job-unit-test.yml
     with:
+      image: ${{ needs.images.outputs.alpine }}
       mode: Release
       artifact-name: ${{ needs.build-release.outputs.artifact-name }}
-      container: alpine:3.23
-      pm: apk
     permissions:
       contents: read
+      packages: read
 
   functional-test-release:
-    needs: build-release
+    needs: [images, build-release]
     if: ${{ !github.event.pull_request.draft }}
     uses: ./.github/workflows/job-functional-test.yml
     with:
+      image: ${{ needs.images.outputs.alpine }}
       mode: Release
       artifact-name: ${{ needs.build-release.outputs.artifact-name }}
-      container: alpine:3.23
-      pm: apk
     permissions:
       contents: read
+      packages: read
 
   # The .deb release artifact, alongside build-release's musl-static
   # binary: apt-installable for anyone who'd rather have Debian/Ubuntu
@@ -165,45 +194,66 @@ jobs:
   # unit-test-canary hit, just for package Depends: this time instead of a
   # missing runtime .so.
   build-deb:
+    needs: images
     if: ${{ !github.event.pull_request.draft }}
     uses: ./.github/workflows/job-build-deb.yml
+    with:
+      image: ${{ needs.images.outputs.gcc15 }}
     permissions:
       contents: read
+      packages: read
 
   # Early warning against a newer GCC: the exact same build -> parallel
   # unit-test/functional-test shape as Debug/Release, just gcc-16 and
   # continue-on-error: true instead of a bespoke combined job. Non-blocking
   # on purpose: this exists to tell us something, not to gate.
   build-canary:
+    needs: images
     if: ${{ !github.event.pull_request.draft }}
     uses: ./.github/workflows/job-build.yml
     with:
+      image: ${{ needs.images.outputs.gcc16 }}
       mode: Debug
       gcc-version: '16'
       continue-on-error: true
     permissions:
       contents: read
+      packages: read
 
   unit-test-canary:
-    needs: build-canary
+    needs: [images, build-canary]
     if: ${{ !github.event.pull_request.draft }}
     uses: ./.github/workflows/job-unit-test.yml
     with:
+      image: ${{ needs.images.outputs.gcc16 }}
       mode: Debug
       artifact-name: ${{ needs.build-canary.outputs.artifact-name }}
       continue-on-error: true
     permissions:
       contents: read
+      packages: read
 
   functional-test-canary:
-    needs: build-canary
+    needs: [images, build-canary]
     if: ${{ !github.event.pull_request.draft }}
     uses: ./.github/workflows/job-functional-test.yml
     with:
+      image: ${{ needs.images.outputs.gcc16 }}
       mode: Debug
       artifact-name: ${{ needs.build-canary.outputs.artifact-name }}
-      gcc-version: '16'
       continue-on-error: true
+    permissions:
+      contents: read
+      packages: read
+
+  # Native Windows build (MSYS2 UCRT64): build, unit suites, and an
+  # end-to-end cup init/add/build/run — see job-build-windows.yml. On every
+  # non-draft PR, unlike the distro jobs below, because Windows is a separate
+  # code path (CreateProcessW, WinHTTP, the Windows console) rather than a
+  # packaging variant of the Linux one; non-blocking like the canary.
+  build-windows:
+    if: ${{ !github.event.pull_request.draft }}
+    uses: ./.github/workflows/job-build-windows.yml
     permissions:
       contents: read
 
@@ -215,23 +265,34 @@ jobs:
   # loop -- back the README's platform claims with a real CI run, but only
   # need to run when code actually lands on main.
   build-fedora:
+    needs: images
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     uses: ./.github/workflows/job-build-fedora.yml
+    with:
+      image: ${{ needs.images.outputs.fedora }}
     permissions:
       contents: read
+      packages: read
 
   build-debian:
+    needs: images
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     uses: ./.github/workflows/job-build-debian.yml
+    with:
+      image: ${{ needs.images.outputs.debian }}
     permissions:
       contents: read
+      packages: read
 
   sonarcloud:
-    needs: coverage
+    needs: [images, coverage]
     if: ${{ !github.event.pull_request.draft }}
     uses: ./.github/workflows/job-sonarcloud.yml
+    with:
+      image: ${{ needs.images.outputs.gcc15 }}
     permissions:
       contents: read
+      packages: read
     secrets: inherit
 
   # --- main-push only, regardless of draft (drafts don't merge to main) --

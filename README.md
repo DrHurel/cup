@@ -55,6 +55,11 @@ no rebase/merge conflicts in a shared build file. Objects land under
   (sid)** — one job each in `.github/workflows/`, so "supports Fedora" is a
   real CI run, not untested prose. Any distro shipping GCC 15+ / CMake 3.28+
   / Ninja should work the same way even if it isn't in that CI matrix.
+- **Windows** (x86-64): cup builds natively with MSYS2's UCRT64 GCC 15+ and
+  manages projects there — see [Windows](#windows). CI builds it on every
+  non-draft PR (`job-build-windows.yml`, non-blocking while it beds in) and
+  uploads a single static `cup.exe` as the `cup-windows-x86_64` artifact; it
+  is not attached to tagged releases yet.
 - **Architecture**: x86-64 only, precompiled or from source. No ARM64 build
   yet.
 
@@ -111,6 +116,47 @@ install needed) is available via Docker:
 docker run --rm -v "$PWD:/work" cup-dev ./devtools/build.sh
 ```
 
+### Windows
+
+cup.exe is one self-contained file: it links its C++ runtime statically and
+talks HTTP through the OS's own WinHTTP (no curl/OpenSSL). Build it with
+[MSYS2](https://www.msys2.org)'s **UCRT64** environment, which ships GCC 15+,
+CMake and Ninja:
+
+```sh
+pacman -S --needed git mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-cmake mingw-w64-ucrt-x86_64-ninja
+
+cmake -B build/Release -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXE_LINKER_FLAGS=-static
+cmake --build build/Release   # -> build/Release/bin/cup.exe
+```
+
+Copy `cup.exe` anywhere on `PATH`. Projects it manages need a toolchain on
+`PATH` the same way (`cup build` runs `cmake -G Ninja`, then the compiler
+CMake finds):
+
+- **MinGW-w64 GCC/Clang** (MSYS2 UCRT64, or any other MinGW distribution)
+  works from any shell. A C++23 project's `std::println` needs MinGW's
+  `libstdc++exp`; the generated `CMakeLists.txt` links it automatically.
+- **MSVC** works from a *Developer* PowerShell/Command Prompt, where `cl` and
+  its environment are already set up. cup's `[compiler]` floors guard GCC
+  and Clang only, so MSVC builds are not version-checked.
+- `cup run` launches `build/<mode>/bin/<app>.exe`.
+- The **Make** backend's `Makefile` uses POSIX shell tools (`find`,
+  `mkdir -p`), so it needs MSYS2 or Git Bash `make` rather than a bare
+  `mingw32-make` from `cmd`.
+- Completion: `cup completion powershell | Out-String | Invoke-Expression`
+  (add the line to your `$PROFILE` to keep it); bash/zsh/fish completion
+  works under MSYS2/Git Bash as on Linux.
+- `cup register`'s apt-install offer to run `sudo apt-get` is Linux-only —
+  answer no on Windows; the package still goes into the project's Docker
+  build image, which is what `cup compiler verify` compiles in.
+
+Not covered on Windows: the pty-driven `ui_test`/`platform_test`/
+`interactive_signal_test` suites and the bats functional suite (see
+the CMakeLists under `src/tests/`); every other Catch2 suite runs there, with
+`process_test` exercising the Windows process layer and
+`windows_platform_test` the Windows backend itself.
+
 ## Devtools scripts
 
 - `./devtools/build.sh` — bootstrap-build `cup` (plain cmake/ninja) into `build/cup`
@@ -151,6 +197,8 @@ The generated default Dockerfile is a normal project artifact — commit it (and
 
 ```
 cup new [name]                     create a new C++ project (prompts for name + standard)
+cup init [name] [--std N] [--build-tool cmake|make]
+                                   turn the current directory's existing project into a cup project
 cup add [app|lib|test]             scaffold a target (interactive if no arg)
 cup configure [MODE]               generate the CMake build system
 cup build [MODE]                   configure + compile
@@ -169,12 +217,49 @@ cup register                       register a third-party dependency
 cup unregister [name]              remove a third-party dependency
 cup template list                  list library-component templates
 cup template new [name]            add a project-local template
-cup completion <install|bash|zsh|fish>  install or print shell completion
-cup --version, -v                  print cup's version (and build SHA, for a GitHub-built binary)
+cup completion <install|bash|zsh|fish|powershell>  install or print shell completion
+cup --version, -v                  print cup's version and the commit it was built from
 ```
 
 `MODE` is `Debug` (default), `Release`, or `Coverage`; each gets its own
 `build/<MODE>` tree.
+
+## Adopting an existing project
+
+`cup init`, run from an existing project's root, turns it into a cup project
+in place — nothing is moved or rewritten:
+
+```sh
+cd my-existing-project
+cup init                      # detects the build system, name, and standard
+cup add app                   # scaffold into it like any cup project
+cup build && cup run
+```
+
+- **Detection.** A root `CMakeLists.txt` makes it a CMake project (the name
+  comes from its `project()` call; the standard from `CMAKE_CXX_STANDARD`,
+  `CXX_STANDARD`, `cxx_std_NN` or `-std=` anywhere in the project's own
+  CMakeLists, not in `build*/`, `third_party/`, `extern(al)/`, `vendor/`, `deps/`
+  or dot-directories). Otherwise a `Makefile` makes it a Make project
+  (standard from `-std=`/`/std:`). The name falls back to the directory name
+  made into an identifier (`my-tool` → `my_tool`); anything still unknown is
+  prompted for. `[name]`, `--std` and `--build-tool` override detection.
+- **CMake.** cup inserts an empty compiler-guard block after `project()` (so
+  `cup compiler set` works later) and, where they don't exist yet, creates
+  `src/libs` and `src/apps` and `add_subdirectory`s them for `cup add`. An
+  existing `src/libs`/`src/apps` is left alone. `cup run` finds an app in
+  `build/<mode>/bin/` or, for a CMakeLists that sets no output directory,
+  CMake's default `build/<mode>/src/apps/<app>/`.
+- **Make.** The `Makefile` is left exactly as is: `cup build`/`cup test` run
+  `make MODE=<mode>` / `make MODE=<mode> test`. Since cup's Make backend is
+  headers-only, a C++20/23 Makefile project has to come in as
+  `--build-tool cmake`.
+- **No build file at all.** cup scaffolds the same fresh tree `cup new` does,
+  next to whatever files are already there.
+- **Not claimed.** No `[compiler]` floors and no Docker build image are
+  recorded, since cup has never checked the project against either. Add them
+  with `cup compiler set` and `cup docker new`. A `.gitignore` that already
+  exists is merged (missing entries appended), never overwritten.
 
 ## Layout of a created project
 
@@ -194,22 +279,31 @@ Libraries scaffold differently per standard. On C++20/23 a lib is a module: a
 primary interface (`<name>.cppm`) re-exports partition files (one per symbol). On
 C++11/14/17 a lib is a header/source pair driven by a `<name>.hpp` aggregator.
 
+A component file whose name would match its lib's primary interface ignoring
+case is prefixed with the lib name instead: lib `utils`'s default first
+component is `utils-Utils.cppm`, not `Utils.cppm`, because `Utils.cppm` and
+`utils.cppm` are the same file on a case-insensitive filesystem (Windows,
+macOS). The rule applies on every host, so a project scaffolded on Linux
+still checks out on Windows.
+
 ## Module diagram
 
 `cup` itself is organized as a layered set of C++20 modules. Each box is a
-primary module interface under `src/libs/cup/*`; arrows point from a module to
-the modules it imports.
+primary module interface under `src/libs/*` (every library sits directly in
+`src/libs`, never in a subfolder); arrows point from a module to the modules it
+imports. Each one also exports a `Library` class declaring those dependencies.
 
 ```mermaid
 graph TD
-    main["cup (executable)"] --> cmd[cup.cmd]
-    cmd --> error[cup.error]
-    cmd --> project[cup.project]
-    cmd --> ui[cup.ui]
-    cmd --> scaffold[cup.scaffold]
-    cmd --> tmpl[cup.tmpl]
-    cmd --> platform[cup.platform]
-    cmd --> log[cup.log]
+    main["cup (executable)"] --> cmd[cmd]
+    cmd --> library[library]
+    cmd --> error[error]
+    cmd --> project[project]
+    cmd --> ui[ui]
+    cmd --> scaffold[scaffold]
+    cmd --> tmpl[tmpl]
+    cmd --> platform[core]
+    cmd --> log[logging]
 
     scaffold --> error
     scaffold --> ui
@@ -220,39 +314,56 @@ graph TD
     ui --> platform
 
     log --> error
+    log --> platform
     platform --> error
+    posix["posix"] -. "injected by<br/>PosixServices.cpp" .-> platform
+    windows["windows"] -. "injected by<br/>WindowsServices.cpp" .-> platform
     project --> error
     tmpl --> error
 ```
 
+The platform layer is three of those libraries, wired by
+dependency injection. `src/libs/core` (module `core`) declares what cup needs
+from the OS as a `Services` table (`services.cppm`). `src/libs/posix` and
+`src/libs/windows` (modules `posix` and `windows`) are the backends that
+implement it. Each backend also owns a *services file* (`PosixServices.cpp`,
+`WindowsServices.cpp`) that injects that backend into `core` by defining
+`make_platform_services()`. CMake adds exactly one backend directory, with its
+services file, for the host (`if(WIN32)` in `src/libs/CMakeLists.txt`).
+Nothing else in cup imports a backend or tests `_WIN32`, and tests can swap any
+single service (`run_command_func()` etc.).
+
 | Module | Partitions | Purpose |
 | --- | --- | --- |
-| `cup.error` | `:error`, `:monad` | Error type and monadic `Result`/`Expected`-style helpers used everywhere else. |
-| `cup.log` | `:log` | Structured logging (`cup.log`) backed by spdlog. |
-| `cup.platform` | `:terminal`, `:net`, `:process` | OS-facing primitives: terminal I/O, HTTP, and subprocess execution. |
-| `cup.project` | `:config`, `:io` | Reads/writes a project's `cup.toml` and derives on-disk paths from it. |
-| `cup.tmpl` | `:corpus`, `:resolve` | Built-in template corpus and template-path resolution for `cup add`/`cup template`. |
-| `cup.ui` | `:io`, `:color`, `:prompt`, `:select` | Terminal UI toolkit: colored output, prompts, and interactive selection. |
-| `cup.scaffold` | `:naming`, `:std`, `:render`, `:cmake`, `:compiler`, `:releases`, `:dockerhub` | Generates project/component files — naming conventions, CMake, Dockerfiles, compiler/toolchain setup, and GitHub release lookups. |
-| `cup.cmd` | `:build`, `:docker`, `:new_project`, `:add`, `:template_cmd`, `:completion`, `:compiler`, `:thirdparty`, `:dispatch` | One partition per CLI subcommand (`cup build`, `cup new`, `cup add`, ...), plus `:dispatch` which routes parsed arguments to them. |
+| `library` | — | The `Library` class contract (dependencies, `initialize()`/`finalize()`) and the code that initializes a library graph in dependency order. |
+| `error` | `:error`, `:monad` | Error type and monadic `Result`/`Expected`-style helpers used everywhere else. |
+| `logging` | `:log` | Structured logging (to `cup.log`) backed by spdlog. |
+| `core` | `:services`, `:raw_mode`, `:terminal`, `:net`, `:process`, `:env` | The portable OS-facing API: terminal I/O, HTTP, subprocess execution, and per-user directories. Free of OS headers: every call goes through the `Services` table that a platform backend fills in. |
+| `posix` | — | POSIX backend (fork+exec, termios, libcurl). Built only on non-Windows hosts. |
+| `windows` | — | Windows backend (CreateProcessW, the console API, WinHTTP). Built only on Windows. |
+| `project` | `:config`, `:io` | Reads/writes a project's `cup.toml` and derives on-disk paths from it. |
+| `tmpl` | `:corpus`, `:resolve` | Built-in template corpus and template-path resolution for `cup add`/`cup template`. |
+| `ui` | `:io`, `:color`, `:prompt`, `:select` | Terminal UI toolkit: colored output, prompts, and interactive selection. |
+| `scaffold` | `:naming`, `:std`, `:render`, `:cmake`, `:compiler`, `:releases`, `:dockerhub` | Generates project/component files — naming conventions, CMake, Dockerfiles, compiler/toolchain setup, and GitHub release lookups. |
+| `cmd` | `:build`, `:docker`, `:new_project`, `:init`, `:add`, `:template_cmd`, `:completion`, `:compiler`, `:thirdparty`, `:dispatch` | One partition per CLI subcommand (`cup build`, `cup new`, `cup add`, ...), plus `:dispatch` which routes parsed arguments to them. |
 
 ### Runtime flow: `cup new`
 
 Every invocation follows the same shape: `main` hands the raw args to
-`cup.cmd`, which logs, dispatches to a subcommand partition, and calls back
+`cmd`, which logs, dispatches to a subcommand partition, and calls back
 into the lower-level modules to do the actual work. `cup new` is the most
 representative example since it touches nearly every module in one run:
 
 ```mermaid
 sequenceDiagram
     actor User
-    participant main as main (cup.cmd:dispatch)
-    participant ui as cup.ui
-    participant scaffold as cup.scaffold
-    participant tmpl as cup.tmpl
-    participant project as cup.project
-    participant platform as cup.platform
-    participant log as cup.log
+    participant main as main (cmd:dispatch)
+    participant ui as ui
+    participant scaffold as scaffold
+    participant tmpl as tmpl
+    participant project as project
+    participant platform as core
+    participant log as logging
 
     User->>main: cup new myproj
     main->>log: init()
@@ -312,7 +423,7 @@ Requirements scale with the standard you pick:
   `cup configure`/`cup build` detects the installed CMake and supplies the
   matching value itself, so the committed `CMakeLists.txt` doesn't go stale
   against whichever CMake actually builds it. A CMake release outside cup's
-  known table (see `import_std_gate_uuid` in `src/libs/cup/cmd/Build.cpp`)
+  known table (see `import_std_gate_uuid` in `src/libs/cmd/Build.cpp`)
   fails with a clear error instead of CMake's cryptic `CXX_MODULE_STD` one.
 - **C++11/14/17** have no special requirements beyond a conforming compiler.
 

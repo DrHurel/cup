@@ -10,11 +10,17 @@ name: Build static binary
 # runtime, so a -static glibc binary fails DNS on any host whose glibc differs
 # from the build host's. musl's resolver is static-clean.
 #
-# alpine:3.23, not 3.22: 3.22 only carries GCC 14.2, and the floor is GCC 15.
-# 3.23 carries GCC 15.2.
+# Runs in `image`, docker/ci/alpine.Dockerfile (alpine:3.23, GCC 15.2) from
+# job-ci-images.yml, which already carries the toolchain and the static
+# archives below -- see that Dockerfile for why each package is there.
 
 on:
   workflow_call:
+    inputs:
+      image:
+        description: 'CI image to build in (the job-ci-images.yml alpine output)'
+        required: true
+        type: string
     outputs:
       artifact-name:
         description: Name of the uploaded build-tree artifact
@@ -24,10 +30,15 @@ jobs:
   build:
     name: alpine musl-static
     runs-on: ubuntu-24.04
-    container: alpine:3.23
+    container:
+      image: ${{ inputs.image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
 
     permissions:
       contents: read
+      packages: read
 
     env:
       # Named modules require Ninja: CMake's Makefile generator does not
@@ -47,21 +58,6 @@ jobs:
           # artifact that rule exists to catch).
           persist-credentials: false
 
-      - name: Install toolchain
-        # Real ninja, not alpine's default samurai: samurai advertises ninja 1.9
-        # compatibility and has no dyndep support, so CMake refuses to scan for
-        # modules ("Ninja 1.11 or higher is required"). ninja-is-really-ninja
-        # points the `ninja` command at ninja-build (and excludes samurai).
-        # The *-static packages carry the archives a fully static link of libcurl
-        # needs; pkgconf resolves them via libcurl.pc's Libs.private (see
-        # third_party/CMakeLists.txt's CURL_USE_STATIC_LIBS branch).
-        run: |
-          apk add --no-cache \
-            build-base cmake ninja-build ninja-is-really-ninja git pkgconf file bats \
-            curl-dev curl-static \
-            openssl-libs-static zlib-static nghttp2-static brotli-static \
-            zstd-static libpsl-static libunistring-static libidn2-static
-
       - name: Show toolchain versions
         run: |
           g++ --version | head -1
@@ -76,18 +72,15 @@ jobs:
           # find_package(CURL) resolves the shared libcurl.so even with this
           # variable set, which fails "-static" linking.
           #
-          # CUP_BUILD_SHA is baked into the binary and surfaced by
-          # `cup --version` — this is the one build path (shared by CI
-          # verification and actual releases) that sets it, which is what lets
-          # `cup --version` distinguish a GitHub-built binary from a local
-          # `cup build`/devtools/build.sh, where it's left empty.
+          # CUP_BUILD_SHA pins the commit `cup --version` reports to the one
+          # this workflow runs for, instead of whatever git says HEAD is in
+          # the checkout (the default for every other build).
           #
-          # bats must be installed (see "Install toolchain" above) even
-          # though this job never runs it: find_program(BATS_EXECUTABLE bats)
+          # The image's bats matters even though this job never runs it: find_program(BATS_EXECUTABLE bats)
           # in functional/CMakeLists.txt runs at *this* configure step, and
           # the functional_* ctest entries are only registered when it
           # succeeds -- job-unit-test.yml/job-functional-test.yml's Release
-          # variant (container: alpine:3.23, matching this job's mount path)
+          # variant (same image, matching this job's mount path)
           # need them present in the artifact they download.
           cmake -B build/Release -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
@@ -111,7 +104,7 @@ jobs:
         run: |
           file build/Release/bin/cup
           if file build/Release/bin/cup | grep -q 'dynamically linked'; then
-            echo "ERROR: binary is dynamically linked"
+            echo "ERROR: binary is dynamically linked" >&2
             exit 1
           fi
           ./build/Release/bin/cup --help
