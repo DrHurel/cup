@@ -19,19 +19,14 @@ struct DockerImage {
     std::string hash;
     bool is_default = false;
 
-    friend bool operator==(const DockerImage& lhs, const DockerImage& rhs) {
-        return lhs.name == rhs.name && lhs.base == rhs.base && lhs.version == rhs.version &&
-               lhs.hash == rhs.hash && lhs.is_default == rhs.is_default;
-    }
+    friend bool operator==(const DockerImage& lhs, const DockerImage& rhs) = default;
 };
 
 struct DockerConfig {
     std::string registry;
     std::vector<DockerImage> images;
 
-    friend bool operator==(const DockerConfig& lhs, const DockerConfig& rhs) {
-        return lhs.registry == rhs.registry && lhs.images == rhs.images;
-    }
+    friend bool operator==(const DockerConfig& lhs, const DockerConfig& rhs) = default;
 
     [[nodiscard]] const DockerImage* default_image() const { return seek_default(*this); }
     [[nodiscard]] DockerImage* default_image() { return seek_default(*this); }
@@ -71,9 +66,7 @@ struct CompilerConfig {
     std::optional<int> clang;
     std::string verify_image;
 
-    friend bool operator==(const CompilerConfig& lhs, const CompilerConfig& rhs) {
-        return lhs.gcc == rhs.gcc && lhs.clang == rhs.clang && lhs.verify_image == rhs.verify_image;
-    }
+    friend bool operator==(const CompilerConfig& lhs, const CompilerConfig& rhs) = default;
 
     [[nodiscard]] int gcc_floor() const { return gcc.value_or(0); }
     [[nodiscard]] int clang_floor() const { return clang.value_or(0); }
@@ -97,12 +90,7 @@ struct Config {
     CompilerConfig compiler;
     DockerConfig docker;
 
-    friend bool operator==(const Config& lhs, const Config& rhs) {
-        return lhs.name == rhs.name && lhs.cup_version == rhs.cup_version &&
-               lhs.cpp_standard == rhs.cpp_standard && lhs.std_module == rhs.std_module &&
-               lhs.build_tool == rhs.build_tool && lhs.compiler == rhs.compiler &&
-               lhs.docker == rhs.docker;
-    }
+    friend bool operator==(const Config& lhs, const Config& rhs) = default;
 
     [[nodiscard]] int standard() const { return cpp_standard == 0 ? 23 : cpp_standard; }
 
