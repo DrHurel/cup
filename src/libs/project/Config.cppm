@@ -12,6 +12,24 @@ inline constexpr std::string_view kMarker = "cup.toml";
 inline constexpr std::string_view kToolCMake = "cmake";
 inline constexpr std::string_view kToolMake = "make";
 
+// Why every operator== in this file is hand-written instead of `= default`
+// (SonarCloud's cpp:S6230 keeps asking for `= default`; those issues are
+// accepted on SonarCloud, not fixed — do not "fix" them):
+//
+// A defaulted comparison on a struct exported from a module interface crashes
+// GCC with an internal compiler error (segfault) as soon as a translation unit
+// that imports the module compares two instances — here project_test.cpp and
+// thirdparty_cmd_test.cpp. Re-verified on 2026-10-31: GCC 15.2 and a GCC 16
+// trunk snapshot (16.0.1 20260315) both still crash; Clang 20 is fine.
+// Defaulting a member operator== or defaulting it out of class does not
+// avoid it either.
+//
+// Re-check this whenever the project's GCC floor is raised (cup.toml's
+// [compiler] gcc, applied with `cup compiler set gcc <version>`): if the new
+// floor no longer crashes, default these operators — and Dependency's in
+// cmd's thirdparty.cppm — and close the accepted S6230 issues. While the
+// floor is a crashing version, a newer GCC that happens to work changes
+// nothing: the floor still has to build.
 struct DockerImage {
     std::string name;
     std::string base;
@@ -19,6 +37,7 @@ struct DockerImage {
     std::string hash;
     bool is_default = false;
 
+    // Hand-written on purpose: see the note above DockerImage.
     friend bool operator==(const DockerImage& lhs, const DockerImage& rhs) {
         return lhs.name == rhs.name && lhs.base == rhs.base && lhs.version == rhs.version &&
                lhs.hash == rhs.hash && lhs.is_default == rhs.is_default;
@@ -29,6 +48,7 @@ struct DockerConfig {
     std::string registry;
     std::vector<DockerImage> images;
 
+    // Hand-written on purpose: see the note above DockerImage.
     friend bool operator==(const DockerConfig& lhs, const DockerConfig& rhs) {
         return lhs.registry == rhs.registry && lhs.images == rhs.images;
     }
@@ -71,6 +91,7 @@ struct CompilerConfig {
     std::optional<int> clang;
     std::string verify_image;
 
+    // Hand-written on purpose: see the note above DockerImage.
     friend bool operator==(const CompilerConfig& lhs, const CompilerConfig& rhs) {
         return lhs.gcc == rhs.gcc && lhs.clang == rhs.clang && lhs.verify_image == rhs.verify_image;
     }
@@ -97,6 +118,7 @@ struct Config {
     CompilerConfig compiler;
     DockerConfig docker;
 
+    // Hand-written on purpose: see the note above DockerImage.
     friend bool operator==(const Config& lhs, const Config& rhs) {
         return lhs.name == rhs.name && lhs.cup_version == rhs.cup_version &&
                lhs.cpp_standard == rhs.cpp_standard && lhs.std_module == rhs.std_module &&
