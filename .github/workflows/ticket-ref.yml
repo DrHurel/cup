@@ -1,0 +1,25 @@
+# Chaque commit mergé référence son ou ses tickets (tools/flow/ticket_check.py, CONTRIBUTING « Branches et commits »).
+# Le titre de la PR devient le message du commit squash ; chaque commit compte pour un merge en rebase.
+name: Ticket reference
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  contents: read
+
+jobs:
+  ticket:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Titre de la PR
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: python3 tools/flow/ticket_check.py title "$TITLE"
+      - name: Commits de la PR
+        run: python3 tools/flow/ticket_check.py range "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}"

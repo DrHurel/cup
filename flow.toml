@@ -1,0 +1,25 @@
+# Gestion de projet — méthode project-flow (CONTRIBUTING.md). Généré par /project-init, à adapter.
+
+[project]
+repository = "DrHurel/cup"
+default_branch = "main"
+
+[boards]
+# Les trois GitHub Projects (setup : /project-init ; passages : just boards-sync).
+owner = "DrHurel"
+po = 10
+dev = 11
+qa = 12
+
+[tickets]
+# Référence de ticket exigée dans chaque commit et titre de PR (.githooks/commit-msg, workflow Ticket reference).
+# La convention de cup (CLAUDE.md) : une issue (#42, owner/repo#42), une règle SonarCloud (cpp:S5272) ou [no-issue].
+pattern = '(?:[\w.-]+/[\w.-]+)?#\d+|\b[a-z]+:S\d+\b|\[no-issue\]'
+exempt = ['^Merge ', '^Revert "', '^(fixup|squash|amend)! ']
+
+[release]
+# Les fichiers de la release sont construits par .github/workflows/release.yml (pas par Release package).
+branch_prefix = "release/"
+tag_prefix = "v"
+package = "cup"
+qa_done = "Ready to deploy"
