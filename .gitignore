@@ -27,3 +27,8 @@ site/
 compile_commands.json
 
 build/
+
+# project-flow
+secrets.env
+.flow/
+__pycache__/

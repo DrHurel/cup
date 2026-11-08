@@ -4,3 +4,7 @@
 # verbatim, so every project a Windows-built cup scaffolds would carry them,
 # and the suites that compare rendered output exactly would fail.
 * text=auto eol=lf
+
+# project-flow
+.githooks/* text eol=lf
+tools/flow/* text eol=lf

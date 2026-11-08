@@ -108,8 +108,100 @@ through cup itself — that's the self-hosting loop cup's own CI exercises (see
   issues) — `sonar-project.properties` has the details if a finding needs a
   documented suppression rather than a fix
 
+## Issues and boards
+
+An issue goes through three GitHub Projects, each with its own Status column:
+
+| Board | Columns |
+|---|---|
+| [PO Refinement](https://github.com/users/DrHurel/projects/10) | Proposition → Refined ticket → Approved / Rejected |
+| [Dev](https://github.com/users/DrHurel/projects/11) | Ready to dev → To do → Work in progress ⇄ Blocked / Missing information → Reviewed → Validated → Done / Rejected |
+| [QA](https://github.com/users/DrHurel/projects/12) | Release ready → QA in progress → Ready to deploy / Bug |
+
+GitHub only moves a card within its own board. `just boards-sync` (or
+Actions → **Boards sync**) moves it from one board to the next:
+
+- PO *Approved* → Dev *Ready to dev*;
+- Dev *Missing information* → PO *Refined ticket*;
+- Dev *Rejected* → PO *Rejected*;
+- QA *Bug* → Dev *Ready to dev*;
+- any open issue on no board → PO *Proposition*.
+
+The latest Status change wins, so a second run moves nothing. Dev *Done* → QA
+*Release ready* happens **only** when a release is cut (`just release`).
+`just boards-sync dry-run` lists the moves without making them. The workflow
+reads the `PROJECTS_TOKEN` secret: a *classic* token with the `project` and
+`repo` scopes (fine-grained tokens cannot reach a personal account's Projects).
+
+The end of the Dev board:
+
+- *Reviewed*: the PR is open, under review;
+- *Validated*: the PR is merged on `main`; the feature waits for the PO;
+- *Done*: the PO has checked the acceptance criteria on `main` (`just ticket
+  validate <n>`); the issue goes to QA with the next release. If the PO
+  refuses it (`just ticket reopen <n> --reason "…"`), the issue and the issues
+  linked to it (closed by the same PR, sub-issues) are reopened and go back to
+  *Ready to dev*.
+
+`just ticket show <n>` shows an issue on the three boards, its PRs and the
+issues linked to it. A refined issue has an `## Acceptance criteria` (or
+`## Critères d'acceptation`) section: observable results, checkable without
+reading the code — what the PO validates and QA tests.
+
+## Roles
+
+| Role | Does | Does not |
+|---|---|---|
+| Product Owner | the functional side: research, critique of proposals, issues with acceptance criteria, validation after merge | code, architecture, release testing |
+| Developer | design, implementation, tests, PRs, up to *Validated* | decide the functional side, validate their own feature |
+| QA | finds bugs in the published release candidate, outside CI: release-test automation (in `qa/` only), manual robustness testing; every bug becomes an issue for the developers, with its steps to reproduce and its reproducibility | fix anything, touch code outside `qa/`, change the functional side, duplicate CI |
+
+Claude takes each role with `/project-flow:po`, `/project-flow:dev` and
+`/project-flow:qa` (Claude Code plugin `project-flow`). The roles act on
+their own within their scope and report; the maintainer approves *Approved* /
+*Rejected* and reopening a feature (PO), architecture changes and merges
+(Dev). What they write on GitHub is in English (`[project] language` in
+`flow.toml`).
+
+A bug issue (`just ticket bug`) always has: the version tested, the
+environment, the steps to reproduce, expected, observed, and how often it
+reproduces (e.g. `5/5`, `2/10 under load`).
+
+## Branches and commits
+
+- One branch per issue, cut from its target (`main`, or `release/X.Y.Z` for a
+  release fix) and **always rebased** on it: `git fetch && git rebase
+  origin/<target>`. Never merge the target into the branch.
+- **Every merged commit carries its tag** (see `CLAUDE.md`): an issue (`#42`),
+  a SonarCloud rule key (`cpp:S5272`) or `[no-issue]`.
+- Merge **by squash** by default: the PR title becomes the commit message, so
+  it follows the same format, e.g. `[#42] fix(ui) : …`.
+- A PR covering **several issues**: one commit per issue, each with its tag,
+  merged **by rebase**.
+- The repository allows squash and rebase merges only. The `commit-msg` hook
+  (`just hooks` installs it) refuses a commit without a tag; the **Ticket
+  reference** workflow refuses a PR whose title or a commit has none. Do not
+  merge a PR where it is red. GitHub appends `(#<PR number>)` to a squash
+  commit: that number is not the issue's tag.
+
 ## Releasing
 
-Push a `vX.Y.Z` tag; `.github/workflows/release.yml` builds the musl-static
-binary (via the same `build-static.yml` reusable workflow CI uses on every
-push) and attaches it to a GitHub Release.
+Versions are semver `X.Y.Z`; the version is cup.toml's `cup_version`.
+
+1. Bump `cup_version` to `X.Y.0` on `main` (a PR), then **`just release
+   X.Y.0`** (or `/release`): it cuts `release/X.Y.0` from `main` and moves the
+   Dev *Done* issues to QA *Release ready*. Features are frozen: only bug fixes
+   land on that branch, by PR. `just release X.Y.Z` (Z > 0) cuts a fix release
+   from the last frozen `vX.Y.*` tag — its first PR bumps `cup_version` to
+   `X.Y.Z`. A version already used (tag, branch or GitHub Release) is refused.
+2. **Every push on the branch** publishes a release candidate: tag and
+   prerelease `vX.Y.Z-rc.N` with the musl-static binary and the .deb, built by
+   `.github/workflows/release.yml`. QA tests it.
+3. **`just release-freeze X.Y.Z`** (or `/release-freeze`), once QA has
+   validated it, tags `vX.Y.Z`, and `release.yml` publishes the final release.
+   It is refused while an issue on the QA board is not *Ready to deploy* or
+   when the branch's last commit has no release candidate (`--force` to
+   override). Then bring the fixes back with a PR `release/X.Y.Z` → `main`.
+
+`release.yml` refuses to build a version that differs from `cup_version`: what
+`cup --version` and the .deb report is always the release's version.

@@ -1,0 +1,32 @@
+# Passages entre les boards PO Refinement, Dev et QA (tools/flow/boards_sync.py, CONTRIBUTING « Boards »).
+name: Boards sync
+
+# Manuel seulement (Actions → Run workflow) : la synchro se lance quand l'équipe le décide.
+on:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: "Partir en release : les tickets Dev Done passent en QA Release ready"
+        type: boolean
+        default: false
+      dry-run:
+        description: "Lister les mouvements sans les faire"
+        type: boolean
+        default: false
+
+# The Projects are written with PROJECTS_TOKEN; the workflow's own token only reads the repository.
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # GITHUB_TOKEN ne peut pas écrire dans les Projects : un token avec les scopes `project` et `repo`.
+      - run: python3 tools/flow/boards_sync.py ${{ inputs.release && '--release' || '' }} ${{ inputs.dry-run && '--dry-run' || '' }}
+        env:
+          GH_TOKEN: ${{ secrets.PROJECTS_TOKEN }}

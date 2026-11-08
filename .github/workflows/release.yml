@@ -1,9 +1,19 @@
 name: Release
 
-# Tag-triggered publishing: push a `vX.Y.Z` tag and this builds the
-# musl-static binary and the .deb (via build-static.yml/job-build-deb.yml,
-# the same reusable workflows cpp.yml calls on every push/PR) and attaches
-# both to a GitHub Release.
+# Builds the musl-static binary and the .deb (via build-static.yml/
+# job-build-deb.yml, the same reusable workflows cpp.yml calls on every
+# push/PR) and attaches both to a GitHub Release — the release flow of
+# CONTRIBUTING.md ("Releasing"):
+#
+# - every push on `release/X.Y.Z` (cut by `just release X.Y.Z`) publishes the
+#   next release candidate: tag + prerelease `vX.Y.Z-rc.N` on that commit, for
+#   QA. The tag is created by the release itself, with GITHUB_TOKEN, so it
+#   does not re-trigger this workflow;
+# - the `vX.Y.Z` tag, pushed by `just release-freeze X.Y.Z` once QA has
+#   validated the last candidate, publishes the final release.
+#
+# Either way the version must be cup.toml's `cup_version` — it is what
+# `cup --version` and the .deb report — or nothing is built.
 #
 # Deliberately no `paths:` filter — a release must build regardless of what
 # the tagged commit touches, and path filters are not well-defined for tag
@@ -11,11 +21,58 @@ name: Release
 
 on:
   push:
-    tags: ['v*']
+    branches: ['release/**']
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+
+# Two pushes on one release branch must not number the same candidate.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
+  version:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # the existing vX.Y.Z-rc.N tags number the next candidate
+
+      - name: Version
+        id: version
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            tag="$GITHUB_REF_NAME"
+            version="${tag#v}"
+            prerelease=false
+          else
+            version="${GITHUB_REF_NAME#release/}"
+            if ! printf '%s' "$version" | grep -Eq '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'; then
+              echo "::error::$GITHUB_REF_NAME is not release/X.Y.Z"
+              exit 1
+            fi
+            n=$(git tag --list "v${version}-rc.*" | wc -l)
+            tag="v${version}-rc.$((n + 1))"
+            prerelease=true
+          fi
+          cup_version=$(sed -n 's/^cup_version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' cup.toml)
+          if [ "$cup_version" != "$version" ]; then
+            echo "::error file=cup.toml::cup_version is \"$cup_version\" but this release is $version: bump cup_version (a PR on ${GITHUB_REF_NAME}) first"
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+          echo "Release $tag (prerelease: $prerelease)"
+
   # The same prebuilt CI images cpp.yml uses (see job-ci-images.yml).
   images:
+    needs: version
     uses: ./.github/workflows/job-ci-images.yml
     permissions:
       contents: read
@@ -40,7 +97,7 @@ jobs:
       packages: read
 
   publish:
-    needs: [build, build-deb]
+    needs: [version, build, build-deb]
     runs-on: ubuntu-latest
 
     permissions:
@@ -74,6 +131,12 @@ jobs:
         # flags a floating tag on a step this sensitive as a vulnerability.
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
+          # A release candidate's tag does not exist yet: the release creates
+          # it on the commit this run built.
+          tag_name: ${{ needs.version.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: ${{ needs.version.outputs.tag }}
+          prerelease: ${{ needs.version.outputs.prerelease }}
           files: |
             dist/cup-linux-x86_64-musl
             dist/*.deb
