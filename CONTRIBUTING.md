@@ -130,7 +130,34 @@ Actions → **Boards sync**) moves it from one board to the next:
 The latest Status change wins, so a second run moves nothing. Dev *Done* → QA
 *Release ready* happens **only** when a release is cut (`just release`).
 `just boards-sync dry-run` lists the moves without making them. The workflow
-reads the `PROJECTS_TOKEN` secret (scopes `project` and `repo`).
+reads the `PROJECTS_TOKEN` secret: a *classic* token with the `project` and
+`repo` scopes (fine-grained tokens cannot reach a personal account's Projects).
+
+The end of the Dev board:
+
+- *Reviewed*: the PR is open, under review;
+- *Validated*: the PR is merged on `main`; the feature waits for the PO;
+- *Done*: the PO has checked the acceptance criteria on `main` (`just ticket
+  validate <n>`); the issue goes to QA with the next release. If the PO
+  refuses it (`just ticket reopen <n> --reason "…"`), the issue and the issues
+  linked to it (closed by the same PR, sub-issues) are reopened and go back to
+  *Ready to dev*.
+
+`just ticket show <n>` shows an issue on the three boards, its PRs and the
+issues linked to it. A refined issue has an `## Acceptance criteria` (or
+`## Critères d'acceptation`) section: observable results, checkable without
+reading the code — what the PO validates and QA tests.
+
+## Roles
+
+| Role | Does | Does not |
+|---|---|---|
+| Product Owner | the functional side: research, critique of proposals, issues with acceptance criteria, validation after merge | code, architecture, release testing |
+| Developer | design, implementation, tests, PRs, up to *Validated* | decide the functional side, validate their own feature |
+| QA | tests the published release candidate outside CI: release-test automation (merged in the repository), manual robustness testing, bugs | fix, change the functional side, duplicate CI |
+
+Claude takes each role with `/project-flow:po`, `/project-flow:dev` and
+`/project-flow:qa` (Claude Code plugin `project-flow`).
 
 ## Branches and commits
 

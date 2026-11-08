@@ -23,6 +23,11 @@ boards-release mode="":
 ticket-check +args:
     {{ flow_python }} tools/flow/ticket_check.py {{ args }}
 
+[group('flow')]
+[doc('Un ticket sur les trois boards (rôles PO, Dev, QA) : show <n>, list <po|dev|qa>, move <n> <board> "<Status>", validate <n>, reopen <n> --reason "…", bug --title … --body …')]
+ticket +args:
+    {{ flow_python }} tools/flow/ticket.py {{ args }}
+
 [group('release')]
 [doc('Part en release : release/X.Y.0 depuis la branche par défaut (features figées) ou release/X.Y.Z depuis le dernier tag X.Y figé (correctif) ; Dev Done → QA. Chaque push construit une release candidate X.Y.Z-rc.N. Version déjà utilisée refusée. "dry-run" montre seulement')]
 release version mode="":
