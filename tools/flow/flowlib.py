@@ -17,7 +17,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent.parent
 
 DEFAULTS: dict = {
-    "project": {"repository": "", "default_branch": "main"},
+    "project": {"repository": "", "default_branch": "main", "language": "fr"},
     "boards": {"owner": "", "po": 0, "dev": 0, "qa": 0},
     "tickets": {
         "pattern": r"(?:[\w.-]+/[\w.-]+)?#\d+",

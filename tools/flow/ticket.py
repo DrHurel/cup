@@ -10,12 +10,15 @@
     python3 tools/flow/ticket.py reopen <n> --reason TEXT [--only] [--dry-run]
                                      PO: it does not → the ticket and the tickets linked to it (closed by the same
                                      pull requests, sub-issues) are reopened, commented, and go back to Dev Ready to dev
-    python3 tools/flow/ticket.py bug --title T --body B [--for <n>] [--blocker] [--dry-run]
-                                     QA: a bug found while testing a release → new issue (type:bug, release-blocker
-                                     with --blocker), QA Bug and Dev Ready to dev; --for: the ticket it breaks goes to
-                                     QA Bug too
+    python3 tools/flow/ticket.py bug --title T --steps S --expected E --observed O --reproducibility R
+                                     [--version V] [--environment ENV] [--notes N] [--for <n>] [--blocker] [--dry-run]
+                                     QA: a bug found while testing → a ticket for the developers (type:bug,
+                                     release-blocker with --blocker), QA Bug and Dev Ready to dev; --for: the ticket it
+                                     breaks goes to QA Bug too. How to reproduce it and how often it reproduces are
+                                     mandatory: that is the QA's deliverable.
 
-Configuration and token: as boards_sync.py. Standard library only.
+What is written on GitHub (comments, bug tickets) is in the language of the repository: [project] language of
+flow.toml, "fr" (default) or "en". Configuration and token: as boards_sync.py. Standard library only.
 """
 
 from __future__ import annotations
@@ -33,6 +36,31 @@ import flowlib  # noqa: E402
 from boards_sync import NAMES  # noqa: E402
 
 READY, VALIDATED, DONE, BUG = "Ready to dev", "Validated", "Done", "Bug"
+# What the roles write on GitHub, in the language of the repository ([project] language).
+TEXT = {
+    "fr": {
+        "validated": "**PO — validé** sur la branche par défaut ({commits}).",
+        "refused": "**PO — refusé**, retour en développement ({prs}).",
+        "no_pr": "aucune PR mergée",
+        "linked": "lié à #{number}, refusé par le PO : {reason}",
+        "bug_comment": "**QA — bug** : #{number} {title}",
+        "breaks": "Casse #{number}.",
+        "version": "Version testée", "environment": "Environnement", "steps": "Étapes pour reproduire",
+        "expected": "Attendu", "observed": "Observé", "reproducibility": "Reproductibilité", "notes": "Notes",
+    },
+    "en": {
+        "validated": "**PO — validated** on the default branch ({commits}).",
+        "refused": "**PO — refused**, back to development ({prs}).",
+        "no_pr": "no merged PR",
+        "linked": "linked to #{number}, refused by the PO: {reason}",
+        "bug_comment": "**QA — bug**: #{number} {title}",
+        "breaks": "Breaks #{number}.",
+        "version": "Version tested", "environment": "Environment", "steps": "Steps to reproduce",
+        "expected": "Expected", "observed": "Observed", "reproducibility": "Reproducibility", "notes": "Notes",
+    },
+}
+BUG_FIELDS = ("version", "environment", "steps", "expected", "observed", "reproducibility", "notes")
+
 CRITERIA = re.compile(r"^#+\s*(crit[eè]res? d['’]acceptation|acceptance criteria)\b", re.I | re.M)
 
 ISSUE = """query($o:String!,$r:String!,$n:Int!){repository(owner:$o,name:$r){issue(number:$n){
@@ -78,6 +106,25 @@ def linked(issue: dict) -> list[dict]:
 def has_criteria(body: str) -> bool:
     """The ticket has an acceptance criteria section — what the PO validates against."""
     return bool(CRITERIA.search(body or ""))
+
+
+def text(config: dict) -> dict:
+    lang = config["project"].get("language", "fr")
+    if lang not in TEXT:
+        raise flowlib.FlowError(f"flow.toml [project] language « {lang} » : {' ou '.join(TEXT)}")
+    return TEXT[lang]
+
+
+def bug_body(tx: dict, fields: dict, breaks: int | None = None) -> str:
+    """The bug ticket: one section per field given (version, environment, steps, expected, observed,
+    reproducibility, notes), in that order, then the ticket it breaks."""
+    missing = [f for f in ("steps", "expected", "observed", "reproducibility") if not (fields.get(f) or "").strip()]
+    if missing:
+        raise flowlib.FlowError(f"bug incomplet : {', '.join(missing)} — sans eux les devs ne peuvent pas le reproduire")
+    parts = [f"## {tx[f]}\n\n{fields[f].strip()}" for f in BUG_FIELDS if (fields.get(f) or "").strip()]
+    if breaks:
+        parts.append(tx["breaks"].format(number=breaks))
+    return "\n\n".join(parts) + "\n"
 
 
 def merged_prs(issue: dict) -> list[dict]:
@@ -198,7 +245,7 @@ def cmd_validate(t: Tickets, number: int, comment: str | None, dry: bool) -> int
     if problems:
         raise flowlib.FlowError("validation impossible — " + " ; ".join(problems))
     commits = ", ".join(pr["mergeCommit"]["oid"][:7] for pr in merged_prs(issue))
-    body = f"**PO — validé** sur la branche par défaut ({commits}).\n\n{comment or ''}".rstrip()
+    body = f"{text(t.config)['validated'].format(commits=commits)}\n\n{comment or ''}".rstrip()
     print(f"{'[dry-run] ' if dry else ''}#{number} : Dev → {DONE} (part en QA à la prochaine release)")
     if not dry:
         t.set_status("dev", issue["id"], DONE)
@@ -211,9 +258,10 @@ def cmd_validate(t: Tickets, number: int, comment: str | None, dry: bool) -> int
 def cmd_reopen(t: Tickets, number: int, reason: str, only: bool, dry: bool) -> int:
     issue = t.issue(number)
     targets = [issue] + ([] if only else linked(issue))
-    prs = ", ".join(f"#{pr['number']}" for pr in merged_prs(issue)) or "aucune PR mergée"
+    tx = text(t.config)
+    prs = ", ".join(f"#{pr['number']}" for pr in merged_prs(issue)) or tx["no_pr"]
     for target in targets:
-        why = reason if target is issue else f"lié à #{number}, refusé par le PO : {reason}"
+        why = reason if target is issue else tx["linked"].format(number=number, reason=reason)
         state = "rouvert" if target["state"] != "OPEN" else "déjà ouvert"
         print(f"{'[dry-run] ' if dry else ''}#{target['number']} : {state}, Dev → {READY} — {why}")
         if dry:
@@ -221,25 +269,26 @@ def cmd_reopen(t: Tickets, number: int, reason: str, only: bool, dry: bool) -> i
         if target["state"] != "OPEN":
             t.reopen(target["id"])
         t.set_status("dev", target["id"], READY)
-        t.comment(target["id"], f"**PO — refusé**, retour en développement ({prs}).\n\n{why}")
+        t.comment(target["id"], f"{tx['refused'].format(prs=prs)}\n\n{why}")
     return 0
 
 
-def cmd_bug(t: Tickets, title: str, body: str, for_number: int | None, blocker: bool, dry: bool) -> int:
+def cmd_bug(t: Tickets, title: str, fields: dict, for_number: int | None, blocker: bool, dry: bool) -> int:
+    tx = text(t.config)
     labels = ["type:bug"] + (["release-blocker"] if blocker else [])
     broken = t.issue(for_number) if for_number else None
-    if broken:
-        body = f"{body}\n\nCasse #{for_number}."
+    body = bug_body(tx, fields, for_number)
     print(f"{'[dry-run] ' if dry else ''}bug « {title} » ({', '.join(labels)}) : QA → {BUG}, Dev → {READY}"
           + (f" ; #{for_number} : QA → {BUG}" if broken else ""))
     if dry:
+        print(body)
         return 0
     created = t.create_issue(title, body, labels)
     t.set_status("qa", created["node_id"], BUG)
     t.set_status("dev", created["node_id"], READY)
     if broken:
         t.set_status("qa", broken["id"], BUG)
-        t.comment(broken["id"], f"**QA — bug** : #{created['number']} {title}")
+        t.comment(broken["id"], tx["bug_comment"].format(number=created["number"], title=title))
     print(f"créé : #{created['number']} {created['html_url']}")
     return 0
 
@@ -267,9 +316,16 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--reason", required=True)
     p.add_argument("--only", action="store_true", help="sans les tickets liés")
     p.add_argument("--dry-run", action="store_true")
-    p = sub.add_parser("bug", help="QA : un bug trouvé en testant une release")
+    p = sub.add_parser("bug", help="QA : un bug trouvé, en ticket pour les devs")
     p.add_argument("--title", required=True)
-    p.add_argument("--body", required=True)
+    p.add_argument("--steps", required=True, help="les étapes exactes pour reproduire")
+    p.add_argument("--expected", required=True)
+    p.add_argument("--observed", required=True, help="ce qui se passe : sortie, message, état laissé")
+    p.add_argument("--reproducibility", required=True,
+                   help="à quelle fréquence et dans quelles conditions, ex. « 5/5 », « 2/10 sous charge »")
+    p.add_argument("--version", help="la version testée, ex. 1.2.0-rc.3")
+    p.add_argument("--environment", help="l'environnement de test (image, système, commande de création)")
+    p.add_argument("--notes", help="journaux, pistes, captures")
     p.add_argument("--for", dest="for_number", type=int, help="le ticket que ce bug casse")
     p.add_argument("--blocker", action="store_true", help="bloque la release (label release-blocker)")
     p.add_argument("--dry-run", action="store_true")
@@ -287,7 +343,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_validate(t, args.number, args.comment, args.dry_run)
         if args.command == "reopen":
             return cmd_reopen(t, args.number, args.reason, args.only, args.dry_run)
-        return cmd_bug(t, args.title, args.body, args.for_number, args.blocker, args.dry_run)
+        fields = {f: getattr(args, f) for f in BUG_FIELDS}
+        return cmd_bug(t, args.title, fields, args.for_number, args.blocker, args.dry_run)
     except flowlib.FlowError as e:
         print(f"ticket : {e}", file=sys.stderr)
         return 1

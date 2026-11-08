@@ -3,6 +3,8 @@
 [project]
 repository = "DrHurel/cup"
 default_branch = "main"
+# Langue de ce que les rôles PO, Dev et QA écrivent sur GitHub (tickets, commentaires) : "fr" ou "en".
+language = "en"
 
 [boards]
 # Les trois GitHub Projects (setup : /project-init ; passages : just boards-sync).

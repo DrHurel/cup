@@ -154,10 +154,18 @@ reading the code — what the PO validates and QA tests.
 |---|---|---|
 | Product Owner | the functional side: research, critique of proposals, issues with acceptance criteria, validation after merge | code, architecture, release testing |
 | Developer | design, implementation, tests, PRs, up to *Validated* | decide the functional side, validate their own feature |
-| QA | tests the published release candidate outside CI: release-test automation (merged in the repository), manual robustness testing, bugs | fix, change the functional side, duplicate CI |
+| QA | finds bugs in the published release candidate, outside CI: release-test automation (in `qa/` only), manual robustness testing; every bug becomes an issue for the developers, with its steps to reproduce and its reproducibility | fix anything, touch code outside `qa/`, change the functional side, duplicate CI |
 
 Claude takes each role with `/project-flow:po`, `/project-flow:dev` and
-`/project-flow:qa` (Claude Code plugin `project-flow`).
+`/project-flow:qa` (Claude Code plugin `project-flow`). The roles act on
+their own within their scope and report; the maintainer approves *Approved* /
+*Rejected* and reopening a feature (PO), architecture changes and merges
+(Dev). What they write on GitHub is in English (`[project] language` in
+`flow.toml`).
+
+A bug issue (`just ticket bug`) always has: the version tested, the
+environment, the steps to reproduce, expected, observed, and how often it
+reproduces (e.g. `5/5`, `2/10 under load`).
 
 ## Branches and commits
 
