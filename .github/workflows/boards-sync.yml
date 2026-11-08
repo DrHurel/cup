@@ -14,6 +14,10 @@ on:
         type: boolean
         default: false
 
+# The Projects are written with PROJECTS_TOKEN; the workflow's own token only reads the repository.
+permissions:
+  contents: read
+
 jobs:
   sync:
     runs-on: ubuntu-latest
